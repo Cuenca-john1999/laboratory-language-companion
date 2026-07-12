@@ -1,0 +1,1 @@
+"""DeutschOS local API."""

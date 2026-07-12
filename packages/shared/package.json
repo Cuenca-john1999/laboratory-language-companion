@@ -1,0 +1,6 @@
+{
+  "name": "@deutschos/shared",
+  "version": "0.1.0",
+  "private": true,
+  "types": "index.ts"
+}

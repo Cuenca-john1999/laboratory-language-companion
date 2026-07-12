@@ -1,0 +1,24 @@
+{
+  "name": "deutschos",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace @deutschos/web run dev",
+    "build:web": "npm --workspace @deutschos/web run build",
+    "lint:web": "npm --workspace @deutschos/web run lint",
+    "typecheck:web": "npm --workspace @deutschos/web run typecheck",
+    "test:api": ".venv/bin/python -m pytest apps/api",
+    "lint:api": ".venv/bin/python -m ruff check apps/api",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  }
+}
