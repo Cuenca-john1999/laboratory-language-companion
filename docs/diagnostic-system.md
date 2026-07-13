@@ -53,7 +53,9 @@ como «no evaluadas todavía», no como debilidades.
 - diagnóstico clínico, cognitivo o de dificultades de aprendizaje.
 
 El currículo activo `a0-a1.v1` contiene catorce habilidades, con referencias
-`pre-A1` y `A1`. No contiene aún habilidades explícitas `reading.*` o
+curriculares `A0` y `A1`; `pre-A1` es una banda diagnóstica de salida, no un valor
+de `CurriculumSkill.cefr_reference`. No contiene aún habilidades explícitas
+`reading.*` o
 `writing.*`; por ello, las observaciones de lectura y escritura deben conservarse
 como ejes diagnósticos independientes hasta que una versión futura del currículo
 defina su correspondencia. El diseño no inventa habilidades ni las añade al
@@ -613,6 +615,40 @@ aceptación de esa versión.
 Cada prompt debe terminar en un commit aislado solo cuando sus validaciones
 pasen. `#006B` no debe incluir el motor, y `#006C` no debe anticipar la UI. Esta
 separación mantiene revisables las decisiones con mayor riesgo.
+
+### Implementación de `#006C`
+
+El motor interno implementado en `deutschos_api.diagnostic_engine` concreta
+este diseño sin modificar la migración `0005`:
+
+- expone comandos y recibos Pydantic que rechazan campos desconocidos;
+- traduce el resultado público `incorrect` al valor persistido `failure`, sin
+  cambiar el significado de las categorías existentes;
+- serializa cada mutación con `BEGIN IMMEDIATE` y un único commit;
+- conserva pausa, tiempo activo e idempotencia a través de reinicios;
+- selecciona únicamente candidatos textuales, deterministas e inyectados;
+- devuelve los ejes de audio y voz como `not_assessed`, sin persistir resultados
+  artificiales;
+- agrega únicamente la revisión efectiva de cada respuesta; separa las cadenas
+  persistidas por `(axis, skill_id)` y crea una nueva revisión solo cuando cambia
+  ese agregado;
+- mantiene `communication_repair.typed` separado y nunca propaga evidencia de
+  escritura a escucha u oralidad;
+- no importa proveedores de modelos ni escribe en `StudentSkill` o
+  `SkillEvidence`.
+
+La implementación puede excluir pausas explícitas y el periodo durante el que la
+API estuvo apagada. Hasta que la interfaz aporte eventos de actividad o pausa
+automática, no puede distinguir una tarea en curso de inactividad con la misma
+instancia del proceso viva; ese intervalo sigue contando y queda documentado
+como límite de `#006C`.
+
+La primera entrega y su evaluación determinista se persisten atómicamente por
+la forma de `DiagnosticResponse` en `0005`. Separarlas para un evaluador
+asíncrono, o convertir cada transición de estado en un ledger DB inmutable,
+queda como una decisión de esquema posterior. Las reglas ejecutables y sus
+límites se detallan en [Motor diagnóstico determinista](diagnostic-engine.md) y
+en el ADR 0007.
 
 ## 16. Riesgos y decisiones pendientes
 
