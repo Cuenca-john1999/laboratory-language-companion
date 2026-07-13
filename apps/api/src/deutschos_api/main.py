@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from deutschos_api.api.diagnostic import router as diagnostic_router
 from deutschos_api.api.learning import router as learning_router
 from deutschos_api.api.routes import router
 from deutschos_api.core.config import get_settings
@@ -19,3 +20,4 @@ app.add_middleware(
 )
 app.include_router(router)
 app.include_router(learning_router)
+app.include_router(diagnostic_router)

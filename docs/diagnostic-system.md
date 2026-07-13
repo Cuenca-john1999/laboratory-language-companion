@@ -650,6 +650,43 @@ queda como una decisión de esquema posterior. Las reglas ejecutables y sus
 límites se detallan en [Motor diagnóstico determinista](diagnostic-engine.md) y
 en el ADR 0007.
 
+### Implementación de `#006D`: contratos HTTP
+
+FastAPI expone el motor bajo `/api/diagnostic` mediante DTO Pydantic estrictos.
+El contrato disponible es:
+
+| Acción | Método y ruta | Idempotencia |
+| --- | --- | --- |
+| Crear | `POST /api/diagnostic/sessions` | `request_id` |
+| Leer | `GET /api/diagnostic/sessions/{session_id}` | Lectura sin efectos |
+| Iniciar | `POST /api/diagnostic/sessions/{session_id}/start` | `operation_id` |
+| Pausar | `POST /api/diagnostic/sessions/{session_id}/pause` | `operation_id` |
+| Reanudar | `POST /api/diagnostic/sessions/{session_id}/resume` | `operation_id` |
+| Abandonar | `POST /api/diagnostic/sessions/{session_id}/abandon` | `operation_id` |
+| Fallo técnico | `POST /api/diagnostic/sessions/{session_id}/fail` | `operation_id` |
+| Siguiente tarea | `POST /api/diagnostic/sessions/{session_id}/next-task` | `operation_id` |
+| Responder | `POST /api/diagnostic/sessions/{session_id}/responses` | `submission_id` y `evaluation_id` |
+| Corregir | `POST /api/diagnostic/responses/{response_id}/corrections` | `evaluation_id` |
+| Consultar resultados | `GET /api/diagnostic/sessions/{session_id}/results` | Lectura sin efectos |
+| Completar | `POST /api/diagnostic/sessions/{session_id}/complete` | `operation_id` |
+
+Las repeticiones con el mismo identificador y contenido devuelven el mismo
+resultado sin duplicar filas. Un identificador reutilizado con contenido
+distinto devuelve `409`. Los errores conocidos se traducen a `404`, `409`,
+`422` o `503`; no se exponen trazas ni mensajes internos.
+
+La representación pública de una tarea excluye respuesta esperada, rúbrica,
+reglas de scoring, razón de selección y metadatos reservados para el evaluador.
+La respuesta HTTP tampoco devuelve el texto libre de Jhon ni las justificaciones
+internas. El endpoint de resultados usa la agregación reconstruida en memoria y
+no crea revisiones al hacer `GET`.
+
+El `CandidateProvider` es una dependencia. Solo las pruebas usan fixtures
+deterministas pequeños. Como aún no existe un banco pedagógico de producción,
+la API real devuelve `503` para todas las operaciones diagnósticas en lugar de
+presentar esos fixtures como contenido auténtico. No hay integración con
+Ollama, audio, frontend ni proyección a `StudentSkill`/`SkillEvidence`.
+
 ## 16. Riesgos y decisiones pendientes
 
 ### Riesgos principales

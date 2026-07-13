@@ -3,9 +3,10 @@
 ## 1. Propósito y estado
 
 Este documento describe la implementación interna de `#006C` sobre la
-persistencia `0005`. El motor selecciona, evalúa y agrega tareas diagnósticas de
-texto de forma local, reproducible y acotada. No expone endpoints ni depende del
-frontend, Ollama o cualquier otro proveedor de modelos.
+persistencia `0005` y su adaptador HTTP de `#006D`. El motor selecciona, evalúa
+y agrega tareas diagnósticas de texto de forma local, reproducible y acotada.
+El núcleo no depende del frontend, Ollama o cualquier otro proveedor de modelos;
+los endpoints se limitan a validar, traducir y proyectar sus contratos.
 
 La implementación vive en
 `apps/api/src/deutschos_api/diagnostic_engine/` y usa la versión
@@ -61,8 +62,8 @@ La API interna disponible es:
 - `complete_session`;
 - `get_session_state`.
 
-No es una API HTTP. Los futuros endpoints deberán traducir errores del motor a
-códigos HTTP sin duplicar estas reglas.
+No es una API HTTP. El adaptador de `api/diagnostic.py` traduce errores del
+motor a códigos HTTP sin duplicar estas reglas.
 
 Cada operación recibe un comando Pydantic. Las lecturas y la agregación sin una
 acción de estado usan `SessionQuery`; no aceptan diccionarios abiertos ni un
@@ -546,7 +547,6 @@ Limitaciones actuales:
 
 Queda fuera de alcance:
 
-- endpoints y códigos HTTP;
 - frontend diagnóstico;
 - LLM, Ollama y evaluación libre;
 - audio, voz, escucha y pronunciación;
@@ -555,3 +555,60 @@ Queda fuera de alcance:
 - modificaciones curriculares;
 - métricas o certificación CEFR global;
 - borrado de historial y políticas futuras de audio.
+
+## 16. Adaptador HTTP de `#006D`
+
+El router `api/diagnostic.py` expone el servicio bajo `/api/diagnostic` y usa
+los contratos estrictos de `schemas/diagnostic_api.py`. No contiene reglas de
+selección, scoring, agregación ni persistencia. Cada mutación conserva el
+`BEGIN IMMEDIATE` y el commit único del servicio interno.
+
+| Método y ruta | Resultado público |
+| --- | --- |
+| `POST /sessions` | Crea o reproduce una sesión (`201`) |
+| `GET /sessions/{session_id}` | Estado real, tarea vigente y agregados |
+| `POST /sessions/{session_id}/start` | Inicia la sesión |
+| `POST /sessions/{session_id}/pause` | Pausa la sesión |
+| `POST /sessions/{session_id}/resume` | Reanuda la sesión |
+| `POST /sessions/{session_id}/abandon` | Abandona la sesión |
+| `POST /sessions/{session_id}/fail` | Registra un fallo técnico |
+| `POST /sessions/{session_id}/next-task` | Selecciona o reproduce la siguiente tarea |
+| `POST /sessions/{session_id}/responses` | Guarda y evalúa una respuesta atómicamente |
+| `POST /responses/{response_id}/corrections` | Añade una revisión append-only |
+| `GET /sessions/{session_id}/results` | Lee agregados sin crear revisiones |
+| `POST /sessions/{session_id}/complete` | Completa solo cuando el motor lo permite |
+
+Los cuerpos de creación y de cada mutación contienen UUID de operación. El
+servicio conserva el fingerprint del contenido: repetir exactamente una
+petición devuelve el recurso existente, mientras reutilizar el UUID con otro
+contenido devuelve `409`. Esto incluye entregas concurrentes idénticas; SQLite
+las serializa y solo una crea filas.
+
+Los DTO públicos se construyen campo por campo. Una tarea incluye instrucciones,
+enunciado, opciones, modalidad, eje y dificultad, pero nunca `expected_answer`,
+rúbrica, claves de equivalencia, prerrequisitos internos ni razón de selección.
+Una respuesta pública incluye el resultado estructurado, no el texto del alumno,
+justificación ni códigos internos. Además, el adaptador rechaza recursivamente
+claves reservadas dentro del contenido proporcionado por un banco antes de
+persistir la tarea.
+
+La traducción de errores es deliberadamente estable y sanitizada:
+
+- `404` para sesión o respuesta inexistente;
+- `409` para transición, revisión o idempotencia conflictiva;
+- `422` para un cuerpo o una combinación de evaluación inválidos;
+- `503` para proveedor ausente, contenido inseguro, contención local o fallo de
+  persistencia conocido.
+
+No se incorporan mensajes internos ni trazas a la respuesta HTTP y las rutas no
+registran textos del alumno o contenido de tareas. No se importa ni consulta
+Ollama.
+
+### Proveedor de producción
+
+`CandidateProvider` se resuelve por dependencia. Los tests inyectan un conjunto
+mínimo y determinista; no forma parte del contenido para Jhon. La dependencia de
+producción devuelve `503` con un mensaje claro hasta que exista un banco
+pedagógico versionado y revisado. Por ello, en el estado actual todas las rutas
+diagnósticas permanecen cerradas de forma segura en una instalación normal. El
+frontend futuro no debe sustituir esta ausencia con tareas inventadas.
