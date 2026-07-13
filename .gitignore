@@ -22,6 +22,9 @@ coverage/
 # Local backups and user-owned configuration.
 /backups/
 /config/local/
+/dist/
+/logs/
+/run/
 *.bak
 *.backup
 
@@ -42,6 +45,7 @@ coverage/
 # Local model stores and model weights. Keep this anchored so that the
 # application package `deutschos_api/models` remains tracked.
 /models/
+/Ollama/
 /ollama/
 *.bin
 *.ckpt

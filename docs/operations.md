@@ -51,6 +51,51 @@ La configuración pública de la web se lee de `.env` como datos, sin ejecutar e
 archivo como shell. Esto permite mantener un único `.env` en la raíz aunque
 Next.js se ejecute desde su workspace.
 
+## Launcher silencioso de macOS
+
+`./scripts/create-macos-launcher.sh` compila `dist/DeutschOS.app` con la utilidad
+nativa `osacompile`. AppleScript usa `do shell script`, por lo que no abre una
+ventana de Terminal. La aplicación comprueba la ruta del SSD, ejecuta
+`scripts/start.sh` y presenta una alerta de macOS si el arranque falla.
+
+`start.sh` mantiene logs separados en `logs/` y PID files en `run/`. Un bloqueo
+atómico evita dos arranques simultáneos. Cada PID file incluye el PID y la hora
+de inicio del proceso; antes de reutilizarlo o detenerlo también se comprueba el
+comando esperado. Si un servicio DeutschOS válido ya responde sin PID file, se
+considera externo: se reutiliza, pero el launcher no adquiere su propiedad.
+Un puerto ocupado por una respuesta que no corresponde al servicio esperado se
+trata como error y nunca se mata ese proceso.
+
+Ollama se inicia únicamente cuando no responde ya en loopback, con:
+
+```bash
+OLLAMA_MODELS=/Volumes/Juegos/DeutschOS/Ollama/models
+OLLAMA_HOST=127.0.0.1:11434
+OLLAMA_NO_CLOUD=1
+OLLAMA_NOHISTORY=1
+```
+
+El launcher no descarga modelos y exige al menos un manifiesto local. Para la
+preparación de la base reutiliza `dev.sh --prepare-only`, que realiza las mismas
+comprobaciones y migraciones seguras sin iniciar servidores. FastAPI y Next.js
+se ejecutan sin `--reload` de Python y sin telemetría, con salida persistida en
+`logs/api.log` y `logs/web.log`.
+
+Comandos operativos:
+
+```bash
+./scripts/start.sh
+./scripts/status.sh
+./scripts/stop.sh
+```
+
+`stop.sh` envía primero SIGTERM y reserva SIGKILL para el último recurso. Solo
+actúa sobre procesos cuyo PID file, hora de inicio y comando coinciden; limpia
+archivos obsoletos sin señalar procesos ajenos. `status.sh` devuelve cero cuando
+Ollama, API y web responden y no hay PID files huérfanos. Los artefactos
+`dist/`, `logs/`, `run/` y el almacén `Ollama/` son locales y están ignorados por
+Git. No hay LaunchAgent, permisos de administrador ni inicio al iniciar sesión.
+
 ## Backup
 
 ```bash

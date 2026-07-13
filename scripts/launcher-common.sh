@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+
+# Shared, Bash 3.2-compatible helpers for the macOS launcher scripts.
+
+if [[ -z "${PROJECT_ROOT:-}" ]]; then
+  printf 'launcher-common.sh requiere PROJECT_ROOT.\n' >&2
+  return 2
+fi
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PROJECT_ROOT/.venv/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export NEXT_TELEMETRY_DISABLED=1
+export DO_NOT_TRACK=1
+
+LAUNCHER_TEST_MODE="${DEUTSCHOS_LAUNCHER_TEST_MODE:-0}"
+if [[ "$LAUNCHER_TEST_MODE" == "1" ]]; then
+  OLLAMA_PORT="${DEUTSCHOS_LAUNCHER_OLLAMA_PORT:-11434}"
+  API_PORT="${DEUTSCHOS_LAUNCHER_API_PORT:-8000}"
+  WEB_PORT="${DEUTSCHOS_LAUNCHER_WEB_PORT:-3000}"
+  RUN_DIR="${DEUTSCHOS_LAUNCHER_RUN_DIR:-$PROJECT_ROOT/run}"
+  LOG_DIR="${DEUTSCHOS_LAUNCHER_LOG_DIR:-$PROJECT_ROOT/logs}"
+  OLLAMA_MODELS_DIR="${DEUTSCHOS_LAUNCHER_MODELS_DIR:-$PROJECT_ROOT/Ollama/models}"
+  OLLAMA_BIN="${DEUTSCHOS_LAUNCHER_OLLAMA_BIN:-$(command -v ollama 2>/dev/null || true)}"
+else
+  OLLAMA_PORT=11434
+  API_PORT=8000
+  WEB_PORT=3000
+  RUN_DIR="$PROJECT_ROOT/run"
+  LOG_DIR="$PROJECT_ROOT/logs"
+  OLLAMA_MODELS_DIR="$PROJECT_ROOT/Ollama/models"
+  OLLAMA_BIN="$(command -v ollama 2>/dev/null || true)"
+fi
+
+PYTHON="$PROJECT_ROOT/.venv/bin/python"
+NEXT_BIN="$PROJECT_ROOT/node_modules/.bin/next"
+OLLAMA_URL="http://127.0.0.1:$OLLAMA_PORT"
+API_URL="http://127.0.0.1:$API_PORT"
+WEB_URL="http://127.0.0.1:$WEB_PORT"
+LAUNCHER_LOG="$LOG_DIR/launcher.log"
+
+ensure_launcher_directories() {
+  umask 077
+  mkdir -p "$LOG_DIR" "$RUN_DIR"
+  chmod 700 "$LOG_DIR" "$RUN_DIR" 2>/dev/null || true
+}
+
+launcher_log() {
+  local message
+  message="$1"
+  ensure_launcher_directories
+  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S%z')" "$message" >>"$LAUNCHER_LOG"
+  printf '%s\n' "$message"
+}
+
+show_macos_error() {
+  local message
+  message="$1"
+  if [[ "${DEUTSCHOS_APP_WRAPPER:-0}" == "1" || "${DEUTSCHOS_LAUNCHER_NO_ALERT:-0}" == "1" ]]; then
+    return 0
+  fi
+  if [[ -x /usr/bin/osascript ]]; then
+    /usr/bin/osascript - "$message" >/dev/null 2>&1 <<'APPLESCRIPT' || true
+on run argv
+  display alert "DeutschOS no pudo iniciarse" message (item 1 of argv) as critical
+end run
+APPLESCRIPT
+  fi
+}
+
+fail_launcher() {
+  local message
+  message="$1"
+  launcher_log "ERROR: $message" >&2
+  show_macos_error "$message"
+  exit 1
+}
+
+process_is_running() {
+  local pid state
+  pid="$1"
+  if ! kill -0 "$pid" >/dev/null 2>&1; then
+    return 1
+  fi
+  state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+  case "$state" in
+    "" | Z*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+normalized_start_time() {
+  ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}'
+}
+
+expected_process() {
+  local role pid command_line
+  role="$1"
+  pid="$2"
+  command_line="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+  case "$role" in
+    ollama)
+      [[ "$command_line" == *"ollama serve"* ]]
+      ;;
+    api)
+      [[ "$command_line" == *"uvicorn"*"deutschos_api.main:app"*"$PROJECT_ROOT/apps/api/src"* ]]
+      ;;
+    web)
+      [[ "$command_line" == *"next"*"dev"*"$PROJECT_ROOT/apps/web"* ]]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+pid_file_path() {
+  printf '%s/%s.pid\n' "$RUN_DIR" "$1"
+}
+
+write_pid_file() {
+  local role pid path started
+  role="$1"
+  pid="$2"
+  path="$(pid_file_path "$role")"
+  started="$(normalized_start_time "$pid")"
+  [[ -n "$started" ]] || return 1
+  printf '%s\n%s\n' "$pid" "$started" >"$path"
+  chmod 600 "$path" 2>/dev/null || true
+}
+
+# Return 0 for valid, 1 for absent, 2 for stale/invalid. Details are exported
+# through PID_VALUE and PID_REASON without evaluating PID-file contents.
+pid_file_state() {
+  local role path recorded_start actual_start
+  role="$1"
+  path="$(pid_file_path "$role")"
+  PID_VALUE=""
+  PID_REASON=""
+  if [[ ! -f "$path" || -L "$path" ]]; then
+    PID_REASON="ausente"
+    return 1
+  fi
+  PID_VALUE="$(sed -n '1p' "$path" 2>/dev/null || true)"
+  recorded_start="$(sed -n '2p' "$path" 2>/dev/null || true)"
+  case "$PID_VALUE" in
+    "" | *[!0-9]*)
+      PID_REASON="contenido inválido"
+      return 2
+      ;;
+  esac
+  if ! process_is_running "$PID_VALUE"; then
+    PID_REASON="proceso inexistente"
+    return 2
+  fi
+  actual_start="$(normalized_start_time "$PID_VALUE")"
+  if [[ -z "$recorded_start" || "$recorded_start" != "$actual_start" ]]; then
+    PID_REASON="PID reutilizado o fecha de inicio distinta"
+    return 2
+  fi
+  if ! expected_process "$role" "$PID_VALUE"; then
+    PID_REASON="el PID no pertenece al comando esperado"
+    return 2
+  fi
+  PID_REASON="válido"
+  return 0
+}
+
+clean_invalid_pid_file() {
+  local role state
+  role="$1"
+  if pid_file_state "$role"; then
+    return 0
+  else
+    state=$?
+  fi
+  if [[ "$state" == 2 ]]; then
+    rm -f -- "$(pid_file_path "$role")"
+  fi
+  return 0
+}
+
+port_is_busy() {
+  local port
+  port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  if command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "$port" >/dev/null 2>&1
+    return $?
+  fi
+  return 2
+}
+
+ollama_ready() {
+  curl --silent --fail --connect-timeout 1 --max-time 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1
+}
+
+api_ready() {
+  local response
+  response="$(curl --silent --fail --connect-timeout 1 --max-time 3 "$API_URL/health" 2>/dev/null)" || return 1
+  [[ "$response" == *'"status":"ok"'* && "$response" == *'"service":"deutschos-api"'* ]]
+}
+
+web_ready() {
+  local response
+  response="$(curl --silent --fail --connect-timeout 1 --max-time 5 "$WEB_URL" 2>/dev/null)" || return 1
+  [[ "$response" == *"<title>DeutschOS</title>"* ]]
+}
+
+model_count_on_disk() {
+  local count
+  if [[ ! -d "$OLLAMA_MODELS_DIR/manifests" ]]; then
+    printf '0\n'
+    return 0
+  fi
+  count="$(find "$OLLAMA_MODELS_DIR/manifests" -type f 2>/dev/null | wc -l | tr -d '[:space:]')"
+  printf '%s\n' "${count:-0}"
+}
+
+active_model_names() {
+  local payload
+  [[ -x "$PYTHON" ]] || return 1
+  payload="$(curl --silent --fail --connect-timeout 1 --max-time 3 "$OLLAMA_URL/api/tags" 2>/dev/null)" || return 1
+  printf '%s' "$payload" | "$PYTHON" -c '
+import json, sys
+payload = json.load(sys.stdin)
+models = payload.get("models", [])
+names = []
+for item in models if isinstance(models, list) else []:
+    if isinstance(item, dict):
+        name = item.get("model") or item.get("name")
+        if isinstance(name, str) and name.strip():
+            names.append(name.strip())
+print(", ".join(names))
+' 2>/dev/null
+}
+
+wait_for_probe() {
+  local label probe pid timeout attempt
+  label="$1"
+  probe="$2"
+  pid="$3"
+  timeout="$4"
+  attempt=0
+  while ((attempt < timeout)); do
+    if "$probe"; then
+      launcher_log "$label listo."
+      return 0
+    fi
+    if [[ -n "$pid" ]] && ! process_is_running "$pid"; then
+      launcher_log "$label terminó antes de estar listo."
+      return 1
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  launcher_log "$label no respondió antes del timeout (${timeout}s)."
+  return 1
+}
+
+terminate_tree_signal() {
+  local pid signal child
+  pid="$1"
+  signal="$2"
+  if command -v pgrep >/dev/null 2>&1; then
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+      terminate_tree_signal "$child" "$signal"
+    done
+  fi
+  if process_is_running "$pid"; then
+    kill -"$signal" "$pid" >/dev/null 2>&1 || true
+  fi
+}
+
+stop_validated_role() {
+  local role pid attempt
+  role="$1"
+  if ! pid_file_state "$role"; then
+    return 1
+  fi
+  pid="$PID_VALUE"
+  launcher_log "Deteniendo $role gestionado (PID $pid) con SIGTERM..."
+  terminate_tree_signal "$pid" TERM
+  attempt=0
+  while ((attempt < 15)); do
+    if ! process_is_running "$pid"; then
+      rm -f -- "$(pid_file_path "$role")"
+      launcher_log "$role detenido limpiamente."
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  launcher_log "$role no terminó tras 15s; usando SIGKILL como último recurso."
+  terminate_tree_signal "$pid" KILL
+  attempt=0
+  while ((attempt < 5)) && process_is_running "$pid"; do
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  rm -f -- "$(pid_file_path "$role")"
+  ! process_is_running "$pid"
+}

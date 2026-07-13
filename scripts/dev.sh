@@ -6,6 +6,16 @@ PYTHON="$ROOT/.venv/bin/python"
 CONFIG_HELPER="$ROOT/scripts/local_config.py"
 API_PID=""
 WEB_PID=""
+PREPARE_ONLY=0
+
+if [[ "${1:-}" == "--prepare-only" ]]; then
+  PREPARE_ONLY=1
+  shift
+fi
+[[ "$#" == 0 ]] || {
+  printf 'Uso: %s [--prepare-only]\n' "$0" >&2
+  exit 2
+}
 
 fail() {
   printf 'Error: %s\n' "$1" >&2
@@ -148,11 +158,13 @@ export NEXT_PUBLIC_API_URL="$PUBLIC_API_URL"
 export NEXT_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 
-if port_is_busy 8000; then
-  fail "el puerto 8000 ya está ocupado. Cierra el proceso indicado por ./scripts/doctor.sh."
-fi
-if port_is_busy 3000; then
-  fail "el puerto 3000 ya está ocupado. Cierra el proceso indicado por ./scripts/doctor.sh."
+if ((PREPARE_ONLY == 0)); then
+  if port_is_busy 8000; then
+    fail "el puerto 8000 ya está ocupado. Cierra el proceso indicado por ./scripts/doctor.sh."
+  fi
+  if port_is_busy 3000; then
+    fail "el puerto 3000 ya está ocupado. Cierra el proceso indicado por ./scripts/doctor.sh."
+  fi
 fi
 
 if [[ -f "$DATABASE_PATH" ]]; then
@@ -212,6 +224,11 @@ POST_OUTPUT="$($PYTHON -m alembic -c apps/api/alembic.ini current 2>&1)" \
 POST_REVISIONS="$(printf '%s\n' "$POST_OUTPUT" | extract_revisions)"
 [[ "$POST_REVISIONS" == "$HEAD_REVISIONS" ]] \
   || fail "la revisión final ($POST_REVISIONS) no coincide con head ($HEAD_REVISIONS)."
+
+if ((PREPARE_ONLY == 1)); then
+  printf 'Preparación local completada; no se iniciaron servidores.\n'
+  exit 0
+fi
 
 printf '\nIniciando FastAPI en http://127.0.0.1:8000\n'
 "$PYTHON" -m uvicorn deutschos_api.main:app \

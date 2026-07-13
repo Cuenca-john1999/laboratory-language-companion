@@ -53,6 +53,36 @@ documentación de la API está en `http://127.0.0.1:8000/docs`.
 La telemetría de Next.js queda desactivada durante el arranque mediante el
 script. No se instala ni descarga nada automáticamente.
 
+## Launcher de macOS
+
+Para crear una aplicación nativa que arranque DeutschOS sin abrir Terminal:
+
+```bash
+cd /Volumes/Juegos/DeutschOS
+./scripts/create-macos-launcher.sh
+open dist/DeutschOS.app
+```
+
+El resultado es `dist/DeutschOS.app`. Puedes arrastrarlo desde Finder al Dock o
+copiarlo primero a `~/Applications`; la aplicación conserva la ruta absoluta
+del proyecto en el SSD. Al abrirla comprueba modelos locales, inicia Ollama con
+`OLLAMA_MODELS=/Volumes/Juegos/DeutschOS/Ollama/models`, prepara migraciones,
+levanta API/web en loopback y abre `http://127.0.0.1:3000` cuando todo responde.
+Un segundo clic reutiliza los servicios activos y no crea duplicados.
+
+Para consultar o detener los procesos gestionados por el launcher:
+
+```bash
+./scripts/status.sh
+./scripts/stop.sh
+```
+
+Los logs privados están en `logs/` y los PID files en `run/`; ambos directorios,
+`dist/` y `Ollama/` están excluidos de Git. `stop.sh` no cierra un Ollama, API o
+web iniciados de otra manera. Si el SSD no está conectado, la aplicación muestra
+una alerta: vuelve a montarlo en `/Volumes/Juegos` antes de reintentar. No se
+instalan LaunchAgents ni se configura inicio automático de sesión.
+
 ## Probar el Learning Engine
 
 El planificador y los repasos funcionan aunque Ollama esté apagado. Con API y
