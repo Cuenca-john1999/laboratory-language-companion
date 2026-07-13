@@ -91,7 +91,7 @@ def test_migrations_reproduce_from_empty_database(tmp_path):
     run_alembic(database_path, "upgrade", "head")
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0004",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
         assert connection.execute("SELECT preferred_name FROM student_profiles").fetchone() == (
             "Jhon",
         )
@@ -366,7 +366,7 @@ def test_upgrade_preserves_existing_milestone_zero_rows(tmp_path):
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("SELECT COUNT(*) FROM learning_sessions").fetchone() == (1,)
         assert connection.execute("SELECT COUNT(*) FROM exercise_attempts").fetchone() == (1,)
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0004",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
 
 
 def test_profile_persists_across_api_process_restarts(tmp_path):

@@ -1,6 +1,6 @@
 # ADR 0006: Diagnóstico adaptativo determinista y multidimensional
 
-- Estado: propuesto
+- Estado: aceptado
 - Fecha: 2026-07-13
 
 ## Contexto
@@ -126,15 +126,14 @@ versionado; la interfaz debe explicar bandas, confianza y límites.
 - Mantener ejes separados de habilidades curriculares añade complejidad, pero
   evita falsificar correspondencias.
 
-## Condiciones para aceptar este ADR
+## Decisiones confirmadas para la primera versión
 
-Antes de cambiar el estado a `aceptado` deben confirmarse:
-
-1. la política de proyección diagnóstica a `SkillEvidence`;
-2. los límites de 12–16 tareas objetivo, 20 máximo y 25 minutos activos;
-3. las bandas visibles y sus anclas;
-4. la retención predeterminada de audio futuro;
-5. que comunicación escrita no se proyecta como habla.
+Se confirma que los resultados permanecen separados de `StudentSkill` y
+`SkillEvidence`, el objetivo será de 12–16 tareas con máximo 20, y
+`communication_repair.typed` será un eje propio que no se proyecta como habla.
+Las bandas CEFR solo podrán mostrarse por habilidad y con evidencia suficiente.
+La primera versión no almacenará audio. Las tareas deterministas serán el núcleo;
+el LLM queda reservado para una fase posterior de texto libre estructurado.
 
 La especificación detallada se encuentra en
 [`docs/diagnostic-system.md`](../diagnostic-system.md).

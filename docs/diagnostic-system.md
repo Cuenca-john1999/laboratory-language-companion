@@ -126,6 +126,7 @@ repite la instrucción de la tarea activa o se ofrece omitirla.
 | `completing` | Se calcula y persiste el resultado | `completed`, `error` |
 | `completed` | Resultado inmutable disponible | Sin transición; repetir crea otra sesión |
 | `cancelled` | El alumno decidió no continuar | Sin transición; puede iniciar otra sesión |
+| `abandoned` | Una sesión ya iniciada se cerró sin completarse | Sin transición; puede iniciar otra sesión |
 | `error` | Fallo recuperable o cierre seguro | Estado estable anterior, `cancelled` |
 
 `starting`, `pausing` o `resuming` pueden ser estados de interfaz, pero no deben
@@ -638,24 +639,21 @@ separación mantiene revisables las decisiones con mayor riesgo.
 - **Privacidad de texto/voz:** las respuestas pueden contener datos personales.
   Mitigación: datos locales mínimos, logs sanitizados y borrado controlado.
 
-### Decisiones que requieren confirmación
+### Decisiones confirmadas para texto v1
 
-1. **Proyección al progreso.** Recomendación: mantener el resultado separado en
-   la primera entrega y habilitar después una proyección por lote, de influencia
-   limitada, solo para correspondencias curriculares inequívocas.
-2. **Eje de comunicación escrita.** Recomendación: conservar
+1. **Proyección al progreso.** El resultado permanece separado en la primera
+   entrega. Una futura proyección por lote necesitará otra decisión explícita.
+2. **Eje de comunicación escrita.** Se conserva
    `communication_repair.typed` como eje diagnóstico, sin convertirlo en
    `speaking.basic`.
-3. **Límites.** Recomendación: objetivo de 12–16 tareas, máximo 20 y corte a los
+3. **Límites.** El objetivo es de 12–16 tareas, máximo 20 y corte a los
    25 minutos activos.
-4. **Uso inicial del LLM.** Recomendación: tareas de banco y corrección
-   determinista para el núcleo; LLM solo en respuestas libres y con resultado
-   estructurado.
-5. **Retención de audio futuro.** Recomendación: borrado automático del audio tras
-   confirmación, con conservación opcional y explícita.
-6. **Bandas visibles.** Recomendación: descriptores internos por habilidad y
+4. **Uso inicial del LLM.** Las tareas de banco y la corrección determinista son
+   el núcleo; el LLM se difiere y solo podrá tratar texto libre estructurado.
+5. **Audio.** Esta fase no guarda audio. Su política de retención se decidirá
+   antes del hito de voz.
+6. **Bandas visibles.** Se usarán descriptores internos por habilidad y
    referencias `pre-A1`/`A1` únicamente cuando el contenido y la evidencia las
    justifiquen.
 
-Hasta resolver estas decisiones, el siguiente paso seguro es diseñar entidades
-y restricciones sin proyectar automáticamente resultados a `StudentSkill`.
+La persistencia inicial no proyecta ningún resultado a `StudentSkill`.

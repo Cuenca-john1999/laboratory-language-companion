@@ -300,9 +300,7 @@ def test_stop_sends_sigterm_to_validated_managed_process(tmp_path):
 
     try:
         environment["TARGET_PID"] = str(process.pid)
-        written = run_launcher_helper(
-            'write_pid_file ollama "$TARGET_PID"', environment
-        )
+        written = run_launcher_helper('write_pid_file ollama "$TARGET_PID"', environment)
         assert written.returncode == 0
 
         stopped = run_script("stop.sh", environment)
@@ -336,10 +334,9 @@ def test_launcher_uses_native_applescript_without_terminal():
 def test_native_controller_build_reuses_launcher_scripts():
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (
-            PROJECT_ROOT
-            / "apps/macos-controller/Sources/DeutschOSController"
-        ).glob("*.swift")
+        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/DeutschOSController").glob(
+            "*.swift"
+        )
     )
     build_script = (SCRIPTS / "build-macos-app.sh").read_text(encoding="utf-8")
 

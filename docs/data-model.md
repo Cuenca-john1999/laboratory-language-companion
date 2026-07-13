@@ -23,6 +23,40 @@ y puede reconstruirse. Valores, dominios y confianzas están restringidos entre
 entradas, objetivo, selección, motivos y versiones. `DailyPlanBlock` guarda la
 secuencia y duración; sus minutos suman el total del plan por regla de servicio.
 
+La revisión `0005` añade persistencia diagnóstica separada del Learning Engine:
+
+- `DiagnosticSession` conserva versión, currículo, límites, estado reanudable,
+  tiempos y la relación con una sesión repetida;
+- `DiagnosticTask` conserva exactamente la tarea textual seleccionada o
+  presentada, su plantilla, ejes, dificultad, contenido y rúbrica;
+- `DiagnosticResponse` representa una evaluación versionada de una entrega. Un
+  mismo `submission_id` puede tener revisiones sucesivas enlazadas mediante
+  `supersedes_response_id` sin modificar la respuesta original;
+- `DiagnosticResult` conserva una conclusión por eje y modalidad. Sus
+  correcciones forman otra cadena append-only mediante `supersedes_result_id`.
+
+`DiagnosticResponse` y `DiagnosticResult` tienen triggers SQLite que rechazan
+`UPDATE` y `DELETE`. Cada elemento solo puede tener una corrección directa y la
+base valida que una corrección conserve la entrega o dimensión original. Las
+puntuaciones y confianzas se restringen a 0–1; `not_evaluable` exige score nulo.
+Una tarea deja de poder volver a `selected`, cambiar su contenido o borrarse
+después de ser presentada; sus transiciones posteriores de estado siguen
+disponibles para el futuro motor.
+La modalidad de tareas es únicamente texto. Escucha, habla, pronunciación y
+fluidez oral solo pueden aparecer como resultados sin evidencia suficiente.
+Las bandas `pre-A1`/`A1` requieren una habilidad concreta, al menos dos
+evidencias positivas y confianza mínima de 0.6.
+
+Las claves foráneas hacia perfil, currículo y habilidades usan `RESTRICT`.
+Borrar una sesión vacía o con tareas aún no presentadas elimina esas tareas en
+cascada. Una tarea presentada, una respuesta o un resultado bloquean el borrado
+destructivo y la sesión se conserva como completada, cancelada o abandonada. Un
+futuro flujo explícito de privacidad deberá definir la purga física auditada; no
+se realiza silenciosamente desde esta capa.
+
+La revisión no contiene relaciones con `StudentSkill` ni `SkillEvidence` y no
+puede declarar dominio o programar repasos.
+
 Todos los instantes representan UTC. SQLite los conserva sin offset y el
 adaptador ORM los devuelve conscientes de zona; la API emite ISO 8601 con
 `Z`/`+00:00`. Solo `DailyPlan.plan_date` es una fecha civil calculada con
