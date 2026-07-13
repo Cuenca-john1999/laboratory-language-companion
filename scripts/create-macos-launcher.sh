@@ -3,13 +3,19 @@ set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 DIST_DIR="$PROJECT_ROOT/dist"
-APP_PATH="$DIST_DIR/DeutschOS.app"
+LEGACY_DIR="$DIST_DIR/legacy"
+APP_PATH="$LEGACY_DIR/DeutschOS Launcher.app"
 TEMP_SOURCE=""
 TEMP_APP=""
 
 cleanup() {
-  [[ -n "$TEMP_SOURCE" ]] && rm -f -- "$TEMP_SOURCE"
-  [[ -n "$TEMP_APP" ]] && rm -rf -- "$TEMP_APP"
+  if [[ -n "$TEMP_SOURCE" ]]; then
+    rm -f -- "$TEMP_SOURCE"
+  fi
+  if [[ -n "$TEMP_APP" ]]; then
+    rm -rf -- "$TEMP_APP"
+  fi
+  return 0
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -22,9 +28,9 @@ trap cleanup EXIT HUP INT TERM
   exit 1
 }
 
-mkdir -p "$DIST_DIR"
-TEMP_SOURCE="$(mktemp "$DIST_DIR/.deutschos-launcher.XXXXXX.applescript")"
-TEMP_APP="$DIST_DIR/.DeutschOS.$$.app"
+mkdir -p "$LEGACY_DIR"
+TEMP_SOURCE="$(mktemp "$LEGACY_DIR/.deutschos-launcher.applescript.XXXXXX")"
+TEMP_APP="$LEGACY_DIR/.DeutschOS-Launcher.$$.app"
 
 ESCAPED_ROOT="$(printf '%s' "$PROJECT_ROOT" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 cat >"$TEMP_SOURCE" <<APPLESCRIPT
@@ -48,9 +54,15 @@ end run
 APPLESCRIPT
 
 /usr/bin/osacompile -o "$TEMP_APP" "$TEMP_SOURCE"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleName DeutschOS Launcher' "$TEMP_APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string DeutschOS Launcher' \
+  "$TEMP_APP/Contents/Info.plist" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName DeutschOS Launcher' \
+    "$TEMP_APP/Contents/Info.plist"
+/usr/bin/codesign --force --deep --sign - "$TEMP_APP"
 rm -rf -- "$APP_PATH"
 mv "$TEMP_APP" "$APP_PATH"
 TEMP_APP=""
 
-printf 'Launcher creado: %s\n' "$APP_PATH"
-printf 'Puedes abrirlo con Finder o añadirlo al Dock.\n'
+printf 'Launcher AppleScript de respaldo creado: %s\n' "$APP_PATH"
+printf 'La aplicación principal se genera con scripts/build-macos-app.sh.\n'

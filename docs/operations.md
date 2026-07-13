@@ -51,12 +51,62 @@ La configuración pública de la web se lee de `.env` como datos, sin ejecutar e
 archivo como shell. Esto permite mantener un único `.env` en la raíz aunque
 Next.js se ejecute desde su workspace.
 
-## Launcher silencioso de macOS
+## Aplicación nativa de control para macOS
 
-`./scripts/create-macos-launcher.sh` compila `dist/DeutschOS.app` con la utilidad
-nativa `osacompile`. AppleScript usa `do shell script`, por lo que no abre una
-ventana de Terminal. La aplicación comprueba la ruta del SSD, ejecuta
-`scripts/start.sh` y presenta una alerta de macOS si el arranque falla.
+`./scripts/build-macos-app.sh` compila en release el paquete Swift de
+`apps/macos-controller` y crea `dist/DeutschOS.app`. No requiere abrir Xcode,
+no añade dependencias y firma el bundle localmente de forma ad hoc. Usa el SDK
+15.4 incluido en las Command Line Tools cuando está presente porque algunas
+CLT 26.6 distribuyen un compilador y un SDK 26.5 con revisiones Swift
+incompatibles. `DEUTSCHOS_MACOS_SDK` permite seleccionar otro SDK.
+
+La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal:
+
+- `scripts/start.sh` al pulsar **Iniciar**;
+- `scripts/stop.sh` al pulsar **Detener** o **Salir**;
+- `scripts/status.sh --machine` al abrir y cada cuatro segundos.
+
+El protocolo `deutschos-status-v1` informa SSD, modelos, disponibilidad de
+Ollama/API/web y ownership de cada PID. Swift no reimplementa la detección de
+puertos, la validación de procesos ni el cierre de árboles. Durante un arranque
+o cierre conserva la fase transitoria y actualiza los servicios desde el estado
+real; las acciones incompatibles quedan deshabilitadas.
+
+La X roja y `⌘Q` se interceptan antes de cerrar la ventana. Si hay actividad,
+una alerta ofrece **Detener y salir** o **Cancelar**. Confirmar cancela de forma
+segura cualquier `start.sh` en curso, ejecuta `stop.sh`, verifica que no queden
+PID gestionados y solo entonces termina. **Salir** hace el mismo cierre sin
+dejar la app oculta. Un servicio externo puede seguir respondiendo porque la
+política existente prohíbe adquirirlo o señalarlo.
+
+```bash
+./scripts/test-macos-app.sh
+./scripts/test-macos-app.sh --integration
+./scripts/build-macos-app.sh
+open dist/DeutschOS.app
+```
+
+Para añadirla al Dock, localiza `dist/DeutschOS.app` en Finder y arrástrala al
+Dock. El bundle incorpora la raíz absoluta para poder copiarlo a
+`~/Applications`; tras mover el proyecto o cambiar su punto de montaje hay que
+recompilar. Si la app permanece en el SSD, macOS no puede ejecutarla mientras
+la unidad está desconectada. **Abrir logs** abre `logs/`; `controller.log`
+registra únicamente acciones y transiciones operativas, nunca conversaciones.
+
+### Launcher AppleScript de respaldo
+
+El launcher silencioso anterior se regenera con otro nombre y nunca sustituye
+la app principal:
+
+```bash
+./scripts/create-macos-launcher.sh
+open "dist/legacy/DeutschOS Launcher.app"
+```
+
+Ese respaldo ejecuta `start.sh` y abre la web directamente, sin ventana de
+control. `dist/` sigue ignorado por Git porque contiene binarios locales.
+
+### Gestión de servicios reutilizada
 
 `start.sh` mantiene logs separados en `logs/` y PID files en `run/`. Un bloqueo
 atómico evita dos arranques simultáneos. Cada PID file incluye el PID y la hora
@@ -93,8 +143,9 @@ Comandos operativos:
 actúa sobre procesos cuyo PID file, hora de inicio y comando coinciden; limpia
 archivos obsoletos sin señalar procesos ajenos. `status.sh` devuelve cero cuando
 Ollama, API y web responden y no hay PID files huérfanos. Los artefactos
-`dist/`, `logs/`, `run/` y el almacén `Ollama/` son locales y están ignorados por
-Git. No hay LaunchAgent, permisos de administrador ni inicio al iniciar sesión.
+`dist/`, `.build/`, `logs/`, `run/` y el almacén `Ollama/` son locales y están
+ignorados por Git. No hay LaunchAgent, permisos de administrador, telemetría ni
+inicio al iniciar sesión.
 
 ## Backup
 

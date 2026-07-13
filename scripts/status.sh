@@ -7,6 +7,77 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$PROJECT_ROOT/scripts/launcher-common.sh"
 
 ensure_launcher_directories
+
+if [[ "${1:-}" == "--machine" ]]; then
+  MACHINE_FAILURES=0
+  ACTIVE_SERVICES=0
+  STALE_PID_FILES=0
+
+  printf 'format=deutschos-status-v1\n'
+  if [[ -d "$PROJECT_ROOT" ]] && df -P "$PROJECT_ROOT" >/dev/null 2>&1; then
+    printf 'ssd=available\n'
+  else
+    printf 'ssd=unavailable\n'
+    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  fi
+
+  MODEL_COUNT="$(model_count_on_disk)"
+  printf 'model_count=%s\n' "$MODEL_COUNT"
+  if ((MODEL_COUNT == 0)); then
+    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  fi
+
+  if ollama_ready; then
+    printf 'ollama=active\n'
+    ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
+  else
+    printf 'ollama=inactive\n'
+    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  fi
+  if api_ready; then
+    printf 'api=active\n'
+    ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
+  else
+    printf 'api=inactive\n'
+    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  fi
+  if web_ready; then
+    printf 'web=active\n'
+    ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
+  else
+    printf 'web=inactive\n'
+    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  fi
+
+  for ROLE in ollama api web; do
+    if pid_file_state "$ROLE"; then
+      printf 'pid_%s=managed\n' "$ROLE"
+      printf 'pid_%s_value=%s\n' "$ROLE" "$PID_VALUE"
+    else
+      STATE=$?
+      if [[ "$STATE" == 2 ]]; then
+        printf 'pid_%s=stale\n' "$ROLE"
+        STALE_PID_FILES=$((STALE_PID_FILES + 1))
+        MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+      else
+        printf 'pid_%s=absent\n' "$ROLE"
+      fi
+    fi
+  done
+
+  if ((ACTIVE_SERVICES == 3 && STALE_PID_FILES == 0)); then
+    printf 'result=running\n'
+  elif ((ACTIVE_SERVICES == 0 && STALE_PID_FILES == 0)); then
+    printf 'result=stopped\n'
+  else
+    printf 'result=partial\n'
+  fi
+  if ((MACHINE_FAILURES > 0)); then
+    exit 1
+  fi
+  exit 0
+fi
+
 FAILURES=0
 STALE_PID_FILES=0
 

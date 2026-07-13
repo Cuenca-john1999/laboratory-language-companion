@@ -1,0 +1,262 @@
+import Foundation
+
+enum TestFailure: LocalizedError {
+  case expectation(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .expectation(let message): message
+    }
+  }
+}
+
+@main
+struct ControllerTests {
+  private static var passed = 0
+
+  static func main() async throws {
+    try runningManagedServices()
+    try stoppedExternalFreeState()
+    try stalePIDProducesPartialState()
+    try unavailableSSDIsExplicit()
+    try rejectsUnknownProtocol()
+    try friendlyModelErrorDoesNotExposeTrace()
+    try projectLocatorRequiresAllScripts()
+    try terminationPolicyProtectsActiveServices()
+    try await scriptExecutorRunsWithoutTerminal()
+    if let integrationRoot = ProcessInfo.processInfo.environment[
+      "DEUTSCHOS_CONTROLLER_INTEGRATION_ROOT"
+    ] {
+      try await realLifecycle(projectRoot: URL(fileURLWithPath: integrationRoot))
+    }
+    print("Controller Swift tests: \(passed) passed")
+  }
+
+  private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
+    guard condition() else { throw TestFailure.expectation(message) }
+  }
+
+  private static func snapshot(
+    ssd: String = "available",
+    models: Int = 1,
+    ollama: String,
+    api: String,
+    web: String,
+    pidOllama: String,
+    pidAPI: String,
+    pidWeb: String,
+    result: String
+  ) throws -> ServiceSnapshot {
+    try StatusOutputParser.parse(
+      """
+      format=deutschos-status-v1
+      ssd=\(ssd)
+      model_count=\(models)
+      ollama=\(ollama)
+      api=\(api)
+      web=\(web)
+      pid_ollama=\(pidOllama)
+      pid_api=\(pidAPI)
+      pid_web=\(pidWeb)
+      result=\(result)
+      """
+    )
+  }
+
+  private static func runningManagedServices() throws {
+    let value = try snapshot(
+      ollama: "active",
+      api: "active",
+      web: "active",
+      pidOllama: "managed",
+      pidAPI: "managed",
+      pidWeb: "managed",
+      result: "running"
+    )
+    try expect(value.derivedPhase == .running, "running phase")
+    try expect(value.allServicesActive, "all services active")
+    try expect(value.anyManagedProcess, "managed ownership")
+    passed += 1
+  }
+
+  private static func stoppedExternalFreeState() throws {
+    let value = try snapshot(
+      models: 0,
+      ollama: "inactive",
+      api: "inactive",
+      web: "inactive",
+      pidOllama: "absent",
+      pidAPI: "absent",
+      pidWeb: "absent",
+      result: "stopped"
+    )
+    try expect(value.derivedPhase == .stopped, "stopped phase")
+    try expect(!value.anyServiceActive, "no service active")
+    try expect(!value.anyManagedProcess, "no managed process")
+    passed += 1
+  }
+
+  private static func stalePIDProducesPartialState() throws {
+    let value = try snapshot(
+      ollama: "inactive",
+      api: "inactive",
+      web: "inactive",
+      pidOllama: "stale",
+      pidAPI: "absent",
+      pidWeb: "absent",
+      result: "partial"
+    )
+    try expect(value.derivedPhase == .partial, "stale PID must be partial")
+    try expect(value.hasStalePID, "stale PID flag")
+    passed += 1
+  }
+
+  private static func unavailableSSDIsExplicit() throws {
+    let value = try snapshot(
+      ssd: "unavailable",
+      models: 0,
+      ollama: "inactive",
+      api: "inactive",
+      web: "inactive",
+      pidOllama: "absent",
+      pidAPI: "absent",
+      pidWeb: "absent",
+      result: "stopped"
+    )
+    try expect(value.derivedPhase == .ssdUnavailable, "SSD phase")
+    passed += 1
+  }
+
+  private static func rejectsUnknownProtocol() throws {
+    do {
+      _ = try StatusOutputParser.parse("format=unknown\n")
+      throw TestFailure.expectation("unknown protocol accepted")
+    } catch is StatusParseError {
+      passed += 1
+    }
+  }
+
+  private static func friendlyModelErrorDoesNotExposeTrace() throws {
+    let result = ScriptResult(
+      exitCode: 1,
+      standardOutput: "",
+      standardError: "ERROR: No hay modelos en /private/path"
+    )
+    let message = UserFacingError.message(action: "el arranque", result: result)
+    try expect(message.contains("No se encontró ningún modelo"), "friendly model error")
+    try expect(!message.contains("/private/path"), "private path exposed")
+    passed += 1
+  }
+
+  private static func projectLocatorRequiresAllScripts() throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let scripts = root.appendingPathComponent("scripts")
+    try manager.createDirectory(at: scripts, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: root) }
+
+    for name in ["start.sh", "stop.sh", "status.sh"] {
+      let path = scripts.appendingPathComponent(name)
+      try "#!/bin/bash\n".write(to: path, atomically: true, encoding: .utf8)
+      try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
+    }
+
+    let appURL = root.appendingPathComponent("dist/DeutschOS.app")
+    let located = ProjectLocator.locate(appURL: appURL, configuredRoot: root.path)
+    try expect(located?.standardizedFileURL == root.standardizedFileURL, "project root")
+    passed += 1
+  }
+
+  private static func terminationPolicyProtectsActiveServices() throws {
+    var value = ServiceSnapshot.stopped
+    try expect(
+      !TerminationPolicy.requiresConfirmation(phase: .stopped, snapshot: value),
+      "stopped state requested confirmation"
+    )
+    try expect(
+      TerminationPolicy.requiresConfirmation(phase: .starting, snapshot: value),
+      "starting state did not request confirmation"
+    )
+    value.ollamaActive = true
+    try expect(
+      TerminationPolicy.requiresConfirmation(phase: .running, snapshot: value),
+      "active external service did not request confirmation"
+    )
+    passed += 1
+  }
+
+  private static func scriptExecutorRunsWithoutTerminal() async throws {
+    let manager = FileManager.default
+    let root = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let script = root.appendingPathComponent("probe.sh")
+    try manager.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: root) }
+    try "#!/bin/bash\nprintf 'controller-ok\\n'\n".write(
+      to: script,
+      atomically: true,
+      encoding: .utf8
+    )
+    try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+
+    let result = await ScriptExecutor().run(script: script, projectRoot: root)
+    try expect(result.succeeded, "script executor failed")
+    try expect(result.standardOutput == "controller-ok\n", "script output")
+    passed += 1
+  }
+
+  private static func realLifecycle(projectRoot: URL) async throws {
+    let scripts = projectRoot.appendingPathComponent("scripts")
+    let executor = ScriptExecutor()
+    _ = await executor.run(
+      script: scripts.appendingPathComponent("stop.sh"),
+      projectRoot: projectRoot
+    )
+    let controller = await MainActor.run { ControllerModel(projectRoot: projectRoot) }
+    await controller.refreshStatus()
+    let runDirectory = projectRoot.appendingPathComponent("run")
+    let pidFiles = ["ollama.pid", "api.pid", "web.pid"].map {
+      runDirectory.appendingPathComponent($0)
+    }
+
+    await MainActor.run {
+      controller.startRequested()
+      controller.startRequested()
+    }
+    try await wait(controller: controller, for: .running, timeout: 70)
+    let before = try pidFiles.map { try String(contentsOf: $0, encoding: .utf8) }
+    await MainActor.run { controller.startRequested() }
+    try? await Task.sleep(nanoseconds: 500_000_000)
+    let after = try pidFiles.map { try String(contentsOf: $0, encoding: .utf8) }
+    try expect(before == after, "second start changed managed PIDs")
+
+    await MainActor.run { controller.stopRequested() }
+    try await wait(controller: controller, for: .stopped, timeout: 30)
+
+    await MainActor.run { controller.startRequested() }
+    try await wait(controller: controller, for: .running, timeout: 70)
+    let safeToExit = await controller.prepareForTermination()
+    try expect(safeToExit, "Salir did not reach a safe state")
+    await controller.refreshStatus()
+    let finalPhase = await MainActor.run { controller.phase }
+    let managed = await MainActor.run { controller.snapshot.anyManagedProcess }
+    try expect(finalPhase == .stopped, "real services remained active")
+    try expect(!managed, "managed PID remained after Salir")
+    passed += 1
+  }
+
+  private static func wait(
+    controller: ControllerModel,
+    for expected: ControllerPhase,
+    timeout: Int
+  ) async throws {
+    for _ in 0..<timeout * 4 {
+      let state = await MainActor.run { (controller.phase, controller.alertMessage) }
+      if state.0 == expected { return }
+      if state.0 == .error {
+        throw TestFailure.expectation(state.1 ?? "controller entered error state")
+      }
+      try? await Task.sleep(nanoseconds: 250_000_000)
+    }
+    throw TestFailure.expectation("timeout waiting for \(expected.title)")
+  }
+}

@@ -53,24 +53,36 @@ documentación de la API está en `http://127.0.0.1:8000/docs`.
 La telemetría de Next.js queda desactivada durante el arranque mediante el
 script. No se instala ni descarga nada automáticamente.
 
-## Launcher de macOS
+## Aplicación de control para macOS
 
-Para crear una aplicación nativa que arranque DeutschOS sin abrir Terminal:
+Para compilar la aplicación nativa de control sin abrir Xcode:
 
 ```bash
 cd /Volumes/Juegos/DeutschOS
-./scripts/create-macos-launcher.sh
+./scripts/build-macos-app.sh
 open dist/DeutschOS.app
 ```
 
-El resultado es `dist/DeutschOS.app`. Puedes arrastrarlo desde Finder al Dock o
-copiarlo primero a `~/Applications`; la aplicación conserva la ruta absoluta
-del proyecto en el SSD. Al abrirla comprueba modelos locales, inicia Ollama con
-`OLLAMA_MODELS=/Volumes/Juegos/DeutschOS/Ollama/models`, prepara migraciones,
-levanta API/web en loopback y abre `http://127.0.0.1:3000` cuando todo responde.
-Un segundo clic reutiliza los servicios activos y no crea duplicados.
+El resultado es `dist/DeutschOS.app`. Es una aplicación SwiftUI ligera con una
+ventana de estado; no abre Terminal ni incorpora un navegador. Arrástrala desde
+Finder al Dock —no hace falta mover el bundle— y ábrela siempre con el SSD
+conectado. La ruta del proyecto queda registrada durante el build, por lo que
+también puede copiarse a `~/Applications` sin perder el proyecto del SSD.
 
-Para consultar o detener los procesos gestionados por el launcher:
+- **Iniciar** ejecuta `scripts/start.sh`, muestra el progreso real y abre la web
+  cuando Ollama, FastAPI y Next.js responden.
+- **Abrir DeutschOS** abre `http://127.0.0.1:3000` cuando la web está disponible.
+- **Detener** ejecuta `scripts/stop.sh` y mantiene abierta la ventana.
+- **Salir** detiene los procesos gestionados antes de terminar la aplicación.
+
+La X roja y `⌘Q` piden confirmación si hay servicios activos o un arranque en
+curso. Cancelar conserva la ventana; **Detener y salir** espera el cierre. La app
+consulta `scripts/status.sh --machine` cada cuatro segundos, en lugar de inferir
+el estado a partir del último botón. Un segundo clic o arranque concurrente no
+duplica servicios gracias al bloqueo y los PID files de los scripts existentes.
+
+Los errores se resumen sin trazas técnicas y **Abrir logs** muestra `logs/`.
+Para consultar o detener desde una shell siguen disponibles:
 
 ```bash
 ./scripts/status.sh
@@ -79,9 +91,22 @@ Para consultar o detener los procesos gestionados por el launcher:
 
 Los logs privados están en `logs/` y los PID files en `run/`; ambos directorios,
 `dist/` y `Ollama/` están excluidos de Git. `stop.sh` no cierra un Ollama, API o
-web iniciados de otra manera. Si el SSD no está conectado, la aplicación muestra
-una alerta: vuelve a montarlo en `/Volumes/Juegos` antes de reintentar. No se
-instalan LaunchAgents ni se configura inicio automático de sesión.
+web iniciados de otra manera. Si el bundle está copiado fuera del SSD puede
+mostrar «SSD no disponible»; si vive en el propio SSD, macOS no podrá abrirlo
+hasta volver a montar `/Volumes/Juegos`. No se instalan LaunchAgents ni se
+configura inicio automático de sesión.
+
+El launcher AppleScript anterior se conserva solo como respaldo. Para
+regenerarlo y usarlo temporalmente:
+
+```bash
+./scripts/create-macos-launcher.sh
+open "dist/legacy/DeutschOS Launcher.app"
+```
+
+Ese respaldo mantiene el comportamiento antiguo de arrancar y abrir la web sin
+mostrar una ventana de control. Nunca comparte el nombre ni la ruta principal
+de la aplicación nativa.
 
 ## Probar el Learning Engine
 
@@ -149,15 +174,27 @@ cd apps/api
 ../../.venv/bin/python -m ruff check .
 ../../.venv/bin/python -m ruff format --check .
 cd ../..
+./scripts/test-macos-app.sh
+./scripts/test-macos-app.sh --integration
+./scripts/build-macos-app.sh
 npm run lint:web
 npm --workspace @deutschos/web run typecheck
 npm run build:web
 ```
 
+La primera prueba de macOS es unitaria y no inicia servicios. `--integration`
+ejecuta el mismo `ControllerModel` de la ventana y realiza un ciclo real de
+Iniciar, segundo clic idempotente, Detener, reinicio y Salir.
+
+Limitaciones actuales: el build produce un binario Apple Silicon con firma local
+ad hoc; no hay actualización automática, app de barra de menús ni arranque al
+iniciar sesión. Al cambiar la ruta del SSD hay que recompilar el bundle.
+
 ## Estructura
 
 - `apps/web`: Next.js, TypeScript y App Router.
 - `apps/api`: FastAPI, SQLAlchemy y Alembic.
+- `apps/macos-controller`: ventana nativa SwiftUI y parser del estado operativo.
 - `packages/shared`: contratos TypeScript compartidos.
 - `data`: estado local privado, excluido de Git.
 - `docs`: arquitectura, pedagogía, seguridad, operaciones y roadmap.
