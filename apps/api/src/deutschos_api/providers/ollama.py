@@ -1,9 +1,10 @@
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from deutschos_api.providers.base import (
     MalformedStructuredOutputError,
@@ -17,16 +18,35 @@ from deutschos_api.schemas.api import ModelInfo
 
 
 class OllamaModel(BaseModel):
-    # Ollama may add provider-specific metadata. Preserve it internally while
-    # exposing only the normalized ModelInfo contract to the application.
-    model_config = ConfigDict(extra="allow")
-    name: str
-    size: int | None = None
-    modified_at: str | None = None
+    """Provider DTO: accept Ollama evolution without widening the public API."""
+
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    name: str | None = None
+    model: str | None = None
+    size: int | None = Field(default=None, ge=0)
+    modified_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def require_model_identifier(self) -> "OllamaModel":
+        if not self.model and not self.name:
+            raise ValueError("Ollama model entry has no model identifier")
+        return self
+
+    def to_model_info(self) -> ModelInfo:
+        # Ollama uses `model` in chat requests. Older versions may expose only
+        # `name`, so keep it as a compatibility fallback.
+        identifier = self.model or self.name
+        if identifier is None:  # Enforced by require_model_identifier.
+            raise AssertionError("validated Ollama model has no identifier")
+        return ModelInfo(
+            name=identifier,
+            size=self.size,
+            modified_at=self.modified_at,
+        )
 
 
 class OllamaTagsResponse(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="ignore")
     models: list[OllamaModel]
 
 
@@ -82,7 +102,7 @@ class OllamaProvider(ModelProvider):
             payload = OllamaTagsResponse.model_validate(response.json())
         except (ValueError, ValidationError) as exc:
             raise ProviderResponseError("Ollama devolvió una lista de modelos inválida.") from exc
-        return [ModelInfo.model_validate(item.model_dump()) for item in payload.models]
+        return [item.to_model_info() for item in payload.models]
 
     async def chat(self, model: str, messages: list[dict[str, str]]) -> str:
         try:
