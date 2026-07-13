@@ -87,8 +87,12 @@ process_is_running() {
   esac
 }
 
-normalized_start_time() {
-  ps -o lstart= -p "$1" 2>/dev/null | awk '{$1=$1; print}'
+process_start_token() {
+  # macOS renders lstart in the caller's timezone. Finder/AppleScript and an
+  # interactive shell may therefore produce different text for the same PID.
+  # Force both locale and timezone so the token is stable across invocations.
+  LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null \
+    | LC_ALL=C awk '{$1=$1; print}'
 }
 
 expected_process() {
@@ -117,13 +121,18 @@ pid_file_path() {
 }
 
 write_pid_file() {
-  local role pid path started
+  local role pid path started temporary
   role="$1"
   pid="$2"
   path="$(pid_file_path "$role")"
-  started="$(normalized_start_time "$pid")"
+  started="$(process_start_token "$pid")"
   [[ -n "$started" ]] || return 1
-  printf '%s\n%s\n' "$pid" "$started" >"$path"
+  temporary="$path.$$"
+  (umask 077 && printf '%s\n%s\n' "$pid" "$started" >"$temporary") || {
+    rm -f -- "$temporary"
+    return 1
+  }
+  mv -f -- "$temporary" "$path"
   chmod 600 "$path" 2>/dev/null || true
 }
 
@@ -151,9 +160,9 @@ pid_file_state() {
     PID_REASON="proceso inexistente"
     return 2
   fi
-  actual_start="$(normalized_start_time "$PID_VALUE")"
+  actual_start="$(process_start_token "$PID_VALUE")"
   if [[ -z "$recorded_start" || "$recorded_start" != "$actual_start" ]]; then
-    PID_REASON="PID reutilizado o fecha de inicio distinta"
+    PID_REASON="PID reutilizado o huella de inicio distinta"
     return 2
   fi
   if ! expected_process "$role" "$PID_VALUE"; then

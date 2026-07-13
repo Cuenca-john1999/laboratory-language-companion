@@ -1,4 +1,5 @@
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -34,6 +35,51 @@ def run_script(name: str, environment: dict[str, str]) -> subprocess.CompletedPr
         check=False,
         timeout=20,
     )
+
+
+def run_launcher_helper(
+    command: str,
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "/bin/bash",
+            "-c",
+            (
+                'source "$PROJECT_ROOT/scripts/launcher-common.sh"; '
+                f"ensure_launcher_directories; {command}"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        env={**environment, "PROJECT_ROOT": str(PROJECT_ROOT)},
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+
+
+def start_fake_ollama() -> subprocess.Popen[bytes]:
+    # Keep Bash as the stable parent PID; a one-command script may exec sleep.
+    return subprocess.Popen(
+        [
+            "/bin/bash",
+            "-c",
+            "while :; do /bin/sleep 30; done",
+            "ollama",
+            "serve",
+        ],
+        start_new_session=True,
+    )
+
+
+def terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    if process.poll() is None:
+        process.wait(timeout=5)
 
 
 def test_start_reports_missing_ollama_with_nonzero_status(tmp_path):
@@ -75,6 +121,137 @@ def test_status_reports_and_stop_cleans_stale_pid_without_signalling(tmp_path):
     assert stop.returncode == 0
     assert "se elimina sin enviar señales" in stop.stdout
     assert not stale_pid.exists()
+
+
+def test_process_start_token_is_independent_of_caller_timezone(tmp_path):
+    environment = launcher_environment(tmp_path)
+    environment["TARGET_PID"] = str(os.getpid())
+    tokens = []
+
+    for timezone in ("UTC", "Europe/Berlin", "America/New_York"):
+        result = run_launcher_helper(
+            'process_start_token "$TARGET_PID"',
+            {**environment, "TZ": timezone},
+        )
+        assert result.returncode == 0
+        assert result.stdout.strip()
+        tokens.append(result.stdout.strip())
+
+    assert len(set(tokens)) == 1
+
+
+def test_pid_written_in_one_timezone_validates_in_another(tmp_path):
+    environment = launcher_environment(tmp_path)
+    process = start_fake_ollama()
+
+    try:
+        environment["TARGET_PID"] = str(process.pid)
+        written = run_launcher_helper(
+            'write_pid_file ollama "$TARGET_PID"',
+            {**environment, "TZ": "Europe/Berlin"},
+        )
+        checked = run_launcher_helper(
+            'pid_file_state ollama; printf "%s:%s\\n" "$PID_VALUE" "$PID_REASON"',
+            {**environment, "TZ": "UTC"},
+        )
+
+        assert written.returncode == 0
+        assert checked.returncode == 0
+        assert checked.stdout.strip() == f"{process.pid}:válido"
+    finally:
+        terminate_process_group(process)
+
+
+def test_stop_rejects_reused_pid_token_without_signalling(tmp_path):
+    environment = launcher_environment(tmp_path)
+    process = start_fake_ollama()
+    run_directory = tmp_path / "run"
+    run_directory.mkdir()
+    (run_directory / "ollama.pid").write_text(
+        f"{process.pid}\nMon Jan 1 00:00:00 2001\n",
+        encoding="utf-8",
+    )
+
+    try:
+        stopped = run_script("stop.sh", environment)
+
+        assert stopped.returncode == 0
+        assert "huella de inicio distinta" in stopped.stdout
+        assert process.poll() is None
+        assert not (run_directory / "ollama.pid").exists()
+    finally:
+        terminate_process_group(process)
+
+
+def test_stop_rejects_external_command_even_with_valid_start_token(tmp_path):
+    environment = launcher_environment(tmp_path)
+    process = subprocess.Popen(["/bin/sleep", "30"])
+
+    try:
+        environment["TARGET_PID"] = str(process.pid)
+        token = run_launcher_helper(
+            'process_start_token "$TARGET_PID"',
+            environment,
+        ).stdout.strip()
+        run_directory = tmp_path / "run"
+        run_directory.mkdir(exist_ok=True)
+        (run_directory / "api.pid").write_text(
+            f"{process.pid}\n{token}\n",
+            encoding="utf-8",
+        )
+
+        stopped = run_script("stop.sh", environment)
+
+        assert stopped.returncode == 0
+        assert "no pertenece al comando esperado" in stopped.stdout
+        assert process.poll() is None
+        assert not (run_directory / "api.pid").exists()
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+def test_stop_does_not_adopt_service_that_changed_pid(tmp_path):
+    environment = launcher_environment(tmp_path)
+    original = start_fake_ollama()
+    environment["TARGET_PID"] = str(original.pid)
+    written = run_launcher_helper('write_pid_file ollama "$TARGET_PID"', environment)
+    assert written.returncode == 0
+    terminate_process_group(original)
+
+    replacement = start_fake_ollama()
+    try:
+        stopped = run_script("stop.sh", environment)
+
+        assert stopped.returncode == 0
+        assert "proceso inexistente" in stopped.stdout
+        assert replacement.poll() is None
+        assert not (tmp_path / "run" / "ollama.pid").exists()
+    finally:
+        terminate_process_group(replacement)
+
+
+def test_stop_sends_sigterm_to_validated_managed_process(tmp_path):
+    environment = launcher_environment(tmp_path)
+    process = start_fake_ollama()
+
+    try:
+        environment["TARGET_PID"] = str(process.pid)
+        written = run_launcher_helper(
+            'write_pid_file ollama "$TARGET_PID"', environment
+        )
+        assert written.returncode == 0
+
+        stopped = run_script("stop.sh", environment)
+        process.wait(timeout=5)
+
+        assert stopped.returncode == 0
+        assert "con SIGTERM" in stopped.stdout
+        assert "ollama detenido limpiamente" in stopped.stdout
+        assert process.returncode == -15
+        assert not (tmp_path / "run" / "ollama.pid").exists()
+    finally:
+        terminate_process_group(process)
 
 
 def test_launcher_artifacts_and_model_store_are_ignored():

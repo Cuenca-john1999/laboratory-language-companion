@@ -71,7 +71,7 @@ open_deutschos() {
 acquire_start_lock() {
   local lock_pid lock_start actual_start command_line attempt
   if mkdir "$LOCK_DIR" 2>/dev/null; then
-    printf '%s\n%s\n' "$$" "$(normalized_start_time "$$")" >"$LOCK_DIR/pid"
+    printf '%s\n%s\n' "$$" "$(process_start_token "$$")" >"$LOCK_DIR/pid"
     LOCK_OWNED=1
     return 0
   fi
@@ -84,7 +84,7 @@ acquire_start_lock() {
   actual_start=""
   command_line=""
   if [[ -n "$lock_pid" ]] && process_is_running "$lock_pid"; then
-    actual_start="$(normalized_start_time "$lock_pid")"
+    actual_start="$(process_start_token "$lock_pid")"
     command_line="$(ps -o command= -p "$lock_pid" 2>/dev/null || true)"
   fi
   if [[ -n "$lock_pid" && -n "$lock_start" && "$lock_start" == "$actual_start" && "$command_line" == *"scripts/start.sh"* ]]; then
@@ -104,7 +104,7 @@ acquire_start_lock() {
   rm -f -- "$LOCK_DIR/pid"
   rmdir "$LOCK_DIR" 2>/dev/null || return 1
   mkdir "$LOCK_DIR" || return 1
-  printf '%s\n%s\n' "$$" "$(normalized_start_time "$$")" >"$LOCK_DIR/pid"
+  printf '%s\n%s\n' "$$" "$(process_start_token "$$")" >"$LOCK_DIR/pid"
   LOCK_OWNED=1
   return 0
 }
