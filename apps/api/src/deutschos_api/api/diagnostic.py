@@ -14,6 +14,8 @@ from pydantic import JsonValue, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from deutschos_api.content import DiagnosticContentError, FilesystemCandidateProvider
+from deutschos_api.core.config import PROJECT_ROOT
 from deutschos_api.db.session import get_db
 from deutschos_api.diagnostic_engine.exceptions import (
     CandidateUnavailableError,
@@ -60,6 +62,7 @@ from deutschos_api.schemas.diagnostic_api import (
 
 router = APIRouter(prefix="/api/diagnostic", tags=["diagnostic"])
 
+DIAGNOSTIC_CONTENT_DIRECTORY = PROJECT_ROOT / "data" / "diagnostic"
 _PROVIDER_UNAVAILABLE_DETAIL = (
     "El banco diagnóstico versionado no está configurado en esta instalación."
 )
@@ -102,12 +105,21 @@ class _PublicSafeCandidateProvider:
 
 
 def get_diagnostic_candidate_provider() -> CandidateProvider:
-    """Production placeholder until a reviewed, versioned bank is configured."""
+    """Load the local bank, remaining unavailable until it has reviewed tasks."""
 
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail=_PROVIDER_UNAVAILABLE_DETAIL,
-    )
+    try:
+        provider = FilesystemCandidateProvider.from_directory(DIAGNOSTIC_CONTENT_DIRECTORY)
+    except DiagnosticContentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="El banco diagnóstico local no supera la validación.",
+        ) from exc
+    if not provider.has_candidates:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PROVIDER_UNAVAILABLE_DETAIL,
+        )
+    return provider
 
 
 def get_diagnostic_service(
@@ -444,6 +456,7 @@ def complete_session(
 
 
 __all__ = [
+    "DIAGNOSTIC_CONTENT_DIRECTORY",
     "get_diagnostic_candidate_provider",
     "get_diagnostic_service",
     "router",

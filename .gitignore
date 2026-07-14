@@ -20,6 +20,18 @@ coverage/
 *.log
 /data/*
 !/data/.gitkeep
+!/data/curriculum/
+!/data/curriculum/.gitkeep
+!/data/curriculum/**/*.json
+!/data/diagnostic/
+!/data/diagnostic/.gitkeep
+!/data/diagnostic/**/*.json
+!/data/lessons/
+!/data/lessons/.gitkeep
+!/data/lessons/**/*.json
+!/data/review/
+!/data/review/.gitkeep
+!/data/review/**/*.json
 
 # Local backups and user-owned configuration.
 /backups/
