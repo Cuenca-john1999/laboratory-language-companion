@@ -23,6 +23,9 @@ Se conserva `data/` porque ya separa de forma clara contenido versionable,
 datos locales y código, funciona desde el SSD externo y no presenta un riesgo
 técnico que justifique una migración estética a otra carpeta.
 
+La semántica normativa de ejes y correspondencias curriculares se define en el
+[`ADR 0008`](adr/0008-diagnostic-axes-and-skill-mappings.md).
+
 ## 2. Unidad de publicación
 
 Un banco consta de:
@@ -83,7 +86,7 @@ para Jhon.
 | `target_language` | `de` en texto v1 |
 | `levels` | Bandas cubiertas realmente por las tareas: `pre-A1` y/o `A1` |
 | `modalities` | Exactamente `text` en v1 |
-| `axes` | Ejes primarios y secundarios realmente presentes |
+| `axes` | Inventario de ejes primarios y secundarios presentes; no acredita cobertura |
 | `editorial_status` | `draft`, `reviewed`, `production` o `deprecated` |
 | `created_on` | Fecha ISO 8601 de creación editorial |
 | `updated_on` | Fecha ISO 8601 de revisión; nunca anterior a `created_on` |
@@ -91,14 +94,21 @@ para Jhon.
 | `minimum_compatibility` | Aplicación, motor y currículo mínimos admitidos |
 | `editorial_notes` | Decisiones, revisión pendiente y contexto de publicación |
 
-Los niveles, modalidades y ejes declarados deben coincidir con las tareas. Un
-manifiesto no puede prometer cobertura que sus archivos no contengan.
+Los niveles, modalidades y ejes declarados deben coincidir con las tareas. Esta
+coherencia estructural no demuestra cobertura: la alcanzabilidad se calcula solo
+con los ejes principales y las reglas del selector.
 
 ## 4. Estados editoriales
 
-- `draft`: trabajo editable; nunca disponible para el alumno.
-- `reviewed`: revisión pedagógica realizada, pero aún no publicado.
-- `production`: única fuente que el proveedor de la API puede exponer.
+- `draft`: trabajo editable; puede tener brechas de cobertura o alcanzabilidad,
+  las herramientas pueden informar problemas de preparación y nunca está
+  disponible para el alumno.
+- `reviewed`: revisión pedagógica realizada y validaciones de contrato y
+  alcanzabilidad superadas, sin tareas permanentemente inalcanzables; todavía no
+  implica publicación.
+- `production`: cumple lo exigido para `reviewed`, integridad, pruebas de
+  integración y activación explícita; es la única fuente que el proveedor de la
+  API puede exponer.
 - `deprecated`: histórico no seleccionable.
 
 Pasar a `production` exige al menos un archivo, tareas deterministas y un SHA-256
@@ -141,7 +151,7 @@ El resto del objeto contiene identidad, selección y compatibilidad:
 | `version` | Versión de la tarea |
 | `level` | `pre-A1` o `A1` |
 | `axis` | `DiagnosticAxis` existente |
-| `secondary_axes` | Ejes adicionales textuales, sin duplicados |
+| `secondary_axes` | Ejes descriptivos adicionales, textuales y sin duplicados; no generan evidencia |
 | `skill_id` | Entero positivo o `null`; el campo es obligatorio |
 | `task_type` | `DiagnosticTaskType` existente |
 | `difficulty` | Entero 1–5 |
@@ -161,6 +171,25 @@ El resto del objeto contiene identidad, selección y compatibilidad:
 El formato admite representar `manual` únicamente para preparación editorial
 futura, pero un banco `production` de la versión actual solo puede contener
 `deterministic`. Esto no incorpora un evaluador manual ni LLM.
+
+### Eje principal y correspondencia curricular
+
+`axis` es el constructo diagnóstico principal. Cada tarea declara exactamente
+uno y el motor lo usa para selección, dificultad, límites, cobertura, parada y
+agregación principal. Un eje no equivale necesariamente a una habilidad
+curricular.
+
+`skill_id` es una correspondencia opcional aunque su clave sea obligatoria en el
+JSON. Solo debe contener un ID cuando el resultado de la tarea aporte evidencia
+directa y defendible sobre esa habilidad. Debe ser `null` si la relación es
+indirecta, el objetivo pertenece a otro constructo o el mapping induciría una
+interpretación engañosa. `null` no invalida la evidencia por eje, y un ID no
+proyecta por sí solo nada al Learning Engine.
+
+`secondary_axes` es únicamente metadato descriptivo en la versión actual. No
+selecciona, no abre dificultad, no incrementa cobertura y no genera evidencias ni
+agregados secundarios. Los autores no deben declararlo o presentarlo como una
+evaluación multidimensional ejecutada por el motor.
 
 ## 7. Rúbricas y scoring
 
@@ -229,6 +258,27 @@ La API contrasta `skill_id` mediante una lectura de `CurriculumSkill`. La
 herramienta editorial abre SQLite en modo de solo lectura. Ninguna validación
 crea o modifica filas.
 
+### Alcanzabilidad antes de revisión
+
+La validez local de los archivos no basta para promover un banco a `reviewed`.
+El conjunto debe ser recorrible bajo el selector real:
+
+- cada uno de los seis ejes prioritarios tiene candidatos y una entrada de
+  dificultad 1 o 2;
+- cada eje puede aportar dos evidencias independientes;
+- las tareas de dificultad 3 o superior tienen una ruta previa;
+- el máximo de cinco tareas por eje permite alcanzar el objetivo global;
+- hay al menos doce tareas potencialmente seleccionables y los escenarios
+  ordinarios pueden producir diez evidencias evaluables;
+- no existen tareas permanentemente inalcanzables ni callejones causados por
+  tipos consecutivos, prerrequisitos o límites;
+- continuar no depende de respuestas perfectas.
+
+Una sesión dominada por respuestas `not_evaluable` puede finalizar parcial sin
+que el banco sea inválido. La herramienta actual todavía no comprueba estas
+invariantes globales; `#006E4C` añadirá validación estática y simulación del
+selector.
+
 ## 9. Seguridad y comportamiento de producción
 
 El cargador usa exclusivamente `pathlib`, `json`, `hashlib` y Pydantic. No hace
@@ -291,6 +341,20 @@ Los cambios incompatibles requieren un schema nuevo. No se usará
 contrato; no se introducirán como metadata libre. Si una futura versión usa
 referencias curriculares estables por código, deberá añadirlas explícitamente y
 definir la transición desde `skill_id`.
+
+Cambiar `axis`, `skill_id` —incluido pasar a o desde `null`—, dificultad,
+respuesta correcta, rúbrica, scoring, objetivo pedagógico, `equivalence_group`,
+modalidad, `task_type`, `response_type` o contenido visible que altere la
+competencia evaluada requiere una nueva `task.version`. Los cambios de rúbrica o
+scoring requieren además una nueva `rubric_version`; la publicación actualiza
+`bank_version` según la convención existente.
+
+Solo pueden conservar la versión los cambios editoriales que no alteren contenido
+visible, selección, evaluación ni significado, por ejemplo correcciones en
+`authoring_notes`, tags o notas del manifiesto. Una corrección de la instrucción
+visible capaz de cambiar la respuesta no es editorial. Las sesiones históricas
+conservan su versión: nunca se reinterpretan después de cambiar eje, habilidad,
+rúbrica u objetivo.
 
 Se mantiene el nombre `docs/content-format.md` porque ya es el punto de entrada
 versionado y no existe una razón técnica para romper enlaces o duplicar la

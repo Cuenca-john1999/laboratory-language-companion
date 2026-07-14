@@ -61,6 +61,12 @@ como ejes diagnósticos independientes hasta que una versión futura del curríc
 defina su correspondencia. El diseño no inventa habilidades ni las añade al
 dominio actual.
 
+El contrato normativo entre eje diagnóstico y currículo está en el
+[`ADR 0008`](adr/0008-diagnostic-axes-and-skill-mappings.md). `axis` expresa la
+capacidad principal observada; `skill_id` solo añade una correspondencia
+curricular directa cuando puede defenderse y puede ser `null` sin invalidar la
+evidencia diagnóstica.
+
 ## 3. Habilidades medidas
 
 | Eje | Qué se observa | Texto v1 | Hito posterior | Límite de interpretación |
@@ -79,10 +85,12 @@ dominio actual.
 | Alemán cotidiano | Comprensión y producción en situaciones comunes | Sí | Escucha e interacción | La familiaridad temática no sustituye competencia lingüística |
 | Alemán profesional/laboratorio | Reconocimiento y uso inicial de términos en contexto | Sí, exploratorio | Escenarios multimodales | No presupone dominio por la profesión de Jhon |
 
-La medición debe ser multidimensional. Por ejemplo, una respuesta puede aportar
+La aspiración pedagógica es multidimensional: una respuesta podría aportar
 evidencia positiva de comprensión del mensaje y evidencia insuficiente de
-gramática si el alumno responde en español. No se debe forzar un único resultado
-para todas las habilidades implicadas.
+gramática si el alumno responde en español. Texto v1, sin embargo, atribuye cada
+tarea solo a su eje principal; `secondary_axes` describe dimensiones auxiliares
+pero no las puntúa. Hacer operativa esa atribución múltiple requiere otra decisión
+de scoring y persistencia para no duplicar evidencia.
 
 ## 4. Flujo completo
 
@@ -417,7 +425,21 @@ comprensible y suficiente evidencia.
 
 ## 11. Integración con Learning Engine
 
-### Correspondencias posibles
+### Eje principal y correspondencias posibles
+
+Cada tarea aporta evidencia a exactamente un eje principal. El selector, la
+dificultad, el máximo por eje, la cobertura y la parada operan con ese eje. Los
+seis ejes prioritarios son `reading_comprehension`, `written_production`,
+`active_grammar`, `receptive_vocabulary`, `productive_vocabulary` y
+`communication_repair.typed`.
+
+`skill_id` no controla ese recorrido. Es opcional y solo debe usarse cuando una
+respuesta aporta evidencia directa y defendible sobre la habilidad curricular.
+Debe ser `null` ante una relación indirecta, un constructo sin equivalente o un
+mapping que induciría una conclusión engañosa. `secondary_axes` es actualmente
+metadato descriptivo: no crea evidencia, cobertura ni agregados adicionales.
+
+Aplicado al contenido:
 
 - Gramática activa puede asociarse a habilidades concretas como
   `grammar.sein_present`, no a una habilidad genérica inventada.
@@ -434,6 +456,11 @@ El ledger existente ya admite `SkillEvidence.source = diagnostic`, pero su
 proyección actual trata una evidencia diagnóstica como cualquier intento y la
 primera evidencia puede fijar directamente la estimación inicial. Por eso no se
 recomienda escribir cada respuesta de forma inmediata en el ledger actual.
+
+La implementación conserva todos los `DiagnosticResult` como `not_projected` y
+no escribe `StudentSkill` ni `SkillEvidence`. Esto también se aplica cuando una
+tarea tiene `skill_id`: el mapping no es una autorización de proyección. Las
+tareas con `skill_id = null` forman resultados válidos por eje.
 
 La integración futura debe seguir este orden:
 
@@ -483,7 +510,7 @@ códigos de decisión. No debe contener secretos ni prompts duplicados.
 
 - sesión, orden y estado;
 - identificador y versión de plantilla;
-- tipo, eje principal, ejes secundarios y `skill_id` opcional;
+- tipo, eje principal, ejes secundarios descriptivos y `skill_id` opcional;
 - dificultad, modalidad y código de razón de selección;
 - contenido presentado y opciones;
 - respuesta esperada o rúbrica estructurada;
@@ -616,6 +643,12 @@ Cada prompt debe terminar en un commit aislado solo cuando sus validaciones
 pasen. `#006B` no debe incluir el motor, y `#006C` no debe anticipar la UI. Esta
 separación mantiene revisables las decisiones con mayor riesgo.
 
+Antes de iniciar la interfaz de `#006E`, el banco textual debe superar el contrato
+de alcanzabilidad del ADR 0008. El siguiente paso técnico es `#006E4C`: validación
+estática y simulación del selector. Hasta entonces se utilizan la herramienta
+editorial y pruebas HTTP; no se expone al alumno un flujo cuyo contenido pueda
+agotarse antes de la cobertura mínima.
+
 ### Implementación de `#006C`
 
 El motor interno implementado en `deutschos_api.diagnostic_engine` concreta
@@ -732,5 +765,10 @@ checksum verificado y tareas deterministas lleguen a ese proveedor. Los estados
 6. **Bandas visibles.** Se usarán descriptores internos por habilidad y
    referencias `pre-A1`/`A1` únicamente cuando el contenido y la evidencia las
    justifiquen.
+7. **Eje y currículo.** `axis` es el constructo diagnóstico principal;
+   `skill_id` es un mapping opcional y directo, y `secondary_axes` no genera
+   evidencia en texto v1.
+8. **Preparación editorial.** Un banco no puede pasar a `reviewed` hasta superar
+   validación de alcanzabilidad bajo las reglas reales del selector.
 
 La persistencia inicial no proyecta ningún resultado a `StudentSkill`.

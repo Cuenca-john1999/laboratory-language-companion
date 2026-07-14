@@ -26,7 +26,9 @@ El motor permanece aislado del progreso normal:
 La especificación pedagógica general sigue en
 [`diagnostic-system.md`](diagnostic-system.md). La decisión arquitectónica de
 esta implementación se registra en
-[`ADR 0007`](adr/0007-deterministic-diagnostic-engine.md).
+[`ADR 0007`](adr/0007-deterministic-diagnostic-engine.md); la semántica de ejes
+y mappings curriculares se fija en
+[`ADR 0008`](adr/0008-diagnostic-axes-and-skill-mappings.md).
 
 ## 2. Arquitectura
 
@@ -84,11 +86,23 @@ La selección distingue:
 
 No existe todavía un banco de preguntas de producción. Los proveedores finitos
 usados en pruebas son fixtures, no currículo ni contenido pedagógico completo.
-El proveedor real y la revisión de sus tareas pertenecen a un hito posterior.
+El proveedor de filesystem solo puede exponer bancos `production`; el banco real
+actual permanece `draft` y no se presenta al alumno.
 
 Solo son elegibles candidatos de texto y autoevaluables. Una tarea marcada
 `manual_only`, audio u oral puede validarse como objeto futuro, pero el selector
 de esta versión no la presenta.
+
+Cada candidato tiene un único `axis`, persistido como `primary_axis`, que es el
+constructo usado por el selector. `skill_id` es una correspondencia curricular
+opcional: no modifica elegibilidad, dificultad, prioridad, cobertura ni parada.
+Debe ser nulo cuando la tarea no aporta evidencia directa sobre una habilidad
+curricular concreta.
+
+`secondary_axes` se conserva para describir capacidades auxiliares, pero no crea
+evidencia, no incrementa cobertura y no produce agregados. Convertirlo en una
+dimensión operativa exigiría scoring y persistencia separados para evitar doble
+conteo.
 
 ## 4. Estados de sesión
 
@@ -385,6 +399,12 @@ No se calcula score si hay menos de dos evidencias o la confianza es menor que
 Las modalidades futuras siempre se devuelven como `not_assessed`, incluso si se
 inyecta por error una observación escrita con ese eje.
 
+El agregado por `(axis, skill_id)` es historial diagnóstico. Incluso con un
+`skill_id` válido, sus revisiones mantienen `projection_status = not_projected`
+y el servicio no escribe `StudentSkill` ni `SkillEvidence`. La dimensión
+`(axis, NULL)` conserva evidencia diagnóstica legítima sin inventar una
+correspondencia curricular.
+
 ### Referencias CEFR
 
 Una referencia solo puede aparecer por eje y habilidad cuando todas las
@@ -428,6 +448,22 @@ es 14. Alcanzarlo solo termina la sesión cuando también existe cobertura míni
 Los límites de veinte tareas y veinticinco minutos son absolutos y pueden cerrar
 un diagnóstico parcial. Agotar candidatos también produce una conclusión
 parcial cuando faltan ejes.
+
+### Contrato editorial de alcanzabilidad
+
+Antes de declarar un banco `reviewed`, sus candidatos deben permitir recorrer
+estas reglas desde una sesión vacía. Cada eje prioritario necesita al menos una
+entrada de dificultad 1 o 2 y dos evidencias independientes posibles; las tareas
+de dificultad 3 o superior necesitan una ruta previa. El límite de cinco por eje
+no puede impedir que existan al menos doce tareas potencialmente seleccionables
+ni que escenarios ordinarios alcancen diez evidencias evaluables.
+
+También deben descartarse tareas permanentemente inalcanzables y callejones por
+prerrequisitos, repetición de tipos o límites. No se exige que una sesión con
+respuestas vacías o no evaluables produzca cobertura completa: ese cierre parcial
+describe evidencia insuficiente, no necesariamente un banco inválido. Estas
+invariantes están documentadas pero todavía no automatizadas; `#006E4C` añadirá
+validación y simulación reproducibles sin cambiar el selector.
 
 ## 10. Transacciones, concurrencia e idempotencia
 
@@ -543,6 +579,7 @@ Limitaciones actuales:
   servicio;
 - la inactividad no puede detectarse mientras la misma instancia de API sigue
   viva; la futura interfaz debe emitir pausa o actividad explícita;
+- la alcanzabilidad global de un banco aún no se valida automáticamente;
 - el motor está diseñado para SQLite local y un único alumno.
 
 Queda fuera de alcance:
@@ -555,6 +592,10 @@ Queda fuera de alcance:
 - modificaciones curriculares;
 - métricas o certificación CEFR global;
 - borrado de historial y políticas futuras de audio.
+
+El frontend diagnóstico para el alumno se pospone hasta que un banco supere el
+contrato de alcanzabilidad. Mientras tanto, la verificación usa la herramienta
+editorial, pruebas HTTP y el futuro simulador de `#006E4C`.
 
 ## 16. Adaptador HTTP de `#006D`
 
