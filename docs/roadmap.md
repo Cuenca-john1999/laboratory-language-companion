@@ -20,16 +20,17 @@ resultados no se proyectan todavía al progreso normal.
 
 El orden de trabajo es:
 
-1. implementar en `#006E4C` validación estática y simulación reproducible de
-   alcanzabilidad;
-2. reequilibrar el banco `draft` con tareas de entrada y cobertura suficiente;
+1. `#006E4C`, completado: validación estática, escenarios y simulación
+   reproducible de alcanzabilidad;
+2. `#006E4D`: reequilibrar el banco `draft` con tareas de entrada y cobertura
+   suficiente;
 3. probar sesiones completas con escenarios correctos, incorrectos, mixtos y no
    evaluables;
 4. realizar una auditoría pedagógica final antes de `reviewed`;
 5. iniciar el frontend para el alumno solo cuando el banco sea alcanzable.
 
-Hasta entonces se usan la herramienta editorial, pruebas HTTP y el futuro
-simulador; ningún banco `draft` se ofrece en producción.
+Hasta entonces se usan la herramienta editorial, pruebas HTTP y el simulador de
+alcanzabilidad; ningún banco `draft` se ofrece en producción.
 
 ## Milestone 2 — Memoria pedagógica
 

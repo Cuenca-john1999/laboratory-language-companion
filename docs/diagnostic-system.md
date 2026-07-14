@@ -644,10 +644,11 @@ pasen. `#006B` no debe incluir el motor, y `#006C` no debe anticipar la UI. Esta
 separación mantiene revisables las decisiones con mayor riesgo.
 
 Antes de iniciar la interfaz de `#006E`, el banco textual debe superar el contrato
-de alcanzabilidad del ADR 0008. El siguiente paso técnico es `#006E4C`: validación
-estática y simulación del selector. Hasta entonces se utilizan la herramienta
-editorial y pruebas HTTP; no se expone al alumno un flujo cuyo contenido pueda
-agotarse antes de la cobertura mínima.
+de alcanzabilidad del ADR 0008. `#006E4C` ya proporciona validación estática,
+escenarios y exploración acotada del selector. El siguiente paso es corregir el
+banco `draft` en `#006E4D` hasta que esa herramienta declare readiness. Mientras
+tanto no se expone al alumno un flujo cuyo contenido pueda agotarse antes de la
+cobertura mínima.
 
 ### Implementación de `#006C`
 

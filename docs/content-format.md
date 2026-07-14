@@ -275,9 +275,9 @@ El conjunto debe ser recorrible bajo el selector real:
 - continuar no depende de respuestas perfectas.
 
 Una sesión dominada por respuestas `not_evaluable` puede finalizar parcial sin
-que el banco sea inválido. La herramienta actual todavía no comprueba estas
-invariantes globales; `#006E4C` añadirá validación estática y simulación del
-selector.
+que el banco sea inválido. `#006E4C` implementa estas comprobaciones mediante
+validación estática, diez escenarios deterministas y exploración acotada del
+selector real.
 
 ## 9. Seguridad y comportamiento de producción
 
@@ -313,14 +313,35 @@ Por defecto valida `data/diagnostic/`. También acepta un directorio:
 ```
 
 No modifica archivos. Devuelve código `0` cuando todo el conjunto valida y un
-código distinto de cero ante el primer error. En éxito imprime:
+código distinto de cero ante el primer error estructural. En éxito imprime:
 
 - número de bancos y tareas;
 - estado editorial;
 - ejes;
 - `skill_id` usados;
 - distribución de dificultad;
-- tipos de tarea.
+- tipos de tarea;
+- readiness, tareas y ejes alcanzables, límites observados y problemas concretos.
+
+Para un banco `draft`, una brecha de alcanzabilidad deja
+`ready_for_review = false`, pero conserva código `0` si la estructura es válida.
+La preparación puede exigirse explícitamente:
+
+```bash
+./scripts/validate-diagnostic-bank.sh --require-ready
+./scripts/validate-diagnostic-bank.sh --require-ready /ruta/al/banco
+```
+
+Un banco `reviewed` o `production` no alcanzable devuelve código distinto de cero
+incluso sin esa opción. El análisis ejecuta escenarios correctos, incorrectos,
+parciales, con ayuda, mixtos y no evaluables. También explora de forma
+determinista y memoizada las categorías del motor con un límite de estados. Si
+alcanza ese límite, conserva los resultados parciales, informa
+`exploration_inconclusive` y nunca declara readiness.
+
+Una tarea permanentemente inalcanzable no fue seleccionada en ninguna trayectoria
+de una exploración conclusiva. Si la exploración es inconclusa, el informe no
+presenta como probada esa ausencia.
 
 Los errores incluyen archivo y ubicación editorial, pero no se muestran por la
 API HTTP.

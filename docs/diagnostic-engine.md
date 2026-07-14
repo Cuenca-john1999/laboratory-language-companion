@@ -461,9 +461,15 @@ ni que escenarios ordinarios alcancen diez evidencias evaluables.
 También deben descartarse tareas permanentemente inalcanzables y callejones por
 prerrequisitos, repetición de tipos o límites. No se exige que una sesión con
 respuestas vacías o no evaluables produzca cobertura completa: ese cierre parcial
-describe evidencia insuficiente, no necesariamente un banco inválido. Estas
-invariantes están documentadas pero todavía no automatizadas; `#006E4C` añadirá
-validación y simulación reproducibles sin cambiar el selector.
+describe evidencia insuficiente, no necesariamente un banco inválido.
+
+`deutschos_api.content.diagnostic_reachability` automatiza estas invariantes sin
+alterar el runtime. Convierte el banco validado a `TaskCandidate`, llama a
+`select_next_task` y `decide_stop`, ejecuta escenarios cerrados y explora un
+grafo acotado de resultados. La firma memoizada conserva tareas y equivalencias
+presentadas, prerrequisitos positivos relevantes, evidencia necesaria para
+dificultad y contradicciones, cobertura, últimos tipos y desempates. Si agota el
+límite de estados, el resultado es inconcluso y no puede aprobar readiness.
 
 ## 10. Transacciones, concurrencia e idempotencia
 
@@ -579,7 +585,8 @@ Limitaciones actuales:
   servicio;
 - la inactividad no puede detectarse mientras la misma instancia de API sigue
   viva; la futura interfaz debe emitir pausa o actividad explícita;
-- la alcanzabilidad global de un banco aún no se valida automáticamente;
+- la exploración editorial está acotada y puede requerir aumentar su límite en
+  bancos futuros mucho mayores;
 - el motor está diseñado para SQLite local y un único alumno.
 
 Queda fuera de alcance:
@@ -595,7 +602,7 @@ Queda fuera de alcance:
 
 El frontend diagnóstico para el alumno se pospone hasta que un banco supere el
 contrato de alcanzabilidad. Mientras tanto, la verificación usa la herramienta
-editorial, pruebas HTTP y el futuro simulador de `#006E4C`.
+editorial, pruebas HTTP y el simulador implementado en `#006E4C`.
 
 ## 16. Adaptador HTTP de `#006D`
 
