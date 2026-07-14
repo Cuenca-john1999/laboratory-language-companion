@@ -2,7 +2,7 @@
 
 ## 1. Objetivo y alcance
 
-DeutschOS reserva una estructura local y versionable para contenido pedagógico:
+DeutschOS mantiene el contenido pedagógico local bajo:
 
 ```text
 data/
@@ -12,178 +12,262 @@ data/
 └── review/
 ```
 
-`#006E0` implementa únicamente el contrato JSON y el cargador de
-`data/diagnostic/`. Los otros directorios son puntos de extensión; todavía no
-tienen esquemas ni contenido. No hay preguntas de producción en el repositorio.
+`data/diagnostic/` es la ubicación autorizada para bancos diagnósticos. Los
+otros directorios siguen reservados para contratos posteriores. Esta
+infraestructura no contiene preguntas reales, no usa red y no habilita LLM,
+audio, frontend ni proyección al progreso.
 
-Se eligió JSON porque el proyecto ya lo usa en persistencia y contratos, Python
-lo puede leer sin dependencias nuevas y Pydantic puede generar JSON Schema a
-partir del mismo modelo que valida la ejecución.
+Se conserva `data/` porque ya separa de forma clara contenido versionable,
+datos locales y código, funciona desde el SSD externo y no presenta un riesgo
+técnico que justifique una migración estética a otra carpeta.
 
-## 2. Archivo de banco diagnóstico
+## 2. Unidad de publicación
 
-Cada archivo `*.json` situado directamente en `data/diagnostic/` representa una
-parte del banco. Los subdirectorios no se recorren. El documento raíz usa este
-contrato:
+Un banco consta de:
+
+1. un manifiesto situado directamente en `data/diagnostic/` y terminado en
+   `.bank.json`;
+2. uno o más archivos de tareas terminados en `.tasks.json` y declarados por el
+   manifiesto.
+
+El cargador no interpreta cualquier JSON como contenido. Rechaza archivos
+huérfanos, archivos no declarados y manifiestos que apunten fuera del directorio
+autorizado. Ensambla y valida el conjunto completo antes de devolver candidatos;
+nunca ofrece una carga parcial.
+
+## 3. Manifiesto
+
+El esquema actual es `diagnostic-bank-manifest.v1`. Su forma es:
 
 ```json
 {
-  "schema_version": "diagnostic-task-bank.v1",
+  "schema_version": "diagnostic-bank-manifest.v1",
+  "bank_id": "<identificador-estable>",
+  "bank_version": "<version-del-banco>",
   "diagnostic_version": "diagnostic-text.v1",
-  "bank_version": "<release-del-archivo>",
+  "target_language": "de",
+  "levels": ["pre-A1", "A1"],
+  "modalities": ["text"],
+  "axes": ["<eje-declarado>"],
+  "editorial_status": "draft",
+  "files": [
+    {
+      "path": "<nombre>.tasks.json",
+      "sha256": null
+    }
+  ],
+  "minimum_compatibility": {
+    "application_version": "0.3.0",
+    "diagnostic_engine_version": "diagnostic-engine.v1",
+    "curriculum_version": "a0-a1.v1"
+  },
+  "editorial_notes": "<notas-para-revisión>"
+}
+```
+
+El fragmento describe estructura; no constituye un banco ni contenido listo
+para Jhon.
+
+### Campos del manifiesto
+
+| Campo | Regla |
+| --- | --- |
+| `bank_id` | Identidad estable en minúsculas; no cambia entre revisiones del mismo banco |
+| `bank_version` | Publicación editorial del banco |
+| `schema_version` | Contrato de serialización; versiones desconocidas se rechazan |
+| `diagnostic_version` | Versión de sesión compatible; nunca se mezclan versiones |
+| `target_language` | `de` en texto v1 |
+| `levels` | Bandas cubiertas realmente por las tareas: `pre-A1` y/o `A1` |
+| `modalities` | Exactamente `text` en v1 |
+| `axes` | Ejes primarios y secundarios realmente presentes |
+| `editorial_status` | `draft`, `reviewed`, `production` o `deprecated` |
+| `files` | Lista cerrada de archivos relativos `.tasks.json` |
+| `minimum_compatibility` | Aplicación, motor y currículo mínimos admitidos |
+| `editorial_notes` | Decisiones, revisión pendiente y contexto de publicación |
+
+Los niveles, modalidades y ejes declarados deben coincidir con las tareas. Un
+manifiesto no puede prometer cobertura que sus archivos no contengan.
+
+## 4. Estados editoriales
+
+- `draft`: trabajo editable; nunca disponible para el alumno.
+- `reviewed`: revisión pedagógica realizada, pero aún no publicado.
+- `production`: única fuente que el proveedor de la API puede exponer.
+- `deprecated`: histórico no seleccionable.
+
+Pasar a `production` exige al menos un archivo, tareas deterministas y un SHA-256
+válido por archivo declarado. Los checksums son opcionales durante `draft` y
+`reviewed` para no convertir cada edición en trabajo mecánico. Si se proporciona
+uno en cualquier estado, siempre se verifica.
+
+No existe actualmente ningún manifiesto en el repositorio y, por tanto, ningún
+banco `production`. La API mantiene su `503` conocido.
+
+## 5. Archivo de tareas
+
+Cada archivo declarado usa `diagnostic-task-file.v1`:
+
+```json
+{
+  "schema_version": "diagnostic-task-file.v1",
+  "bank_id": "<mismo-bank-id-del-manifiesto>",
   "tasks": []
 }
 ```
 
-Un banco vacío es válido como documento, pero no habilita el diagnóstico. Si el
-conjunto completo no contiene tareas, la API continúa devolviendo `503` con el
-mismo mensaje que antes de existir el cargador.
+`bank_id` impide asociar accidentalmente un fragmento con otro banco. Un mismo
+archivo no puede declararse dos veces ni pertenecer a dos manifiestos.
 
-## 3. Contrato de tarea
+## 6. Contrato de tarea
 
-Cada elemento futuro de `tasks` deberá contener al menos:
+Una tarea separa explícitamente tres ámbitos:
 
-| Campo | Tipo | Regla |
-| --- | --- | --- |
-| `id` | string | Identidad estable, minúsculas, números, punto, guion o `_` |
-| `version` | string | Versión inmutable de esa tarea |
-| `axis` | enum | Eje diagnóstico existente |
-| `skill_id` | integer o `null` | Dimensión curricular opcional, pero el campo es obligatorio |
-| `task_type` | enum | Tipo de tarea admitido por el motor |
-| `difficulty` | integer | Entero entre 1 y 5 |
-| `prompt` | string | Texto visible, no vacío |
-| `expected_response_type` | enum | `single_choice`, `short_text`, `ordered_tokens` o `free_text` |
-| `rubric_version` | string | Versión del contrato evaluador |
-| `metadata` | objeto | Metadatos estrictos de selección y trazabilidad |
-| `estimated_seconds` | integer | Entre 5 y 600 segundos |
+- `public`: instrucciones, prompt y opciones que puede recibir el alumno;
+- `private`: rúbrica y claves usadas por el evaluador;
+- `editorial`: tags y notas de autoría que nunca llegan al motor ni al cliente.
 
-El formato v1 añade campos necesarios para materializar un `TaskCandidate`:
+El resto del objeto contiene identidad, selección y compatibilidad:
 
-- `secondary_axes`: ejes secundarios, vacío por defecto;
-- `options`: opciones visibles; solo se permiten para `single_choice`;
-- `rubric`: definición privada de evaluación determinista.
+| Campo | Tipo o límite |
+| --- | --- |
+| `id` | ID estable, 2–100 caracteres permitidos |
+| `version` | Versión de la tarea |
+| `level` | `pre-A1` o `A1` |
+| `axis` | `DiagnosticAxis` existente |
+| `secondary_axes` | Ejes adicionales textuales, sin duplicados |
+| `skill_id` | Entero positivo o `null`; el campo es obligatorio |
+| `task_type` | `DiagnosticTaskType` existente |
+| `difficulty` | Entero 1–5 |
+| `modality` | Literal `text` |
+| `response_type` | `single_choice`, `short_text`, `ordered_tokens` o `free_text` |
+| `estimated_seconds` | 5–600 |
+| `prerequisites` | IDs presentes en el mismo banco |
+| `equivalence_group` | Grupo estable que mide la misma dimensión |
+| `ambiguity_risk` | `low`, `medium` o `high` |
+| `scoring_mode` | `deterministic` o `manual` |
+| `rubric_version` | Versión independiente de la semántica evaluadora |
+| `public` | Contenido visible estricto |
+| `private` | Rúbrica estricta |
+| `metadata` | Tema y contexto no sensibles |
+| `editorial` | Tags y `authoring_notes` |
 
-El siguiente fragmento muestra solo la forma, no una pregunta ni una respuesta
-pedagógica real:
+El formato admite representar `manual` únicamente para preparación editorial
+futura, pero un banco `production` de la versión actual solo puede contener
+`deterministic`. Esto no incorpora un evaluador manual ni LLM.
 
-```json
-{
-  "id": "<identificador-estable>",
-  "version": "<version-de-tarea>",
-  "axis": "<eje-diagnostico>",
-  "secondary_axes": [],
-  "skill_id": null,
-  "task_type": "<tipo-de-tarea>",
-  "difficulty": 1,
-  "prompt": "<contenido-pedagogico-pendiente>",
-  "expected_response_type": "<tipo-de-respuesta>",
-  "rubric_version": "<version-de-rubrica>",
-  "metadata": {
-    "equivalence_key": null,
-    "prerequisite_task_ids": [],
-    "ambiguity_risk": "low",
-    "tags": []
-  },
-  "estimated_seconds": 30,
-  "options": [],
-  "rubric": {
-    "strategy": "manual_only",
-    "accepted_responses": [],
-    "partial_responses": [],
-    "expected_tokens": [],
-    "case_sensitive": false
-  }
-}
-```
+## 7. Rúbricas y scoring
 
-Este ejemplo estructural no debe copiarse como contenido de producción. Además,
-la combinación mostrada solo sería válida con
-`expected_response_type = free_text`; el validador rechaza combinaciones
-incoherentes.
-
-## 4. Rúbrica y separación público/privado
-
-Las estrategias v1 coinciden con el motor determinista:
+Las estrategias reutilizan `RubricStrategy` del motor:
 
 - `exact_match`;
 - `accepted_answers`;
 - `ordered_tokens`;
-- `manual_only`, reservado para compatibilidad futura con texto libre.
+- `manual_only`.
 
-Las claves correctas viven únicamente en `rubric`. El adaptador las transforma
-en `expected_answer` y `DeterministicRubric` internos. La respuesta HTTP se
-construye campo por campo y solo copia `prompt` y `options`; nunca expone la
-rúbrica, respuestas aceptadas, equivalencias, prerrequisitos o razón de
-selección.
+El validador cruza `response_type`, `scoring_mode`, opciones y rúbrica. Entre
+otras condiciones:
 
-Una tarea `manual_only` puede representarse para compatibilidad futura, pero el
-selector determinista actual no la presenta como autoevaluable. No implica que
-exista ya un evaluador LLM.
+- selección única necesita al menos dos opciones públicas únicas;
+- respuestas correctas o parciales deben existir entre esas opciones;
+- tokens ordenados necesitan una clave de tokens;
+- scoring determinista no acepta `manual_only`;
+- scoring manual solo acepta `manual_only`;
+- producción no admite tareas no deterministas.
 
-## 5. Versionado
+La conversión a `TaskCandidate` copia únicamente `public.instructions`,
+`public.prompt` y opciones al contenido presentable. Rúbrica, respuestas,
+prerrequisitos, equivalencia, tags y notas editoriales permanecen privados. El
+adaptador HTTP mantiene además su lista defensiva de claves reservadas.
 
-Existen cuatro referencias con responsabilidades distintas:
+## 8. Validación relacional
 
-1. `schema_version` cambia solo cuando cambia la forma del JSON. Un cargador v1
-   rechaza otra versión en vez de adivinarla.
-2. `diagnostic_version` agrupa las tareas compatibles con una sesión. El
-   proveedor nunca mezcla versiones.
-3. `bank_version` identifica la publicación del archivo para revisión y Git.
-4. `task.version` cambia cuando se altera prompt, opciones, respuesta o
-   significado. Un `id` mantiene su identidad y no puede aparecer dos veces en
-   la misma versión diagnóstica.
+Pydantic rechaza campos extra, campos ausentes, enums desconocidos y límites
+inválidos. El cargador añade validaciones del conjunto:
 
-`rubric_version` versiona de forma independiente la semántica de evaluación. El
-cargador la conserva dentro del snapshot privado de respuesta esperada.
+- `bank_id` y task IDs duplicados;
+- versiones de esquema, aplicación, motor o currículo incompatibles;
+- archivo declarado ausente, repetido o con `bank_id` diferente;
+- JSON malformado con archivo, línea y columna;
+- errores Pydantic con archivo y ruta del campo;
+- paths absolutos, `..`, barras no portables y symlinks;
+- JSON no declarado;
+- SHA-256 ausente en producción o incorrecto;
+- máximo de 2 MiB por archivo y 16 MiB para la carga completa;
+- modalidades o ejes no textuales;
+- niveles, modalidades y ejes del manifiesto incoherentes;
+- prerrequisitos ausentes;
+- `skill_id` fuera de `a0-a1.v1`;
+- un grupo de equivalencia que mezcle eje o habilidad;
+- rúbrica no evaluable declarada como determinista;
+- IDs y orden de candidatos reproducibles.
 
-Los cambios incompatibles requieren un nuevo `schema_version` y una ruta de
-migración explícita. No se relaja el modelo v1 con campos desconocidos.
+La API contrasta `skill_id` mediante una lectura de `CurriculumSkill`. La
+herramienta editorial abre SQLite en modo de solo lectura. Ninguna validación
+crea o modifica filas.
 
-## 6. Validación y carga
+## 9. Seguridad y comportamiento de producción
 
-Los modelos viven en
-`deutschos_api.content.diagnostic.DiagnosticTaskBank` y
-`DiagnosticTaskDefinition`. Todos heredan el comportamiento estricto de
-`APIModel`:
+El cargador usa exclusivamente `pathlib`, `json`, `hashlib` y Pydantic. No hace
+peticiones de red, no ejecuta contenido, no importa módulos declarados por los
+archivos y no emite telemetría.
 
-- rechazan campos extra y campos obligatorios ausentes;
-- validan enums, identificadores y límites;
-- comprueban la compatibilidad entre tipo de respuesta y rúbrica;
-- impiden opciones duplicadas, auto-prerrequisitos y metadatos duplicados;
-- rechazan IDs repetidos entre archivos de una misma versión;
-- exigen que los prerrequisitos existan dentro de esa versión diagnóstica;
-- limitan cada archivo a 2 MiB;
-- leen UTF-8 y ordenan archivos y candidatos de forma determinista.
+Toda ruta se resuelve dentro del directorio autorizado. Los archivos simbólicos
+se rechazan incluso si parecen apuntar dentro, evitando que su destino cambie
+entre revisiones. Cualquier error aborta la construcción completa del proveedor.
 
-`FilesystemCandidateProvider.from_directory()` valida el conjunto completo antes
-de ofrecer ningún candidato. Un archivo malformado hace que la dependencia HTTP
-devuelva un `503` sanitizado; no se cargan parcialmente los demás archivos ni se
-incluye la ruta interna en la respuesta.
+Los errores editoriales conservan archivo y ubicación para uso local. La API no
+reenvía esos detalles: responde con un `503` sanitizado. El cargador no procesa
+respuestas del alumno y no añade logs con prompts, rúbricas o datos personales.
 
-El modelo Pydantic es la fuente de verdad y permite obtener JSON Schema mediante
-`DiagnosticTaskBank.model_json_schema()`. Si en el futuro se publica un archivo
-de schema, deberá generarse o comprobarse contra ese modelo para evitar dos
-contratos divergentes.
+En producción, `FilesystemCandidateProvider` selecciona únicamente bancos
+`production`. `draft`, `reviewed` y `deprecated` no pueden aparecer al usuario.
+Los proveedores sintéticos continúan siendo dependencias de prueba y nunca se
+guardan en `data/diagnostic/`.
 
-## 7. Integración y compatibilidad futura
+## 10. Herramienta editorial
 
-FastAPI resuelve el proveedor desde la raíz del repositorio, no desde el
-directorio de ejecución. Esto mantiene la ruta válida cuando DeutschOS vive en
-el SSD externo. El proveedor implementa el protocolo `CandidateProvider` y no
-modifica el selector, scoring, agregación ni persistencia.
+El comando independiente es:
 
-Compatibilidad prevista:
+```bash
+./scripts/validate-diagnostic-bank.sh
+```
 
-- nuevos bancos JSON pueden repartirse en varios archivos sin cambiar el
-  proveedor;
-- una versión futura puede añadir localización del prompt mediante un schema
-  nuevo;
-- audio y voz necesitarán campos y validadores propios, no metadatos libres en
-  v1;
-- una referencia estable por código curricular podría complementar
-  `skill_id` en otro schema, pero no se infiere ahora;
-- currículo, lecciones y repaso necesitarán contratos independientes antes de
-  aceptar archivos en sus directorios.
+Por defecto valida `data/diagnostic/`. También acepta un directorio:
 
-El formato no habilita frontend, LLM, audio, Learning Engine ni proyección a
-`StudentSkill` o `SkillEvidence`.
+```bash
+./scripts/validate-diagnostic-bank.sh /ruta/al/banco
+```
+
+No modifica archivos. Devuelve código `0` cuando todo el conjunto valida y un
+código distinto de cero ante el primer error. En éxito imprime:
+
+- número de bancos y tareas;
+- estado editorial;
+- ejes;
+- `skill_id` usados;
+- distribución de dificultad;
+- tipos de tarea.
+
+Los errores incluyen archivo y ubicación editorial, pero no se muestran por la
+API HTTP.
+
+## 11. Versionado y evolución
+
+Las versiones tienen responsabilidades independientes:
+
+1. `schema_version` cambia con la forma del manifiesto o archivo de tareas.
+2. `bank_version` identifica una publicación editorial.
+3. `diagnostic_version` agrupa candidatos compatibles con una sesión.
+4. `task.version` cambia al alterar contenido o significado.
+5. `rubric_version` cambia al alterar la evaluación.
+6. `minimum_compatibility` impide cargar contenido para otro runtime.
+
+Los cambios incompatibles requieren un schema nuevo. No se usará
+`extra="ignore"` para simular compatibilidad. Audio y voz necesitarán otro
+contrato; no se introducirán como metadata libre. Si una futura versión usa
+referencias curriculares estables por código, deberá añadirlas explícitamente y
+definir la transición desde `skill_id`.
+
+Se mantiene el nombre `docs/content-format.md` porque ya es el punto de entrada
+versionado y no existe una razón técnica para romper enlaces o duplicar la
+documentación.

@@ -609,6 +609,7 @@ Ollama.
 `CandidateProvider` se resuelve por dependencia. Los tests inyectan un conjunto
 mínimo y determinista; no forma parte del contenido para Jhon. La dependencia de
 producción devuelve `503` con un mensaje claro hasta que exista un banco
-pedagógico versionado y revisado. Por ello, en el estado actual todas las rutas
+pedagógico versionado con estado editorial `production`. Los bancos `draft`,
+`reviewed` y `deprecated` no son seleccionables. Por ello, en el estado actual todas las rutas
 diagnósticas permanecen cerradas de forma segura en una instalación normal. El
 frontend futuro no debe sustituir esta ausencia con tareas inventadas.

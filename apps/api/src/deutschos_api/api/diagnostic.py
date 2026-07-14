@@ -11,6 +11,7 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 from pydantic import JsonValue, ValidationError
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,8 @@ from deutschos_api.diagnostic_engine.schemas import (
     TaskReceipt,
 )
 from deutschos_api.diagnostic_engine.service import DiagnosticEngineService
+from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION
+from deutschos_api.models import CurriculumSkill
 from deutschos_api.schemas.diagnostic_api import (
     DiagnosticAxisResultPublic,
     DiagnosticCorrectionRequest,
@@ -104,15 +107,32 @@ class _PublicSafeCandidateProvider:
         return candidates
 
 
-def get_diagnostic_candidate_provider() -> CandidateProvider:
-    """Load the local bank, remaining unavailable until it has reviewed tasks."""
+def get_diagnostic_candidate_provider(
+    db: Session = Depends(get_db),
+) -> CandidateProvider:
+    """Load the local bank, remaining unavailable until it has production tasks."""
 
     try:
-        provider = FilesystemCandidateProvider.from_directory(DIAGNOSTIC_CONTENT_DIRECTORY)
+        skill_ids = set(
+            db.scalars(
+                select(CurriculumSkill.skill_id).where(
+                    CurriculumSkill.curriculum_version == CURRICULUM_VERSION
+                )
+            ).all()
+        )
+        provider = FilesystemCandidateProvider.from_directory(
+            DIAGNOSTIC_CONTENT_DIRECTORY,
+            curriculum_skill_ids={CURRICULUM_VERSION: skill_ids},
+        )
     except DiagnosticContentError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="El banco diagnóstico local no supera la validación.",
+        ) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="La validación curricular local no está disponible.",
         ) from exc
     if not provider.has_candidates:
         raise HTTPException(

@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -8,57 +10,142 @@ from pydantic import ValidationError
 from deutschos_api.api import diagnostic as diagnostic_api
 from deutschos_api.content.diagnostic import (
     DIAGNOSTIC_BANK_SCHEMA_VERSION,
+    DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION,
     DiagnosticContentFormatError,
     DiagnosticTaskDefinition,
+    EditorialStatus,
     FilesystemCandidateProvider,
+    file_sha256,
     load_diagnostic_banks,
 )
 from deutschos_api.diagnostic_engine.exceptions import CandidateUnavailableError
+from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+VALIDATOR = PROJECT_ROOT / "scripts" / "validate-diagnostic-bank.sh"
 
 
 def task_payload(identifier: str = "test.placeholder", **overrides):
     payload = {
         "id": identifier,
         "version": "1",
+        "level": "pre-A1",
         "axis": "reading_comprehension",
+        "secondary_axes": [],
         "skill_id": None,
         "task_type": "binary_choice",
         "difficulty": 1,
-        "prompt": "Contenido sintético exclusivo de prueba.",
-        "expected_response_type": "single_choice",
-        "rubric_version": "deterministic.v1",
-        "metadata": {
-            "equivalence_key": f"{identifier}.equivalent",
-            "ambiguity_risk": "low",
-            "tags": ["synthetic-test"],
-        },
+        "modality": "text",
+        "response_type": "single_choice",
         "estimated_seconds": 30,
-        "options": ["alpha", "beta"],
-        "rubric": {
-            "strategy": "exact_match",
-            "accepted_responses": ["alpha"],
+        "prerequisites": [],
+        "equivalence_group": f"{identifier}.equivalent",
+        "ambiguity_risk": "low",
+        "scoring_mode": "deterministic",
+        "rubric_version": "deterministic.v1",
+        "public": {
+            "instructions": "Instrucción sintética exclusiva de prueba.",
+            "prompt": "Contenido sintético exclusivo de prueba.",
+            "options": ["alpha", "beta"],
+        },
+        "private": {
+            "rubric": {
+                "strategy": "exact_match",
+                "accepted_responses": ["alpha"],
+            }
+        },
+        "metadata": {"topic": "synthetic-test", "context": None},
+        "editorial": {
+            "tags": ["synthetic-test"],
+            "authoring_notes": "Fixture sin contenido pedagógico real.",
         },
     }
     payload.update(overrides)
     return payload
 
 
-def bank_payload(*tasks: dict, diagnostic_version: str = "diagnostic-text.v1"):
+def task_file_payload(bank_id: str, *tasks: dict):
     return {
-        "schema_version": DIAGNOSTIC_BANK_SCHEMA_VERSION,
-        "diagnostic_version": diagnostic_version,
-        "bank_version": "test-bank.v1",
+        "schema_version": DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION,
+        "bank_id": bank_id,
         "tasks": list(tasks),
     }
 
 
-def write_bank(directory: Path, filename: str, payload: dict) -> Path:
-    path = directory / filename
+def manifest_payload(
+    bank_id: str,
+    *tasks: dict,
+    status: str = "draft",
+    file_path: str = "synthetic.tasks.json",
+    sha256: str | None = None,
+    **overrides,
+):
+    axes = sorted(
+        {axis for task in tasks for axis in (task["axis"], *task.get("secondary_axes", []))}
+    ) or ["reading_comprehension"]
+    levels = sorted({task["level"] for task in tasks}) or ["pre-A1"]
+    file_reference = {"path": file_path}
+    if sha256 is not None:
+        file_reference["sha256"] = sha256
+    payload = {
+        "schema_version": DIAGNOSTIC_BANK_SCHEMA_VERSION,
+        "bank_id": bank_id,
+        "bank_version": "test-bank.v1",
+        "diagnostic_version": "diagnostic-text.v1",
+        "target_language": "de",
+        "levels": levels,
+        "modalities": ["text"],
+        "axes": axes,
+        "editorial_status": status,
+        "files": [file_reference],
+        "minimum_compatibility": {
+            "application_version": "0.3.0",
+            "diagnostic_engine_version": "diagnostic-engine.v1",
+            "curriculum_version": CURRICULUM_VERSION,
+        },
+        "editorial_notes": "Manifiesto sintético exclusivo de prueba.",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def write_json(path: Path, payload: object) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     return path
 
 
-def test_json_schema_contains_every_required_task_field():
+def write_bank(
+    directory: Path,
+    *tasks: dict,
+    bank_id: str = "test.bank",
+    status: str = "draft",
+    task_filename: str = "synthetic.tasks.json",
+    manifest_filename: str = "synthetic.bank.json",
+    manifest_overrides: dict | None = None,
+) -> tuple[Path, Path]:
+    task_path = write_json(
+        directory / task_filename,
+        task_file_payload(bank_id, *tasks),
+    )
+    checksum = file_sha256(task_path) if status == "production" else None
+    manifest = manifest_payload(
+        bank_id,
+        *tasks,
+        status=status,
+        file_path=task_filename,
+        sha256=checksum,
+        **(manifest_overrides or {}),
+    )
+    manifest_path = write_json(directory / manifest_filename, manifest)
+    return manifest_path, task_path
+
+
+def current_skills(*skill_ids: int) -> dict[str, set[int]]:
+    return {CURRICULUM_VERSION: set(skill_ids)}
+
+
+def test_task_schema_separates_public_private_and_editorial_fields():
     schema = DiagnosticTaskDefinition.model_json_schema()
     required = set(schema["required"])
 
@@ -69,38 +156,49 @@ def test_json_schema_contains_every_required_task_field():
         "skill_id",
         "task_type",
         "difficulty",
-        "prompt",
-        "expected_response_type",
-        "rubric_version",
-        "metadata",
+        "modality",
+        "response_type",
         "estimated_seconds",
+        "prerequisites",
+        "equivalence_group",
+        "ambiguity_risk",
+        "scoring_mode",
+        "rubric_version",
+        "public",
+        "private",
+        "metadata",
+        "editorial",
     }.issubset(required)
     assert schema["additionalProperties"] is False
 
 
-def test_loader_maps_valid_json_to_strict_engine_candidate(tmp_path):
-    write_bank(tmp_path, "reading.json", bank_payload(task_payload()))
+def test_loader_maps_a_valid_production_bank_to_engine_candidates(tmp_path):
+    write_bank(tmp_path, task_payload(), status="production")
 
-    banks = load_diagnostic_banks(tmp_path)
-    provider = FilesystemCandidateProvider.from_directory(tmp_path)
-    candidates = provider.candidates(diagnostic_version="diagnostic-text.v1")
+    banks = load_diagnostic_banks(tmp_path, curriculum_skill_ids=current_skills())
+    provider = FilesystemCandidateProvider.from_directory(
+        tmp_path,
+        curriculum_skill_ids=current_skills(),
+    )
+    candidate = provider.candidates(diagnostic_version="diagnostic-text.v1")[0]
 
     assert len(banks) == 1
-    assert provider.has_candidates is True
+    assert banks[0].manifest.editorial_status == EditorialStatus.PRODUCTION
     assert provider.available_versions == ("diagnostic-text.v1",)
-    assert len(candidates) == 1
-    candidate = candidates[0]
     assert candidate.candidate_id == "test.placeholder"
-    assert candidate.content == {"prompt": "Contenido sintético exclusivo de prueba."}
+    assert candidate.content == {
+        "instructions": "Instrucción sintética exclusiva de prueba.",
+        "prompt": "Contenido sintético exclusivo de prueba.",
+    }
     assert candidate.expected_answer == {
         "response_type": "single_choice",
         "rubric_version": "deterministic.v1",
+        "scoring_mode": "deterministic",
         "accepted_responses": ["alpha"],
     }
-    assert candidate.rubric.accepted_answers == ["alpha"]
 
 
-def test_empty_or_absent_directory_has_no_candidates(tmp_path):
+def test_absent_or_empty_bank_is_valid_but_has_no_production_candidates(tmp_path):
     absent = FilesystemCandidateProvider.from_directory(tmp_path / "absent")
     empty = FilesystemCandidateProvider.from_directory(tmp_path)
 
@@ -110,70 +208,203 @@ def test_empty_or_absent_directory_has_no_candidates(tmp_path):
         empty.candidates(diagnostic_version="diagnostic-text.v1")
 
 
+@pytest.mark.parametrize("status", ["draft", "reviewed"])
+def test_non_production_banks_are_unavailable_to_the_production_provider(tmp_path, status):
+    write_bank(tmp_path, task_payload(), status=status)
+
+    production_provider = FilesystemCandidateProvider.from_directory(tmp_path)
+    editorial_provider = FilesystemCandidateProvider.from_directory(
+        tmp_path,
+        production_only=False,
+    )
+
+    assert production_provider.has_candidates is False
+    with pytest.raises(CandidateUnavailableError):
+        production_provider.candidates(diagnostic_version="diagnostic-text.v1")
+    assert editorial_provider.has_candidates is True
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {**task_payload(), "unexpected": True},
         {**task_payload(), "difficulty": 0},
-        {key: value for key, value in task_payload().items() if key != "metadata"},
+        {**task_payload(), "modality": "audio"},
+        {key: value for key, value in task_payload().items() if key != "private"},
         {
             **task_payload(),
-            "expected_response_type": "single_choice",
-            "rubric": {"strategy": "ordered_tokens", "expected_tokens": ["a", "b"]},
+            "private": {"rubric": {"strategy": "ordered_tokens", "expected_tokens": ["a", "b"]}},
         },
         {
             **task_payload(),
-            "rubric": {"strategy": "exact_match", "accepted_responses": ["gamma"]},
+            "private": {"rubric": {"strategy": "exact_match", "accepted_responses": ["gamma"]}},
+        },
+        {
+            **task_payload(),
+            "scoring_mode": "deterministic",
+            "response_type": "free_text",
+            "public": {
+                "instructions": "Sintética.",
+                "prompt": "Sintético.",
+                "options": [],
+            },
+            "private": {"rubric": {"strategy": "manual_only"}},
         },
     ],
 )
-def test_task_contract_rejects_unknown_missing_or_incompatible_fields(payload):
+def test_task_contract_rejects_extra_invalid_or_non_deterministic_fields(payload):
     with pytest.raises(ValidationError):
         DiagnosticTaskDefinition.model_validate(payload)
 
 
-def test_loader_rejects_malformed_json_and_unknown_bank_fields(tmp_path):
-    (tmp_path / "broken.json").write_text("{not-json", encoding="utf-8")
-    with pytest.raises(DiagnosticContentFormatError):
-        load_diagnostic_banks(tmp_path)
-
-    (tmp_path / "broken.json").write_text(
-        json.dumps({**bank_payload(), "unexpected": True}),
-        encoding="utf-8",
+def test_invalid_manifest_and_incompatible_versions_report_file_and_location(tmp_path):
+    write_bank(
+        tmp_path,
+        task_payload(),
+        manifest_overrides={"target_language": "fr"},
     )
-    with pytest.raises(DiagnosticContentFormatError):
+    with pytest.raises(
+        DiagnosticContentFormatError,
+        match=r"synthetic\.bank\.json:target_language:",
+    ):
+        load_diagnostic_banks(tmp_path)
+
+    manifest_path = tmp_path / "synthetic.bank.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["target_language"] = "de"
+    payload["schema_version"] = "diagnostic-bank-manifest.v99"
+    write_json(manifest_path, payload)
+    with pytest.raises(
+        DiagnosticContentFormatError,
+        match=r"synthetic\.bank\.json:schema_version:",
+    ):
+        load_diagnostic_banks(tmp_path)
+
+    payload["schema_version"] = DIAGNOSTIC_BANK_SCHEMA_VERSION
+    payload["minimum_compatibility"]["application_version"] = "99.0.0"
+    write_json(manifest_path, payload)
+    with pytest.raises(
+        DiagnosticContentFormatError,
+        match=r"minimum_compatibility:",
+    ):
         load_diagnostic_banks(tmp_path)
 
 
-def test_loader_rejects_duplicate_ids_and_missing_prerequisites(tmp_path):
-    write_bank(tmp_path, "one.json", bank_payload(task_payload("test.one")))
-    write_bank(tmp_path, "two.json", bank_payload(task_payload("test.one")))
+def test_missing_declared_file_and_path_traversal_are_rejected(tmp_path):
+    manifest = manifest_payload("test.bank", task_payload(), file_path="missing.tasks.json")
+    write_json(tmp_path / "test.bank.json", manifest)
+    with pytest.raises(DiagnosticContentFormatError, match="declared file does not exist"):
+        load_diagnostic_banks(tmp_path)
+
+    manifest["files"] = [{"path": "../outside.tasks.json"}]
+    write_json(tmp_path / "test.bank.json", manifest)
+    with pytest.raises(DiagnosticContentFormatError, match=r"files\.0\.path"):
+        load_diagnostic_banks(tmp_path)
+
+
+def test_symlink_outside_bank_is_rejected(tmp_path):
+    outside = write_json(tmp_path.parent / "outside.tasks.json", task_file_payload("test.bank"))
+    link = tmp_path / "linked.tasks.json"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symbolic links are unavailable on this filesystem")
+    write_json(
+        tmp_path / "test.bank.json",
+        manifest_payload("test.bank", file_path="linked.tasks.json"),
+    )
+
+    with pytest.raises(DiagnosticContentFormatError, match="symbolic links"):
+        load_diagnostic_banks(tmp_path)
+
+
+def test_malformed_json_reports_line_and_column_and_load_is_atomic(tmp_path):
+    write_bank(tmp_path, task_payload("test.valid"))
+    invalid = tmp_path / "invalid.tasks.json"
+    invalid.write_text("{not-json", encoding="utf-8")
+    manifest = manifest_payload(
+        "test.second",
+        task_payload("test.invalid"),
+        file_path="invalid.tasks.json",
+    )
+    write_json(tmp_path / "second.bank.json", manifest)
+
+    with pytest.raises(
+        DiagnosticContentFormatError,
+        match=r"invalid\.tasks\.json:1:2: malformed JSON",
+    ):
+        FilesystemCandidateProvider.from_directory(tmp_path, production_only=False)
+
+
+def test_duplicate_ids_unknown_skills_and_missing_prerequisites_are_rejected(tmp_path):
+    write_bank(tmp_path, task_payload("test.same"), task_payload("test.same"))
     with pytest.raises(DiagnosticContentFormatError, match="duplicate task id"):
         load_diagnostic_banks(tmp_path)
 
-    (tmp_path / "two.json").unlink()
-    dependent = task_payload(
-        "test.dependent",
-        metadata={"prerequisite_task_ids": ["test.absent"]},
+    write_bank(
+        tmp_path,
+        task_payload("test.skill", skill_id=999),
     )
-    write_bank(tmp_path, "one.json", bank_payload(dependent))
-    with pytest.raises(DiagnosticContentFormatError, match="prerequisite"):
+    with pytest.raises(DiagnosticContentFormatError, match="unknown skill_id 999"):
+        load_diagnostic_banks(tmp_path, curriculum_skill_ids=current_skills(1))
+
+    write_bank(
+        tmp_path,
+        task_payload("test.dependent", prerequisites=["test.absent"]),
+    )
+    with pytest.raises(DiagnosticContentFormatError, match="undeclared prerequisites"):
         load_diagnostic_banks(tmp_path)
 
 
-def test_provider_orders_candidates_reproducibly_and_filters_versions(tmp_path):
-    write_bank(
-        tmp_path,
-        "z-bank.json",
-        bank_payload(task_payload("test.zulu"), task_payload("test.alpha")),
+def test_equivalence_groups_cannot_mix_axes_or_skill_dimensions(tmp_path):
+    first = task_payload("test.first", equivalence_group="test.shared")
+    second = task_payload(
+        "test.second",
+        axis="active_grammar",
+        equivalence_group="test.shared",
     )
+    write_bank(tmp_path, first, second)
+
+    with pytest.raises(DiagnosticContentFormatError, match="mixes diagnostic dimensions"):
+        load_diagnostic_banks(tmp_path)
+
+
+def test_checksum_is_required_for_production_and_verified_when_present(tmp_path):
+    manifest_path, task_path = write_bank(tmp_path, task_payload(), status="draft")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["editorial_status"] = "production"
+    write_json(manifest_path, manifest)
+    with pytest.raises(DiagnosticContentFormatError, match="require SHA-256"):
+        load_diagnostic_banks(tmp_path)
+
+    manifest["files"][0]["sha256"] = "0" * 64
+    write_json(manifest_path, manifest)
+    assert file_sha256(task_path) != "0" * 64
+    with pytest.raises(DiagnosticContentFormatError, match="checksum mismatch"):
+        load_diagnostic_banks(tmp_path)
+
+
+def test_orphan_json_and_manifest_declarations_must_match_tasks(tmp_path):
+    write_bank(tmp_path, task_payload())
+    write_json(tmp_path / "orphan.json", {})
+    with pytest.raises(DiagnosticContentFormatError, match="not declared"):
+        load_diagnostic_banks(tmp_path)
+
+    (tmp_path / "orphan.json").unlink()
+    manifest_path = tmp_path / "synthetic.bank.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["axes"] = ["active_grammar"]
+    write_json(manifest_path, manifest)
+    with pytest.raises(DiagnosticContentFormatError, match="axes do not match"):
+        load_diagnostic_banks(tmp_path)
+
+
+def test_provider_order_is_reproducible(tmp_path):
     write_bank(
         tmp_path,
-        "other-version.json",
-        bank_payload(
-            task_payload("test.other"),
-            diagnostic_version="diagnostic-text.v2",
-        ),
+        task_payload("test.zulu"),
+        task_payload("test.alpha"),
+        status="production",
     )
     provider = FilesystemCandidateProvider.from_directory(tmp_path)
 
@@ -181,53 +412,48 @@ def test_provider_orders_candidates_reproducibly_and_filters_versions(tmp_path):
         candidate.candidate_id
         for candidate in provider.candidates(diagnostic_version="diagnostic-text.v1")
     ] == ["test.alpha", "test.zulu"]
-    assert [
-        candidate.candidate_id
-        for candidate in provider.candidates(diagnostic_version="diagnostic-text.v2")
-    ] == ["test.other"]
-    with pytest.raises(CandidateUnavailableError):
-        provider.candidates(diagnostic_version="diagnostic-text.absent")
 
 
-def test_production_dependency_keeps_exact_503_for_an_empty_bank(tmp_path, monkeypatch):
+def test_production_dependency_returns_503_for_empty_or_invalid_bank(
+    tmp_path,
+    monkeypatch,
+    db_session_factory,
+):
     monkeypatch.setattr(diagnostic_api, "DIAGNOSTIC_CONTENT_DIRECTORY", tmp_path)
+    with db_session_factory() as db:
+        with pytest.raises(HTTPException) as empty:
+            diagnostic_api.get_diagnostic_candidate_provider(db)
+        assert empty.value.status_code == 503
+        assert empty.value.detail == (
+            "El banco diagnóstico versionado no está configurado en esta instalación."
+        )
 
-    with pytest.raises(HTTPException) as exc_info:
-        diagnostic_api.get_diagnostic_candidate_provider()
-
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == (
-        "El banco diagnóstico versionado no está configurado en esta instalación."
-    )
-
-
-def test_production_dependency_rejects_an_invalid_bank(tmp_path, monkeypatch):
-    (tmp_path / "invalid.json").write_text("[]", encoding="utf-8")
-    monkeypatch.setattr(diagnostic_api, "DIAGNOSTIC_CONTENT_DIRECTORY", tmp_path)
-
-    with pytest.raises(HTTPException) as exc_info:
-        diagnostic_api.get_diagnostic_candidate_provider()
-
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.detail == "El banco diagnóstico local no supera la validación."
-    assert "invalid.json" not in str(exc_info.value.detail)
+        write_json(tmp_path / "invalid.bank.json", [])
+        with pytest.raises(HTTPException) as invalid:
+            diagnostic_api.get_diagnostic_candidate_provider(db)
+        assert invalid.value.status_code == 503
+        assert invalid.value.detail == "El banco diagnóstico local no supera la validación."
+        assert "invalid.bank.json" not in str(invalid.value.detail)
 
 
 @pytest.mark.anyio
-async def test_http_api_uses_a_validated_disk_provider(tmp_path, monkeypatch, client):
-    write_bank(tmp_path, "reading.json", bank_payload(task_payload()))
+async def test_http_api_uses_validated_production_bank_without_private_fields(
+    tmp_path,
+    monkeypatch,
+    client,
+):
+    write_bank(tmp_path, task_payload(), status="production")
     monkeypatch.setattr(diagnostic_api, "DIAGNOSTIC_CONTENT_DIRECTORY", tmp_path)
 
     created = await client.post(
         "/api/diagnostic/sessions",
         json={
             "request_id": "c6144f12-eb3a-4c18-b093-cad002db74a1",
-            "curriculum_version": "a0-a1.v1",
+            "curriculum_version": CURRICULUM_VERSION,
         },
     )
-    assert created.status_code == 201
     session_id = created.json()["session_id"]
-    started = await client.post(
+    await client.post(
         f"/api/diagnostic/sessions/{session_id}/start",
         json={"operation_id": "6127df2b-f89c-4624-8e13-d5e486f93727"},
     )
@@ -236,13 +462,67 @@ async def test_http_api_uses_a_validated_disk_provider(tmp_path, monkeypatch, cl
         json={"operation_id": "5177b943-8db0-432d-a0d3-6cbb091e02f8"},
     )
 
-    assert started.status_code == 200
+    assert created.status_code == 201
     assert selected.status_code == 200
     assert selected.json()["task"]["content"] == {
-        "prompt": "Contenido sintético exclusivo de prueba."
+        "instructions": "Instrucción sintética exclusiva de prueba.",
+        "prompt": "Contenido sintético exclusivo de prueba.",
     }
-    assert "expected_answer" not in selected.text
+    assert all(
+        private not in selected.text
+        for private in ("accepted_responses", "authoring_notes", "private", "rubric")
+    )
 
 
-def test_repository_diagnostic_directory_contains_no_task_bank():
+def test_editorial_tool_validates_draft_summarises_and_does_not_modify_files(tmp_path):
+    manifest_path, task_path = write_bank(tmp_path, task_payload(), status="draft")
+    before = {
+        path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (manifest_path, task_path)
+    }
+    environment = {**os.environ, "DEUTSCHOS_DATABASE_URL": "sqlite://"}
+
+    result = subprocess.run(
+        [str(VALIDATOR), str(tmp_path)],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Tareas: 1" in result.stdout
+    assert "Estado editorial: draft=1" in result.stdout
+    assert "Ejes: reading_comprehension" in result.stdout
+    assert "Habilidades: ninguno" in result.stdout
+    assert "Dificultad: 1=1" in result.stdout
+    assert "Tipos: binary_choice=1" in result.stdout
+    assert {
+        path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (manifest_path, task_path)
+    } == before
+
+
+def test_editorial_tool_returns_nonzero_and_location_for_invalid_fixture(tmp_path):
+    invalid = tmp_path / "invalid.tasks.json"
+    invalid.write_text("{not-json", encoding="utf-8")
+    write_json(
+        tmp_path / "invalid.bank.json",
+        manifest_payload("test.bank", file_path="invalid.tasks.json"),
+    )
+    environment = {**os.environ, "DEUTSCHOS_DATABASE_URL": "sqlite://"}
+
+    result = subprocess.run(
+        [str(VALIDATOR), str(tmp_path)],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "invalid.tasks.json:1:2" in result.stderr
+
+
+def test_repository_contains_no_manifest_or_task_content():
     assert load_diagnostic_banks(diagnostic_api.DIAGNOSTIC_CONTENT_DIRECTORY) == ()

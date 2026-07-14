@@ -687,6 +687,10 @@ la API real devuelve `503` para todas las operaciones diagnósticas en lugar de
 presentar esos fixtures como contenido auténtico. No hay integración con
 Ollama, audio, frontend ni proyección a `StudentSkill`/`SkillEvidence`.
 
+El cargador editorial solo permite que bancos con estado explícito `production`,
+checksum verificado y tareas deterministas lleguen a ese proveedor. Los estados
+`draft`, `reviewed` y `deprecated` permanecen fuera del flujo del alumno.
+
 ## 16. Riesgos y decisiones pendientes
 
 ### Riesgos principales
