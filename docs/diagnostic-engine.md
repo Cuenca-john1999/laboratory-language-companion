@@ -352,6 +352,9 @@ confianza_evaluador × (0,8 + 0,05 × dificultad) × asistencia
 
 `asistencia` vale 0,75 si hubo ayuda y 1,0 sin ella. El score estimado es la
 media ponderada; no es un porcentaje visible ni una estimación CEFR.
+Este peso solo decide cuánto influye cada score cuando se mezclan evidencias:
+si todas tienen la misma condición de ayuda, el factor común se cancela en la
+media. Por eso la confianza aplica una política de autonomía separada.
 
 ### Confianza de estimación
 
@@ -366,9 +369,33 @@ La confianza parte de anclas por cantidad:
 | más de 4 | +0,04 por muestra, con límite de base 0,90 |
 
 Se añade 0,08 por dos o más tipos de tarea y 0,04 por dificultades variadas.
-La media de confianza de los evaluadores modula el total. Una contradicción
-resta 0,24 y la evidencia insuficiente resta 0,03 por observación, con máximo
-0,12. El valor final está limitado a 0,95.
+La media de confianza de los evaluadores modula el total. Después se multiplica
+el componente positivo por el factor medio de autonomía: 1,00 por evidencia sin
+ayuda y 0,90 por evidencia asistida. Una mezcla usa la media de esos factores;
+por ejemplo, una muestra autónoma y una asistida producen 0,95. El 0,90 es
+deliberadamente más conservador que el peso 0,75 del score: registra menor
+certeza sobre desempeño autónomo sin invalidar dos muestras asistidas
+independientes. No modifica `evaluator_confidence`, que sigue expresando certeza
+sobre la corrección de la evaluación concreta.
+
+La fórmula es:
+
+```text
+confianza = clamp(
+  (base + bonus_formatos + bonus_dificultad)
+  × factor_evaluador
+  × factor_autonomía
+  - penalización_contradicción
+  - penalización_insuficiencia,
+  0,
+  0,95
+)
+```
+
+Una contradicción resta 0,24 y la evidencia insuficiente resta 0,03 por
+observación, con máximo 0,12. Ambas penalizaciones se aplican una sola vez,
+después del factor de autonomía. La fórmula depende del conjunto de evidencias,
+no de su orden.
 
 Las etiquetas visibles son:
 
@@ -378,6 +405,8 @@ Las etiquetas visibles son:
 
 Más observaciones pueden aumentar confianza, pero no elevan por sí solas el
 score. La contradicción puede reducir confianza aunque el promedio no cambie.
+Una evidencia asistida conserva polaridad positiva si fue correcta, pero aporta
+menos confianza sobre dominio autónomo que su equivalente sin ayuda.
 
 ### Cobertura y bandas
 

@@ -21,6 +21,13 @@ from .schemas import (
 )
 
 _MIN_EVALUATOR_CONFIDENCE = 0.6
+_ASSISTED_SCORE_WEIGHT = 0.75
+# Assistance lowers certainty about autonomous performance without changing the
+# evaluator's certainty that the submitted answer was classified correctly.
+# A 10% maximum discount keeps the bank's two difficulty-diverse assisted
+# anchors above the v1 coverage threshold while remaining strictly below
+# equivalent autonomous evidence.
+_ASSISTED_CONFIDENCE_FACTOR = 0.9
 
 
 def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
@@ -35,8 +42,14 @@ def _weight(observation: EvidenceObservation) -> float:
     # Difficulty has a deliberately modest effect: it differentiates otherwise
     # equivalent evidence without allowing one difficult item to dominate.
     difficulty_weight = 0.8 + (0.05 * observation.difficulty)
-    assistance_weight = 0.75 if _has_help(observation) else 1.0
+    assistance_weight = _ASSISTED_SCORE_WEIGHT if _has_help(observation) else 1.0
     return observation.evaluator_confidence * difficulty_weight * assistance_weight
+
+
+def _autonomy_factor(evidence: Sequence[EvidenceObservation]) -> float:
+    return sum(_ASSISTED_CONFIDENCE_FACTOR if _has_help(item) else 1.0 for item in evidence) / len(
+        evidence
+    )
 
 
 def _confidence(
@@ -59,11 +72,12 @@ def _confidence(
     diversity_bonus = 0.08 if task_type_count >= 2 else 0.0
     difficulty_bonus = 0.04 if difficulty_count >= 2 else 0.0
     evaluator_factor = 0.75 + (0.25 * sum(item.evaluator_confidence for item in evidence) / count)
+    autonomy_factor = _autonomy_factor(evidence)
     contradiction_penalty = 0.24 if contradictory else 0.0
     insufficient_penalty = min(0.12, 0.03 * insufficient_count)
     return round(
         _clamp(
-            ((base + diversity_bonus + difficulty_bonus) * evaluator_factor)
+            ((base + diversity_bonus + difficulty_bonus) * evaluator_factor * autonomy_factor)
             - contradiction_penalty
             - insufficient_penalty,
             upper=0.95,
@@ -274,6 +288,9 @@ def aggregate_axis(
     reason_parts = [f"{len(evidence)} evidencias evaluables"]
     if insufficient_count:
         reason_parts.append(f"{insufficient_count} insuficientes")
+    assisted_count = sum(_has_help(item) for item in evidence)
+    if assisted_count:
+        reason_parts.append(f"{assisted_count} con ayuda; confianza de autonomía reducida")
     if contradictory:
         reason_parts.append("evidencia contradictoria; confianza reducida")
     elif len(task_types) < 2:

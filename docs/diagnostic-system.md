@@ -324,6 +324,15 @@ de la respuesta impide clasificarla como `correct_without_help`. El número de
 intentos incluye entregas evaluables; clics, borradores y aclaraciones no se
 convierten artificialmente en fallos.
 
+El score y la confianza agregada expresan cosas distintas. Una coincidencia con
+ayuda conserva el score categórico versionado `0.7`; en la agregación, además,
+su factor de autonomía es `0.90`, frente a `1.00` sin ayuda. Para una mezcla se
+usa el promedio de esos factores antes de aplicar una sola vez las penalizaciones
+de contradicción e insuficiencia. Así, la evidencia sigue siendo positiva, pero
+la estimación reconoce que todavía no demuestra el mismo desempeño autónomo.
+La confianza del evaluador concreto no cambia: una clave determinista puede
+seguir clasificando la respuesta con certeza aunque esta haya necesitado ayuda.
+
 ## 9. Evidencias y confianza
 
 Cada evidencia diagnóstica debe conservar como mínimo:
@@ -367,9 +376,10 @@ no como porcentaje visible, y tiene anclas versionadas:
 La interfaz muestra «confianza baja/moderada/alta», cantidad y variedad de
 evidencia, no decimales de falsa precisión. Una estimación por eje se calcula
 solo a partir de evidencias evaluables, ponderando de forma versionada la certeza
-del evaluador, capacidad discriminatoria de la tarea y asistencia. La regla
-exacta pertenece al futuro motor determinista y deberá fijarse con casos de
-prueba antes de implementarse.
+del evaluador, capacidad discriminatoria de la tarea y asistencia. El motor
+determinista usa un factor medio de autonomía de `1.00` sin ayuda y `0.90` con
+ayuda; la fórmula completa y sus pruebas se documentan en
+`docs/diagnostic-engine.md`.
 
 Como criterio de cobertura, no como fórmula definitiva: confianza baja significa
 una sola muestra útil, muestras de un único formato o una contradicción abierta;

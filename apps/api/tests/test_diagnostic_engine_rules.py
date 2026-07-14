@@ -593,6 +593,7 @@ def test_correct_answer_with_help_is_never_unassisted():
     assert result.outcome == EvaluationOutcome.CORRECT_WITH_HELP
     assert result.score == 0.7
     assert result.polarity == DiagnosticPolarity.POSITIVE
+    assert result.evaluator_confidence == 1.0
 
 
 def test_out_of_topic_and_partially_communicative_responses_are_distinguished():
@@ -667,7 +668,203 @@ def test_help_reduces_estimated_score_without_becoming_no_evidence():
     assert helped.estimated_score is not None
     assert unassisted.estimated_score is not None
     assert helped.estimated_score < unassisted.estimated_score
+    assert helped.estimate_confidence < unassisted.estimate_confidence
     assert helped.band != DiagnosticBand.CONSISTENT_SAMPLE
+
+
+def test_assistance_confidence_is_monotonic_for_one_two_and_mixed_evidence():
+    one_unassisted = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [observation(1)],
+    )
+    one_assisted = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            observation(
+                1,
+                outcome=EvaluationOutcome.CORRECT_WITH_HELP,
+                assistance=["grammar_hint"],
+            )
+        ],
+    )
+    two_unassisted = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [observation(1), observation(2)],
+    )
+    two_assisted = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            observation(
+                1,
+                outcome=EvaluationOutcome.CORRECT_WITH_HELP,
+                assistance=["grammar_hint"],
+            ),
+            observation(
+                2,
+                outcome=EvaluationOutcome.CORRECT_WITH_HELP,
+                assistance=["grammar_hint"],
+            ),
+        ],
+    )
+    mixed = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            observation(1),
+            observation(
+                2,
+                outcome=EvaluationOutcome.CORRECT_WITH_HELP,
+                assistance=["grammar_hint"],
+            ),
+        ],
+    )
+
+    assert one_unassisted.estimate_confidence == 0.25
+    assert one_assisted.estimate_confidence == 0.225
+    assert two_unassisted.estimate_confidence == 0.52
+    assert two_assisted.estimate_confidence == 0.468
+    assert mixed.estimate_confidence == 0.494
+    assert one_assisted.estimate_confidence < two_assisted.estimate_confidence
+    assert one_unassisted.estimate_confidence < two_unassisted.estimate_confidence
+    assert two_assisted.estimate_confidence <= mixed.estimate_confidence
+    assert mixed.estimate_confidence < two_unassisted.estimate_confidence
+
+
+def test_assistance_never_rewards_incorrect_evidence():
+    scored = evaluate_response(
+        candidate("incorrect-with-help"),
+        submission(response_text="nein", assistance=["grammar_hint"]),
+    )
+    assert scored.outcome == EvaluationOutcome.INCORRECT
+    assert scored.score == 0.0
+
+    unassisted = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            observation(1, outcome=EvaluationOutcome.INCORRECT),
+            observation(2, outcome=EvaluationOutcome.INCORRECT),
+        ],
+    )
+    assisted = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            observation(
+                1,
+                outcome=EvaluationOutcome.INCORRECT,
+                assistance=["grammar_hint"],
+            ),
+            observation(
+                2,
+                outcome=EvaluationOutcome.INCORRECT,
+                assistance=["grammar_hint"],
+            ),
+        ],
+    )
+    assert unassisted.estimated_score == assisted.estimated_score == 0.0
+    assert assisted.estimate_confidence < unassisted.estimate_confidence
+
+
+def test_assistance_preserves_diversity_contradiction_and_insufficiency_penalties():
+    assisted_same_type = [
+        observation(
+            task_id,
+            outcome=EvaluationOutcome.CORRECT_WITH_HELP,
+            assistance=["grammar_hint"],
+        )
+        for task_id in (1, 2)
+    ]
+    assisted_diverse = [
+        assisted_same_type[0],
+        assisted_same_type[1].model_copy(update={"task_type": DiagnosticTaskType.GAP_FILL}),
+    ]
+    unassisted_diverse = [
+        observation(1),
+        observation(2, task_type=DiagnosticTaskType.GAP_FILL),
+    ]
+    same_type = aggregate_axis(DiagnosticAxis.ACTIVE_GRAMMAR, assisted_same_type)
+    helped_diverse = aggregate_axis(DiagnosticAxis.ACTIVE_GRAMMAR, assisted_diverse)
+    autonomous_diverse = aggregate_axis(DiagnosticAxis.ACTIVE_GRAMMAR, unassisted_diverse)
+    assert same_type.estimate_confidence == 0.468
+    assert helped_diverse.estimate_confidence == 0.54
+    assert autonomous_diverse.estimate_confidence == 0.6
+    assert same_type.estimate_confidence < helped_diverse.estimate_confidence
+    assert helped_diverse.estimate_confidence < autonomous_diverse.estimate_confidence
+
+    helped_contradictory = [
+        assisted_diverse[0],
+        assisted_diverse[1].model_copy(
+            update={
+                "outcome": EvaluationOutcome.INCORRECT,
+                "score": 0.0,
+                "polarity": DiagnosticPolarity.NEGATIVE,
+            }
+        ),
+    ]
+    contradicted = aggregate_axis(DiagnosticAxis.ACTIVE_GRAMMAR, helped_contradictory)
+    assert helped_diverse.estimate_confidence - contradicted.estimate_confidence == pytest.approx(
+        0.24
+    )
+    assert contradicted.estimate_confidence == 0.3
+
+    with_insufficient = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            *assisted_same_type,
+            observation(
+                3,
+                outcome=EvaluationOutcome.NOT_EVALUABLE,
+                evaluator_confidence=0.0,
+            ),
+        ],
+    )
+    assert with_insufficient.insufficient_evidence_count == 1
+    assert same_type.estimate_confidence - with_insufficient.estimate_confidence == pytest.approx(
+        0.03
+    )
+
+    with_many_insufficient = aggregate_axis(
+        DiagnosticAxis.ACTIVE_GRAMMAR,
+        [
+            *assisted_same_type,
+            *[
+                observation(
+                    task_id,
+                    outcome=EvaluationOutcome.NOT_EVALUABLE,
+                    evaluator_confidence=0.0,
+                )
+                for task_id in range(3, 9)
+            ],
+        ],
+    )
+    assert with_many_insufficient.insufficient_evidence_count == 6
+    assert same_type.estimate_confidence - with_many_insufficient.estimate_confidence == (
+        pytest.approx(0.12)
+    )
+
+
+def test_assistance_aggregation_is_order_independent_and_bounded():
+    evidence = [
+        observation(1),
+        observation(
+            2,
+            outcome=EvaluationOutcome.CORRECT_WITH_HELP,
+            assistance=["grammar_hint"],
+            difficulty=2,
+            task_type=DiagnosticTaskType.GAP_FILL,
+        ),
+        observation(3, outcome=EvaluationOutcome.INCORRECT, difficulty=2),
+        observation(
+            4,
+            outcome=EvaluationOutcome.NOT_EVALUABLE,
+            evaluator_confidence=0.0,
+        ),
+    ]
+    forward = aggregate_axis(DiagnosticAxis.ACTIVE_GRAMMAR, evidence)
+    reverse = aggregate_axis(DiagnosticAxis.ACTIVE_GRAMMAR, list(reversed(evidence)))
+
+    assert forward == reverse
+    assert 0 <= forward.estimate_confidence <= 1
+    assert forward.estimated_score is not None
+    assert 0 <= forward.estimated_score <= 1
 
 
 def test_contradictory_evidence_reduces_confidence_and_blocks_strong_band():
