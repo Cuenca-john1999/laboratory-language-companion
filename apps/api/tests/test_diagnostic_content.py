@@ -561,7 +561,7 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
     assert len(banks) == 1
     bank = banks[0]
     assert bank.manifest.bank_id == "deutschos.diagnostic.initial-text"
-    assert bank.manifest.bank_version == "0.1.0"
+    assert bank.manifest.bank_version == "0.1.1"
     assert bank.manifest.editorial_status == EditorialStatus.DRAFT
     assert bank.manifest.created_on.isoformat() == "2026-07-14"
     assert bank.manifest.updated_on >= bank.manifest.created_on
@@ -578,6 +578,36 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
         == task.private.rubric.case_sensitive
         for task in bank.tasks
     )
+    tasks_by_id = {task.id: task for task in bank.tasks}
+    assert {
+        task_id: (task.version, task.rubric_version) for task_id, task in tasks_by_id.items()
+    } == {
+        "diagnostic.initial.pronouns.wir.001": ("1.0.0", "deterministic-text.v1"),
+        "diagnostic.initial.everyday.greeting.001": (
+            "1.0.1",
+            "deterministic-text.v1",
+        ),
+        "diagnostic.initial.sein.du.001": ("1.0.1", "deterministic-text.v2"),
+        "diagnostic.initial.haben.wir.001": ("1.0.1", "deterministic-text.v2"),
+        "diagnostic.initial.regular.lernen-order.001": (
+            "1.0.1",
+            "deterministic-text.v2",
+        ),
+        "diagnostic.initial.questions.wo-order.001": (
+            "1.0.1",
+            "deterministic-text.v2",
+        ),
+    }
+    greeting = tasks_by_id["diagnostic.initial.everyday.greeting.001"]
+    assert greeting.skill_id == 10
+    assert greeting.axis.value == "receptive_vocabulary"
+    assert greeting.task_type.value == "binary_choice"
+    assert greeting.public.prompt == (
+        "Son las ocho de la mañana. Dos personas se encuentran al llegar a clase."
+    )
+    assert "guten morgen" not in greeting.public.prompt.casefold()
+    assert greeting.public.options == ["Gute Nacht", "Guten Morgen"]
+    assert greeting.private.rubric.accepted_responses == ["Guten Morgen"]
 
     assert production.has_candidates is False
     assert editorial.has_candidates is True
@@ -605,36 +635,61 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
         )
     )
 
-    correct_responses = {
-        "diagnostic.initial.pronouns.wir.001": "Wir",
-        "diagnostic.initial.everyday.greeting.001": "Guten Morgen",
-        "diagnostic.initial.sein.du.001": "bist",
-        "diagnostic.initial.haben.wir.001": "haben",
-        "diagnostic.initial.regular.lernen-order.001": "Ich lerne Deutsch",
-        "diagnostic.initial.questions.wo-order.001": "Wo wohnst du",
+    accepted_responses = {
+        "diagnostic.initial.pronouns.wir.001": ["Wir", "  wIR  "],
+        "diagnostic.initial.everyday.greeting.001": ["Guten Morgen"],
+        "diagnostic.initial.sein.du.001": ["bist", "  BIST  ", "bist."],
+        "diagnostic.initial.haben.wir.001": ["haben", "  HABEN  ", "haben."],
+        "diagnostic.initial.regular.lernen-order.001": [
+            "Ich lerne Deutsch",
+            "  ich   LERNE   deutsch  ",
+            "Ich lerne Deutsch.",
+        ],
+        "diagnostic.initial.questions.wo-order.001": [
+            "Wo wohnst du",
+            "  wo   WOHNST   du  ",
+            "Wo wohnst du?",
+        ],
     }
-    for task_id, candidate in enumerate(candidates, start=1):
-        result = evaluate_response(
-            candidate,
-            ResponseSubmission(
-                session_id=1,
-                task_id=task_id,
-                evaluation_id=uuid4(),
-                submission_id=uuid4(),
-                response_text=correct_responses[candidate.candidate_id],
-                response_language="de",
-            ),
-        )
-        assert result.outcome == EvaluationOutcome.CORRECT_WITHOUT_HELP
-        assert result.score == 1.0
+    rejected_responses = {
+        "diagnostic.initial.pronouns.wir.001": ["Sie"],
+        "diagnostic.initial.everyday.greeting.001": ["Gute Nacht"],
+        "diagnostic.initial.sein.du.001": [
+            "bin",
+            "Du bist neu hier",
+            "bist?",
+            "bist..",
+        ],
+        "diagnostic.initial.haben.wir.001": [
+            "habt",
+            "Wir haben heute Zeit",
+            "haben?",
+            "haben..",
+        ],
+        "diagnostic.initial.regular.lernen-order.001": [
+            "Deutsch lerne ich.",
+            "Ich Deutsch lerne",
+            "Ich lerne heute Deutsch.",
+            "Ich lerne",
+            "Ich lerne Deutsch Deutsch",
+            "Ich lerne Deutsch!",
+        ],
+        "diagnostic.initial.questions.wo-order.001": [
+            "Wo wohnst du??",
+            "Wo du wohnst",
+            "Wo du wohnst?",
+            "Du wohnst wo",
+            "Du wohnst wo?",
+            "Wo wohnst du heute?",
+            "Wo wohnst",
+            "Wo lebst du?",
+        ],
+    }
+    candidates_by_id = {candidate.candidate_id: candidate for candidate in candidates}
 
-    for candidate_id, response in (
-        ("diagnostic.initial.regular.lernen-order.001", "Ich lerne Deutsch heute"),
-        ("diagnostic.initial.questions.wo-order.001", "Wo wohnst du?"),
-    ):
-        candidate = next(item for item in candidates if item.candidate_id == candidate_id)
-        result = evaluate_response(
-            candidate,
+    def evaluate(candidate_id: str, response: str):
+        return evaluate_response(
+            candidates_by_id[candidate_id],
             ResponseSubmission(
                 session_id=1,
                 task_id=1,
@@ -644,8 +699,18 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
                 response_language="de",
             ),
         )
-        assert result.outcome == EvaluationOutcome.INCORRECT
-        assert result.score == 0.0
+
+    for candidate_id, responses in accepted_responses.items():
+        for response in responses:
+            result = evaluate(candidate_id, response)
+            assert result.outcome == EvaluationOutcome.CORRECT_WITHOUT_HELP
+            assert result.score == 1.0
+
+    for candidate_id, responses in rejected_responses.items():
+        for response in responses:
+            result = evaluate(candidate_id, response)
+            assert result.outcome == EvaluationOutcome.INCORRECT
+            assert result.score == 0.0
 
 
 @pytest.mark.anyio

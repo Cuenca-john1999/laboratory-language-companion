@@ -1,7 +1,7 @@
 {
   "schema_version": "diagnostic-bank-manifest.v1",
   "bank_id": "deutschos.diagnostic.initial-text",
-  "bank_version": "0.1.0",
+  "bank_version": "0.1.1",
   "diagnostic_version": "diagnostic-text.v1",
   "target_language": "de",
   "levels": [
@@ -29,5 +29,5 @@
     "diagnostic_engine_version": "diagnostic-engine.v1",
     "curriculum_version": "a0-a1.v1"
   },
-  "editorial_notes": "Primera muestra pedagógica auténtica para revisar claridad, corrección determinista y compatibilidad editorial. Contiene seis tareas textuales pre-A1/A1 iniciales y permanece deliberadamente en draft; no constituye un diagnóstico completo ni contenido publicable. Requiere revisión pedagógica independiente antes de cualquier promoción."
+  "editorial_notes": "Revisión pedagógica 0.1.1 del primer banco auténtico: la tarea de saludo ahora exige relacionar una situación con vocabulario alemán y las respuestas textuales usan variantes cerradas de puntuación final. Contiene exactamente seis tareas pre-A1/A1 iniciales y permanece deliberadamente en draft; no constituye un diagnóstico completo ni contenido publicable. Requiere una nueva revisión independiente antes de cualquier promoción."
 }

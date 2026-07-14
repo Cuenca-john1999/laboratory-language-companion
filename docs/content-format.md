@@ -193,8 +193,10 @@ documenta el contrato que ya ejecuta el scorer, sin modificarlo:
 
 El validador rechaza una discrepancia entre la sensibilidad a mayúsculas de la
 política y la rúbrica. Las seis tareas iniciales ignoran diferencias de
-capitalización, pero no ignoran signos añadidos. En las tareas de ordenar, la
-instrucción pide expresamente no añadir puntuación.
+capitalización. La puntuación continúa siendo significativa: la revisión
+editorial `0.1.1` enumera de forma cerrada el punto final tolerado en los dos
+huecos y la oración declarativa, y el signo de interrogación final tolerado en
+la pregunta. No se elimina ni transforma globalmente ningún signo.
 
 La conversión a `TaskCandidate` copia únicamente `public.instructions`,
 `public.prompt` y opciones al contenido presentable. Rúbrica, respuestas,

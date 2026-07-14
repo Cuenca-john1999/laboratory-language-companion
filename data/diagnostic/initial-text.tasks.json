@@ -65,12 +65,12 @@
     },
     {
       "id": "diagnostic.initial.everyday.greeting.001",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "level": "pre-A1",
       "axis": "receptive_vocabulary",
       "secondary_axes": [],
       "skill_id": 10,
-      "task_type": "short_text_comprehension",
+      "task_type": "binary_choice",
       "difficulty": 1,
       "modality": "text",
       "response_type": "single_choice",
@@ -81,8 +81,8 @@
       "scoring_mode": "deterministic",
       "rubric_version": "deterministic-text.v1",
       "public": {
-        "instructions": "Lee el diálogo y elige la fórmula que usan las dos personas para saludarse.",
-        "prompt": "– Guten Morgen, Lea!\n– Guten Morgen, Tom!",
+        "instructions": "Lee la situación y elige el saludo adecuado en alemán.",
+        "prompt": "Son las ocho de la mañana. Dos personas se encuentran al llegar a clase.",
         "options": [
           "Gute Nacht",
           "Guten Morgen"
@@ -113,7 +113,7 @@
       },
       "metadata": {
         "topic": "saludos cotidianos",
-        "context": "Microdiálogo de saludo matutino con la respuesta visible."
+        "context": "Encuentro cotidiano situado explícitamente por la mañana."
       },
       "editorial": {
         "tags": [
@@ -121,12 +121,12 @@
           "saludos",
           "comprension-breve"
         ],
-        "authoring_notes": "Mide reconocimiento de vocabulary.everyday_core en un microtexto. La instrucción pregunta por la fórmula escrita literalmente dos veces; no exige inferir la hora ni conocer costumbres culturales. «Gute Nacht» es una fórmula real, pero no aparece en el diálogo y no constituye una alternativa válida."
+        "authoring_notes": "Mide reconocimiento de vocabulary.everyday_core al relacionar una situación cotidiana explícita con su saludo alemán. La respuesta correcta no aparece en el prompt y no puede obtenerse por coincidencia gráfica. Las ocho de la mañana hacen inequívoco «Guten Morgen»; «Gute Nacht» sigue siendo una fórmula real, pero corresponde a despedirse antes de dormir y debe rechazarse."
       }
     },
     {
       "id": "diagnostic.initial.sein.du.001",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "level": "pre-A1",
       "axis": "active_grammar",
       "secondary_axes": [],
@@ -140,17 +140,18 @@
       "equivalence_group": "diagnostic.initial.sein.du.present",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v1",
+      "rubric_version": "deterministic-text.v2",
       "public": {
-        "instructions": "Completa el hueco con la forma correcta de «sein».",
+        "instructions": "Completa el hueco con la forma correcta de «sein». Escribe únicamente la palabra que falta.",
         "prompt": "Du ___ neu hier.",
         "options": []
       },
       "private": {
         "rubric": {
-          "strategy": "exact_match",
+          "strategy": "accepted_answers",
           "accepted_responses": [
-            "bist"
+            "bist",
+            "bist."
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -165,8 +166,8 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La respuesta normalizada coincide exactamente con «bist».",
-          "incorrect_condition": "Cualquier respuesta evaluable distinta de «bist» es incorrecta. No hay crédito parcial."
+          "correct_condition": "La respuesta normalizada coincide con la variante cerrada «bist» o «bist.».",
+          "incorrect_condition": "Cualquier otra forma verbal, frase completa, puntuación distinta o contenido léxico adicional es incorrecto. No hay crédito parcial."
         }
       },
       "metadata": {
@@ -179,12 +180,12 @@
           "segunda-persona",
           "pre-a1"
         ],
-        "authoring_notes": "Mide la forma de segunda persona singular de grammar.sein_present. El pronombre «du» y el infinitivo indicado hacen que «bist» sea la única forma correcta. «neu hier» es vocabulario elemental y no añade conocimiento externo. Se pide solo el fragmento ausente, por lo que una oración completa no se acepta silenciosamente."
+        "authoring_notes": "Mide la forma de segunda persona singular de grammar.sein_present. El pronombre «du» y el infinitivo indicado hacen que «bist» sea la única palabra correcta. La instrucción exige solo el fragmento: una oración completa y otras formas de sein se rechazan. «bist.» se admite únicamente como variante cerrada para no penalizar un punto final accidental; no se elimina puntuación de manera global."
       }
     },
     {
       "id": "diagnostic.initial.haben.wir.001",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "level": "pre-A1",
       "axis": "active_grammar",
       "secondary_axes": [],
@@ -198,17 +199,18 @@
       "equivalence_group": "diagnostic.initial.haben.wir.present",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v1",
+      "rubric_version": "deterministic-text.v2",
       "public": {
-        "instructions": "Completa el hueco con la forma correcta de «haben».",
+        "instructions": "Completa el hueco con la forma correcta de «haben». Escribe únicamente la palabra que falta.",
         "prompt": "Wir ___ heute Zeit.",
         "options": []
       },
       "private": {
         "rubric": {
-          "strategy": "exact_match",
+          "strategy": "accepted_answers",
           "accepted_responses": [
-            "haben"
+            "haben",
+            "haben."
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -223,8 +225,8 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La respuesta normalizada coincide exactamente con «haben».",
-          "incorrect_condition": "Cualquier respuesta evaluable distinta de «haben» es incorrecta. No hay crédito parcial."
+          "correct_condition": "La respuesta normalizada coincide con la variante cerrada «haben» o «haben.».",
+          "incorrect_condition": "Cualquier otra forma verbal, frase completa, puntuación distinta o contenido léxico adicional es incorrecto. No hay crédito parcial."
         }
       },
       "metadata": {
@@ -237,12 +239,12 @@
           "primera-persona-plural",
           "pre-a1"
         ],
-        "authoring_notes": "Mide la forma de primera persona plural de grammar.haben_present. «Wir» fija inequívocamente «haben» y el contexto «heute Zeit» es cotidiano. No se admiten formas de otro sujeto ni una frase completa porque la consigna pide únicamente completar el hueco."
+        "authoring_notes": "Mide la forma de primera persona plural de grammar.haben_present. «Wir» fija inequívocamente «haben» y la instrucción exige solo el fragmento: una oración completa y otras formas de haben se rechazan. «haben.» se admite únicamente como variante cerrada para no penalizar un punto final accidental; no se elimina puntuación de manera global."
       }
     },
     {
       "id": "diagnostic.initial.regular.lernen-order.001",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "level": "pre-A1",
       "axis": "active_grammar",
       "secondary_axes": [],
@@ -256,17 +258,18 @@
       "equivalence_group": "diagnostic.initial.regular.lernen.main-clause",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v1",
+      "rubric_version": "deterministic-text.v2",
       "public": {
-        "instructions": "Ordena las palabras para formar una oración. Empieza con «Ich» y no añadas puntuación.",
+        "instructions": "Ordena las palabras para formar una oración. Empieza con «Ich».",
         "prompt": "Deutsch · Ich · lerne",
         "options": []
       },
       "private": {
         "rubric": {
-          "strategy": "exact_match",
+          "strategy": "accepted_answers",
           "accepted_responses": [
-            "Ich lerne Deutsch"
+            "Ich lerne Deutsch",
+            "Ich lerne Deutsch."
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -281,8 +284,8 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La respuesta normalizada coincide exactamente con «Ich lerne Deutsch».",
-          "incorrect_condition": "Cualquier orden distinto, token añadido u omitido o puntuación añadida es incorrecto. No hay crédito parcial."
+          "correct_condition": "La respuesta normalizada coincide con «Ich lerne Deutsch» o con la variante cerrada «Ich lerne Deutsch.».",
+          "incorrect_condition": "Cualquier orden distinto, token añadido, omitido o repetido, o cualquier otra puntuación es incorrecto. No hay crédito parcial."
         }
       },
       "metadata": {
@@ -295,12 +298,12 @@
           "orden-oracion",
           "pre-a1"
         ],
-        "authoring_notes": "Mide grammar.present_regular mediante una oración principal mínima. Indicar que debe empezar con «Ich» elimina la inversión; con esos tres tokens, el verbo finito ocupa inequívocamente la segunda posición. No se usa un adverbio que permita varios órdenes naturales. La ausencia de puntuación se explicita porque el scorer la considera significativa."
+        "authoring_notes": "Mide grammar.present_regular mediante una oración principal mínima. Empezar con «Ich» elimina la inversión; con esos tres tokens, el verbo finito ocupa inequívocamente la segunda posición. Se aceptan únicamente la secuencia exacta sin signo y la misma secuencia con punto final. «Deutsch lerne ich», un orden no V2 después de Ich y cualquier token añadido o repetido siguen rechazados; no se elimina puntuación de manera global."
       }
     },
     {
       "id": "diagnostic.initial.questions.wo-order.001",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "level": "A1",
       "axis": "active_grammar",
       "secondary_axes": [],
@@ -314,17 +317,18 @@
       "equivalence_group": "diagnostic.initial.questions.wo-main-clause",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v1",
+      "rubric_version": "deterministic-text.v2",
       "public": {
-        "instructions": "Ordena las palabras para formar una pregunta. Empieza con «Wo» y no añadas puntuación.",
+        "instructions": "Ordena las palabras para formar una pregunta directa. Empieza con «Wo».",
         "prompt": "du · wohnst · Wo",
         "options": []
       },
       "private": {
         "rubric": {
-          "strategy": "exact_match",
+          "strategy": "accepted_answers",
           "accepted_responses": [
-            "Wo wohnst du"
+            "Wo wohnst du",
+            "Wo wohnst du?"
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -339,8 +343,8 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La respuesta normalizada coincide exactamente con «Wo wohnst du».",
-          "incorrect_condition": "Cualquier orden distinto, token añadido u omitido o puntuación añadida es incorrecto. No hay crédito parcial."
+          "correct_condition": "La respuesta normalizada coincide con «Wo wohnst du» o con la variante ortográfica cerrada «Wo wohnst du?».",
+          "incorrect_condition": "Cualquier orden distinto, token añadido, omitido o repetido, paráfrasis, o cualquier otra puntuación es incorrecto. No hay crédito parcial."
         }
       },
       "metadata": {
@@ -353,7 +357,7 @@
           "orden-pregunta",
           "a1-inicial"
         ],
-        "authoring_notes": "Mide grammar.questions_basic con una pregunta W elemental. La consigna fija «Wo» al inicio; el verbo conjugado debe ocupar la segunda posición y «du» la tercera, por lo que solo hay un orden correcto. Se omite el signo de interrogación de forma explícita para coincidir con la política de puntuación significativa."
+        "authoring_notes": "Mide grammar.questions_basic con una pregunta W elemental. La consigna fija «Wo» al inicio; el verbo conjugado ocupa la segunda posición y «du» la tercera, por lo que solo hay un orden objetivo. Se aceptan únicamente esa secuencia sin signo y su forma ortográficamente estándar con «?». Preguntas eco, subordinadas, paráfrasis, cambios de sujeto o verbo y tokens añadidos siguen rechazados; no se elimina puntuación de manera global."
       }
     }
   ]
