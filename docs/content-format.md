@@ -15,9 +15,10 @@ data/
 `data/diagnostic/` es la ubicación autorizada para bancos diagnósticos. Los
 otros directorios siguen reservados para contratos posteriores. La
 infraestructura no usa red y no habilita LLM, audio, frontend ni proyección al
-progreso. `0.1.0` inició una muestra auténtica con seis tareas y `0.2.0` la
-amplía de forma compatible a doce. El banco permanece en estado `draft`: no
-está disponible para el alumno ni constituye un diagnóstico completo.
+progreso. `0.1.0` inició una muestra auténtica con seis tareas, `0.2.0` la amplió
+a doce y `0.3.0` reequilibra el banco de doce tareas entre los seis ejes
+prioritarios. El banco permanece en estado `draft`: no está disponible para el
+alumno ni constituye un diagnóstico completo.
 
 Se conserva `data/` porque ya separa de forma clara contenido versionable,
 datos locales y código, funciona desde el SSD externo y no presenta un riesgo

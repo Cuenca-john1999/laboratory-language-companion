@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from collections import Counter
 from pathlib import Path
 from uuid import uuid4
 
@@ -29,25 +30,21 @@ from deutschos_api.main import app
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 VALIDATOR = PROJECT_ROOT / "scripts" / "validate-diagnostic-bank.sh"
 REPOSITORY_BANK = PROJECT_ROOT / "data" / "diagnostic"
-ORIGINAL_REPOSITORY_TASK_IDS = {
+REPOSITORY_TASK_IDS = {
     "diagnostic.initial.pronouns.wir.001",
     "diagnostic.initial.everyday.greeting.001",
     "diagnostic.initial.sein.du.001",
-    "diagnostic.initial.haben.wir.001",
-    "diagnostic.initial.regular.lernen-order.001",
-    "diagnostic.initial.questions.wo-order.001",
-}
-NEW_REPOSITORY_TASK_IDS = {
-    "diagnostic.initial.accusative.reading.001",
+    "diagnostic.initial.communication.slower.001",
+    "diagnostic.initial.writing.statement.001",
+    "diagnostic.initial.writing.wo-question.001",
+    "diagnostic.initial.reading.arrival-time.001",
     "diagnostic.initial.laboratory.mikroskop.001",
-    "diagnostic.initial.articles.frau.001",
-    "diagnostic.initial.nominative.subject.001",
-    "diagnostic.initial.negation.kein-auto.001",
+    "diagnostic.initial.reading.afternoon-activity.001",
+    "diagnostic.initial.everyday.transport.001",
+    "diagnostic.initial.everyday.water.001",
     "diagnostic.initial.communication.repeat.001",
 }
-ORIGINAL_REPOSITORY_SKILL_IDS = {9, 10, 11, 12, 13, 17}
-NEW_REPOSITORY_SKILL_IDS = {15, 16, 18, 20, 21, 22}
-REPOSITORY_SKILL_IDS = ORIGINAL_REPOSITORY_SKILL_IDS | NEW_REPOSITORY_SKILL_IDS
+REPOSITORY_SKILL_IDS = {9, 10, 11, 17, 22}
 
 
 def task_payload(identifier: str = "test.placeholder", **overrides):
@@ -579,24 +576,26 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
     assert len(banks) == 1
     bank = banks[0]
     assert bank.manifest.bank_id == "deutschos.diagnostic.initial-text"
-    assert bank.manifest.bank_version == "0.2.0"
+    assert bank.manifest.bank_version == "0.3.0"
     assert bank.manifest.editorial_status == EditorialStatus.DRAFT
     assert bank.manifest.created_on.isoformat() == "2026-07-14"
     assert bank.manifest.updated_on >= bank.manifest.created_on
     assert bank.manifest.axes == [
+        "reading_comprehension",
+        "written_production",
         "active_grammar",
         "receptive_vocabulary",
         "productive_vocabulary",
         "communication_repair.typed",
     ]
     assert len(bank.tasks) == 12
-    assert {task.skill_id for task in bank.tasks} == REPOSITORY_SKILL_IDS
+    assert {task.skill_id for task in bank.tasks if task.skill_id is not None} == (
+        REPOSITORY_SKILL_IDS
+    )
     assert {task.modality for task in bank.tasks} == {"text"}
     assert {task.scoring_mode.value for task in bank.tasks} == {"deterministic"}
     assert all(task.ambiguity_risk.value == "low" for task in bank.tasks)
-    assert {task.id for task in bank.tasks} == (
-        ORIGINAL_REPOSITORY_TASK_IDS | NEW_REPOSITORY_TASK_IDS
-    )
+    assert {task.id for task in bank.tasks} == REPOSITORY_TASK_IDS
     assert len({task.id for task in bank.tasks}) == 12
     assert len({task.equivalence_group for task in bank.tasks}) == 12
     assert all(task.private.scoring_policy.maximum_score == 1.0 for task in bank.tasks)
@@ -606,6 +605,19 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
         for task in bank.tasks
     )
     tasks_by_id = {task.id: task for task in bank.tasks}
+    assert Counter(task.axis.value for task in bank.tasks) == {
+        "reading_comprehension": 2,
+        "written_production": 2,
+        "active_grammar": 2,
+        "receptive_vocabulary": 2,
+        "productive_vocabulary": 2,
+        "communication_repair.typed": 2,
+    }
+    assert Counter(task.difficulty for task in bank.tasks) == {1: 6, 2: 6}
+    assert all(
+        len({task.equivalence_group for task in bank.tasks if task.axis == axis}) == 2
+        for axis in {task.axis for task in bank.tasks}
+    )
     assert {
         task_id: (task.version, task.rubric_version) for task_id, task in tasks_by_id.items()
     } == {
@@ -614,49 +626,44 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
             "1.0.1",
             "deterministic-text.v1",
         ),
-        "diagnostic.initial.sein.du.001": ("1.0.1", "deterministic-text.v2"),
-        "diagnostic.initial.haben.wir.001": ("1.0.1", "deterministic-text.v2"),
-        "diagnostic.initial.regular.lernen-order.001": (
-            "1.0.1",
-            "deterministic-text.v2",
+        "diagnostic.initial.sein.du.001": ("1.1.0", "deterministic-text.v2"),
+        "diagnostic.initial.communication.slower.001": (
+            "1.0.0",
+            "deterministic-text.v1",
         ),
-        "diagnostic.initial.questions.wo-order.001": (
-            "1.0.1",
-            "deterministic-text.v2",
+        "diagnostic.initial.writing.statement.001": (
+            "1.0.0",
+            "deterministic-text.v1",
         ),
-        "diagnostic.initial.accusative.reading.001": (
+        "diagnostic.initial.writing.wo-question.001": (
+            "1.0.0",
+            "deterministic-text.v1",
+        ),
+        "diagnostic.initial.reading.arrival-time.001": (
             "1.0.0",
             "deterministic-text.v1",
         ),
         "diagnostic.initial.laboratory.mikroskop.001": (
+            "1.1.0",
+            "deterministic-text.v1",
+        ),
+        "diagnostic.initial.reading.afternoon-activity.001": (
             "1.0.0",
             "deterministic-text.v1",
         ),
-        "diagnostic.initial.articles.frau.001": (
+        "diagnostic.initial.everyday.transport.001": (
             "1.0.0",
             "deterministic-text.v1",
         ),
-        "diagnostic.initial.nominative.subject.001": (
-            "1.0.0",
-            "deterministic-text.v1",
-        ),
-        "diagnostic.initial.negation.kein-auto.001": (
+        "diagnostic.initial.everyday.water.001": (
             "1.0.0",
             "deterministic-text.v1",
         ),
         "diagnostic.initial.communication.repeat.001": (
-            "1.0.0",
+            "1.1.0",
             "deterministic-text.v1",
         ),
     }
-    new_tasks = [task for task in bank.tasks if task.id in NEW_REPOSITORY_TASK_IDS]
-    assert len(new_tasks) == 6
-    assert {task.skill_id for task in new_tasks} == NEW_REPOSITORY_SKILL_IDS
-    assert len({task.skill_id for task in new_tasks}) == 6
-    assert {task.modality for task in new_tasks} == {"text"}
-    assert {task.scoring_mode.value for task in new_tasks} == {"deterministic"}
-    assert {task.ambiguity_risk.value for task in new_tasks} == {"low"}
-
     assert {
         task.id: (
             task.axis.value,
@@ -664,81 +671,76 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
             task.task_type.value,
             task.difficulty,
         )
-        for task in new_tasks
+        for task in bank.tasks
     } == {
-        "diagnostic.initial.accusative.reading.001": (
-            "active_grammar",
-            20,
-            "short_text_comprehension",
-            3,
+        "diagnostic.initial.pronouns.wir.001": ("active_grammar", 9, "binary_choice", 1),
+        "diagnostic.initial.sein.du.001": ("active_grammar", 11, "gap_fill", 2),
+        "diagnostic.initial.everyday.greeting.001": (
+            "receptive_vocabulary",
+            10,
+            "binary_choice",
+            1,
+        ),
+        "diagnostic.initial.everyday.transport.001": (
+            "receptive_vocabulary",
+            10,
+            "binary_choice",
+            2,
+        ),
+        "diagnostic.initial.everyday.water.001": (
+            "productive_vocabulary",
+            10,
+            "gap_fill",
+            1,
         ),
         "diagnostic.initial.laboratory.mikroskop.001": (
             "productive_vocabulary",
             22,
             "gap_fill",
-            3,
-        ),
-        "diagnostic.initial.articles.frau.001": (
-            "active_grammar",
-            15,
-            "binary_choice",
             2,
         ),
-        "diagnostic.initial.nominative.subject.001": (
-            "active_grammar",
-            16,
-            "binary_choice",
+        "diagnostic.initial.reading.arrival-time.001": (
+            "reading_comprehension",
+            None,
+            "short_text_comprehension",
+            1,
+        ),
+        "diagnostic.initial.reading.afternoon-activity.001": (
+            "reading_comprehension",
+            None,
+            "short_text_comprehension",
             2,
         ),
-        "diagnostic.initial.negation.kein-auto.001": (
-            "active_grammar",
-            18,
-            "binary_choice",
+        "diagnostic.initial.writing.statement.001": (
+            "written_production",
+            None,
+            "word_order",
+            1,
+        ),
+        "diagnostic.initial.writing.wo-question.001": (
+            "written_production",
+            17,
+            "word_order",
             2,
         ),
         "diagnostic.initial.communication.repeat.001": (
             "communication_repair.typed",
-            21,
+            None,
             "communication_repair.typed",
-            3,
+            1,
+        ),
+        "diagnostic.initial.communication.slower.001": (
+            "communication_repair.typed",
+            None,
+            "communication_repair.typed",
+            2,
         ),
     }
     assert {
-        task.id: (task.public.instructions, task.public.prompt, task.public.options)
-        for task in new_tasks
-    } == {
-        "diagnostic.initial.accusative.reading.001": (
-            "Lee el microtexto y elige a quién saluda Paul.",
-            "Lena besucht Paul. Paul begrüßt den Lehrer.",
-            ["den Lehrer", "Lena"],
-        ),
-        "diagnostic.initial.laboratory.mikroskop.001": (
-            "Completa el hueco con la palabra alemana para «microscopio». "
-            "Escribe únicamente la palabra que falta.",
-            "Das ___ steht im Labor.",
-            [],
-        ),
-        "diagnostic.initial.articles.frau.001": (
-            "Elige el artículo definido correcto para completar la oración.",
-            "___ Frau arbeitet hier.",
-            ["Der", "Die"],
-        ),
-        "diagnostic.initial.nominative.subject.001": (
-            "Lee la oración y elige quién realiza la acción.",
-            "Der Junge spielt Fußball.",
-            ["Der Junge", "Fußball"],
-        ),
-        "diagnostic.initial.negation.kein-auto.001": (
-            "Elige la palabra que completa la negación neutral.",
-            "Ich habe ___ Auto.",
-            ["nicht", "kein"],
-        ),
-        "diagnostic.initial.communication.repeat.001": (
-            "Lee la situación y elige la respuesta adecuada en alemán.",
-            "No has entendido lo que una persona acaba de decir y quieres pedir que lo repita.",
-            ["Ich verstehe alles.", "Können Sie das bitte wiederholen?"],
-        ),
-    }
+        task.skill_id
+        for task in bank.tasks
+        if task.axis.value in {"reading_comprehension", "communication_repair.typed"}
+    } == {None}
     greeting = tasks_by_id["diagnostic.initial.everyday.greeting.001"]
     assert greeting.skill_id == 10
     assert greeting.axis.value == "receptive_vocabulary"
@@ -778,55 +780,65 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
 
     accepted_responses = {
         "diagnostic.initial.pronouns.wir.001": ["Wir", "  wIR  "],
-        "diagnostic.initial.everyday.greeting.001": ["Guten Morgen"],
+        "diagnostic.initial.everyday.greeting.001": ["Guten Morgen", "  GUTEN morgen  "],
         "diagnostic.initial.sein.du.001": ["bist", "  BIST  ", "bist."],
-        "diagnostic.initial.haben.wir.001": ["haben", "  HABEN  ", "haben."],
-        "diagnostic.initial.regular.lernen-order.001": [
+        "diagnostic.initial.communication.slower.001": [
+            "Können Sie bitte langsamer sprechen?",
+            "  KÖNNEN   SIE   BITTE   LANGSAMER   SPRECHEN?  ",
+        ],
+        "diagnostic.initial.writing.statement.001": [
             "Ich lerne Deutsch",
             "  ich   LERNE   deutsch  ",
             "Ich lerne Deutsch.",
         ],
-        "diagnostic.initial.questions.wo-order.001": [
+        "diagnostic.initial.writing.wo-question.001": [
             "Wo wohnst du",
             "  wo   WOHNST   du  ",
             "Wo wohnst du?",
         ],
-        "diagnostic.initial.accusative.reading.001": [
-            "den Lehrer",
-            "  DEN   LEHRER  ",
+        "diagnostic.initial.reading.arrival-time.001": [
+            "Um acht Uhr.",
+            "  UM   ACHT   UHR.  ",
+        ],
+        "diagnostic.initial.reading.afternoon-activity.001": [
+            "Er lernt Deutsch.",
+            "  ER   LERNT   DEUTSCH.  ",
+        ],
+        "diagnostic.initial.everyday.transport.001": [
+            "die Straßenbahn",
+            "  DIE   STRASSENBAHN  ",
+        ],
+        "diagnostic.initial.everyday.water.001": [
+            "Wasser",
+            "  WASSER  ",
+            "Wasser.",
         ],
         "diagnostic.initial.laboratory.mikroskop.001": [
             "Mikroskop",
             "  MIKROSKOP  ",
             "Mikroskop.",
         ],
-        "diagnostic.initial.articles.frau.001": ["Die", "  DIE  "],
-        "diagnostic.initial.nominative.subject.001": [
-            "Der Junge",
-            "  DER   JUNGE  ",
-        ],
-        "diagnostic.initial.negation.kein-auto.001": ["kein", "  KEIN  "],
         "diagnostic.initial.communication.repeat.001": [
             "Können Sie das bitte wiederholen?",
             "  KÖNNEN   SIE   DAS   BITTE   WIEDERHOLEN?  ",
         ],
     }
     rejected_responses = {
-        "diagnostic.initial.pronouns.wir.001": ["Sie"],
-        "diagnostic.initial.everyday.greeting.001": ["Gute Nacht"],
+        "diagnostic.initial.pronouns.wir.001": ["Sie", "Wir zusammen"],
+        "diagnostic.initial.everyday.greeting.001": ["Gute Nacht", "Guten Morgen!"],
         "diagnostic.initial.sein.du.001": [
             "bin",
             "Du bist neu hier",
             "bist?",
             "bist..",
         ],
-        "diagnostic.initial.haben.wir.001": [
-            "habt",
-            "Wir haben heute Zeit",
-            "haben?",
-            "haben..",
+        "diagnostic.initial.communication.slower.001": [
+            "Können Sie das bitte wiederholen?",
+            "Was bedeutet dieses Wort?",
+            "Können Sie bitte langsamer sprechen??",
+            "Bitte langsamer sprechen?",
         ],
-        "diagnostic.initial.regular.lernen-order.001": [
+        "diagnostic.initial.writing.statement.001": [
             "Deutsch lerne ich.",
             "Ich Deutsch lerne",
             "Ich lerne heute Deutsch.",
@@ -834,7 +846,7 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
             "Ich lerne Deutsch Deutsch",
             "Ich lerne Deutsch!",
         ],
-        "diagnostic.initial.questions.wo-order.001": [
+        "diagnostic.initial.writing.wo-question.001": [
             "Wo wohnst du??",
             "Wo du wohnst",
             "Wo du wohnst?",
@@ -844,10 +856,27 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
             "Wo wohnst",
             "Wo lebst du?",
         ],
-        "diagnostic.initial.accusative.reading.001": [
-            "Lena",
-            "Paul",
-            "den Lehrer.",
+        "diagnostic.initial.reading.arrival-time.001": [
+            "Um neun Uhr.",
+            "Um acht Uhr",
+            "Um acht Uhr heute.",
+        ],
+        "diagnostic.initial.reading.afternoon-activity.001": [
+            "Er arbeitet.",
+            "Er lernt Deutsch",
+            "Er lernt heute Deutsch.",
+        ],
+        "diagnostic.initial.everyday.transport.001": [
+            "der Bahnhof",
+            "Straßenbahn",
+            "die Straßenbahn heute",
+        ],
+        "diagnostic.initial.everyday.water.001": [
+            "Kaffee",
+            "ein Wasser",
+            "Ich möchte Wasser, bitte.",
+            "Wasser?",
+            "Wasser Wasser",
         ],
         "diagnostic.initial.laboratory.mikroskop.001": [
             "Mikroskope",
@@ -856,26 +885,15 @@ def test_repository_draft_bank_is_valid_complete_and_not_available_in_production
             "Mikroskop Mikroskop",
             "Labor",
         ],
-        "diagnostic.initial.articles.frau.001": ["Der", "Eine", "Die Frau"],
-        "diagnostic.initial.nominative.subject.001": [
-            "Fußball",
-            "Junge",
-            "Der Junge.",
-        ],
-        "diagnostic.initial.negation.kein-auto.001": [
-            "nicht",
-            "keine",
-            "kein Auto",
-            "kein.",
-        ],
         "diagnostic.initial.communication.repeat.001": [
-            "Ich verstehe alles.",
+            "Können Sie bitte langsamer sprechen?",
             "Können Sie das bitte wiederholen",
             "Können Sie das bitte wiederholen??",
             "Bitte wiederholen?",
         ],
     }
     candidates_by_id = {candidate.candidate_id: candidate for candidate in candidates}
+    assert set(accepted_responses) == set(rejected_responses) == set(candidates_by_id)
 
     def evaluate(candidate_id: str, response: str):
         return evaluate_response(

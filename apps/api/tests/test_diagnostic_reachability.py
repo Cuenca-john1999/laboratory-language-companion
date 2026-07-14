@@ -28,7 +28,7 @@ from deutschos_api.models import DiagnosticAxis, DiagnosticTaskType
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPOSITORY_BANK = PROJECT_ROOT / "data" / "diagnostic"
 VALIDATOR = PROJECT_ROOT / "scripts" / "validate-diagnostic-bank.sh"
-REPOSITORY_SKILL_IDS = {9, 10, 11, 12, 13, 15, 16, 17, 18, 20, 21, 22}
+REPOSITORY_SKILL_IDS = {9, 10, 11, 17, 22}
 
 _TASK_TYPES = {
     DiagnosticAxis.READING_COMPREHENSION: (
@@ -369,46 +369,51 @@ def test_report_dtos_reject_unknown_fields():
         DiagnosticReachabilityReport.model_validate(payload)
 
 
-def test_repository_bank_is_valid_but_not_ready_and_matches_known_reachability():
+def test_repository_bank_is_ready_and_all_tasks_are_reachable():
     repository_bank = load_diagnostic_banks(
         REPOSITORY_BANK,
         curriculum_skill_ids={CURRICULUM_VERSION: REPOSITORY_SKILL_IDS},
     )[0]
     report = analyze_diagnostic_bank(repository_bank)
 
-    assert repository_bank.manifest.bank_version == "0.2.0"
-    assert report.ready_for_review is False
+    assert repository_bank.manifest.bank_version == "0.3.0"
+    assert report.ready_for_review is True
     assert report.exploration.conclusive is True
-    assert report.potentially_reachable_task_count == 8
-    assert report.minimum_observed_tasks_per_trajectory == 6
-    assert report.maximum_observed_tasks_per_trajectory == 6
-    assert report.maximum_evaluable_evidence_observed == 6
-    assert report.missing_candidate_axes == [
-        DiagnosticAxis.READING_COMPREHENSION,
-        DiagnosticAxis.WRITTEN_PRODUCTION,
-    ]
-    assert report.axes_without_entry_candidate == [
-        DiagnosticAxis.READING_COMPREHENSION,
-        DiagnosticAxis.WRITTEN_PRODUCTION,
-        DiagnosticAxis.PRODUCTIVE_VOCABULARY,
-        DiagnosticAxis.TYPED_COMMUNICATION_REPAIR,
-    ]
-    assert report.permanently_unreachable_tasks == [
-        "diagnostic.initial.communication.repeat.001",
-        "diagnostic.initial.laboratory.mikroskop.001",
-        "diagnostic.initial.nominative.subject.001",
-        "diagnostic.initial.regular.lernen-order.001",
-    ]
-    assert any(
-        warning.code == ReachabilityIssueCode.AXIS_EXCEEDS_RUNTIME_CAP
-        and warning.axis == DiagnosticAxis.ACTIVE_GRAMMAR
-        for warning in report.warnings
-    )
+    assert report.potentially_reachable_task_count == 12
+    assert report.minimum_observed_tasks_per_trajectory == 12
+    assert report.maximum_observed_tasks_per_trajectory == 12
+    assert report.maximum_evaluable_evidence_observed == 12
+    assert report.missing_candidate_axes == []
+    assert report.axes_without_entry_candidate == []
+    assert report.permanently_unreachable_tasks == []
+    assert report.problems == []
+    assert all(item.entry_candidate_count >= 1 for item in report.axis_coverage)
+    assert all(item.independent_candidate_count == 2 for item in report.axis_coverage)
+    assert all(item.reachable_task_count == 2 for item in report.axis_coverage)
+    assert all(item.coverage_possible for item in report.axis_coverage)
+    ordinary = {
+        "all_correct_without_help",
+        "all_incorrect",
+        "all_partial",
+        "all_correct_with_help",
+        "alternating_correct_incorrect",
+        "alternating_correct_partial",
+        "controlled_contradictions",
+    }
     assert all(
-        scenario.terminal_reason == "no_candidates"
+        len(scenario.steps) == 12
+        and scenario.evaluable_evidence_count == 12
+        and scenario.reached_minimum_evidence
+        and scenario.terminal_reason == "target_reached"
         for scenario in report.scenarios
-        if scenario.scenario_id != "early_abandonment"
+        if scenario.scenario_id in ordinary
     )
+    all_not_evaluable = next(
+        scenario for scenario in report.scenarios if scenario.scenario_id == "all_not_evaluable"
+    )
+    assert len(all_not_evaluable.steps) == 12
+    assert all_not_evaluable.evaluable_evidence_count == 0
+    assert all_not_evaluable.partial is True
 
 
 def test_cli_allows_unready_draft_but_require_ready_and_published_states_block(tmp_path):

@@ -126,13 +126,13 @@
     },
     {
       "id": "diagnostic.initial.sein.du.001",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "level": "pre-A1",
       "axis": "active_grammar",
       "secondary_axes": [],
       "skill_id": 11,
       "task_type": "gap_fill",
-      "difficulty": 1,
+      "difficulty": 2,
       "modality": "text",
       "response_type": "short_text",
       "estimated_seconds": 30,
@@ -180,37 +180,40 @@
           "segunda-persona",
           "pre-a1"
         ],
-        "authoring_notes": "Mide la forma de segunda persona singular de grammar.sein_present. El pronombre «du» y el infinitivo indicado hacen que «bist» sea la única palabra correcta. La instrucción exige solo el fragmento: una oración completa y otras formas de sein se rechazan. «bist.» se admite únicamente como variante cerrada para no penalizar un punto final accidental; no se elimina puntuación de manera global."
+        "authoring_notes": "Mide directamente la forma de segunda persona singular de grammar.sein_present. El pronombre «du» y el infinitivo indicado hacen que «bist» sea la única palabra correcta. Se asigna dificultad 2 porque exige recuperación productiva después de una entrada gramatical de reconocimiento; la ruta sigue abierta desde la tarea de pronombres de dificultad 1. La instrucción exige solo el fragmento: una oración completa y otras formas de sein se rechazan. «bist.» se admite únicamente como variante cerrada."
       }
     },
     {
-      "id": "diagnostic.initial.haben.wir.001",
-      "version": "1.0.1",
-      "level": "pre-A1",
-      "axis": "active_grammar",
+      "id": "diagnostic.initial.communication.slower.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "communication_repair.typed",
       "secondary_axes": [],
-      "skill_id": 12,
-      "task_type": "gap_fill",
-      "difficulty": 1,
+      "skill_id": null,
+      "task_type": "communication_repair.typed",
+      "difficulty": 2,
       "modality": "text",
-      "response_type": "short_text",
-      "estimated_seconds": 30,
+      "response_type": "single_choice",
+      "estimated_seconds": 40,
       "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.haben.wir.present",
+      "equivalence_group": "diagnostic.initial.communication.request-slower-speech",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v2",
+      "rubric_version": "deterministic-text.v1",
       "public": {
-        "instructions": "Completa el hueco con la forma correcta de «haben». Escribe únicamente la palabra que falta.",
-        "prompt": "Wir ___ heute Zeit.",
-        "options": []
+        "instructions": "Lee la situación y elige la petición adecuada en alemán.",
+        "prompt": "Entiendes algunas palabras, pero la persona habla demasiado rápido. Quieres pedirle que hable más despacio.",
+        "options": [
+          "Können Sie bitte langsamer sprechen?",
+          "Können Sie das bitte wiederholen?",
+          "Was bedeutet dieses Wort?"
+        ]
       },
       "private": {
         "rubric": {
-          "strategy": "accepted_answers",
+          "strategy": "exact_match",
           "accepted_responses": [
-            "haben",
-            "haben."
+            "Können Sie bitte langsamer sprechen?"
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -225,40 +228,40 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La respuesta normalizada coincide con la variante cerrada «haben» o «haben.».",
-          "incorrect_condition": "Cualquier otra forma verbal, frase completa, puntuación distinta o contenido léxico adicional es incorrecto. No hay crédito parcial."
+          "correct_condition": "La opción normalizada coincide exactamente con «Können Sie bitte langsamer sprechen?».",
+          "incorrect_condition": "Pedir repetición o significado no cumple la función específica de solicitar menor velocidad; cualquier opción alterada o contenido añadido es incorrecto."
         }
       },
       "metadata": {
-        "topic": "disponibilidad cotidiana",
-        "context": "Disponibilidad de tiempo expresada en presente."
+        "topic": "pedir que hablen más despacio",
+        "context": "Reparación escrita cuando la velocidad impide comprender."
       },
       "editorial": {
         "tags": [
-          "haben",
-          "primera-persona-plural",
-          "pre-a1"
+          "reparacion-comunicativa",
+          "velocidad",
+          "a1-inicial"
         ],
-        "authoring_notes": "Mide la forma de primera persona plural de grammar.haben_present. «Wir» fija inequívocamente «haben» y la instrucción exige solo el fragmento: una oración completa y otras formas de haben se rechazan. «haben.» se admite únicamente como variante cerrada para no penalizar un punto final accidental; no se elimina puntuación de manera global."
+        "authoring_notes": "Mide communication_repair.typed mediante la función específica de pedir menor velocidad. Usa skill_id nulo porque el currículo no contiene una habilidad equivalente y reconocer una fórmula con können no demuestra grammar.modal_verbs_basic. Los distractores son reparaciones plausibles, pero piden repetición o significado y no resuelven la velocidad indicada. Es independiente de la tarea de repetición."
       }
     },
     {
-      "id": "diagnostic.initial.regular.lernen-order.001",
-      "version": "1.0.1",
+      "id": "diagnostic.initial.writing.statement.001",
+      "version": "1.0.0",
       "level": "pre-A1",
-      "axis": "active_grammar",
+      "axis": "written_production",
       "secondary_axes": [],
-      "skill_id": 13,
+      "skill_id": null,
       "task_type": "word_order",
-      "difficulty": 2,
+      "difficulty": 1,
       "modality": "text",
       "response_type": "short_text",
       "estimated_seconds": 40,
       "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.regular.lernen.main-clause",
+      "equivalence_group": "diagnostic.initial.writing.statement-basic",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v2",
+      "rubric_version": "deterministic-text.v1",
       "public": {
         "instructions": "Ordena las palabras para formar una oración. Empieza con «Ich».",
         "prompt": "Deutsch · Ich · lerne",
@@ -289,23 +292,23 @@
         }
       },
       "metadata": {
-        "topic": "aprendizaje de alemán",
-        "context": "Oración principal afirmativa de tres elementos."
+        "topic": "producción escrita controlada",
+        "context": "Construcción de una oración principal afirmativa de tres elementos."
       },
       "editorial": {
         "tags": [
-          "presente-regular",
-          "orden-oracion",
+          "produccion-escrita",
+          "oracion-afirmativa",
           "pre-a1"
         ],
-        "authoring_notes": "Mide grammar.present_regular mediante una oración principal mínima. Empezar con «Ich» elimina la inversión; con esos tres tokens, el verbo finito ocupa inequívocamente la segunda posición. Se aceptan únicamente la secuencia exacta sin signo y la misma secuencia con punto final. «Deutsch lerne ich», un orden no V2 después de Ich y cualquier token añadido o repetido siguen rechazados; no se elimina puntuación de manera global."
+        "authoring_notes": "Mide written_production mediante la construcción controlada de una oración afirmativa mínima. Usa skill_id nulo: la forma «lerne» ya está suministrada, por lo que la respuesta no demuestra directamente la conjugación de grammar.present_regular. Empezar con «Ich» deja una única secuencia objetivo. Se aceptan únicamente la oración sin signo y con punto final; tokens añadidos, omitidos o repetidos siguen rechazados."
       }
     },
     {
-      "id": "diagnostic.initial.questions.wo-order.001",
-      "version": "1.0.1",
+      "id": "diagnostic.initial.writing.wo-question.001",
+      "version": "1.0.0",
       "level": "A1",
-      "axis": "active_grammar",
+      "axis": "written_production",
       "secondary_axes": [],
       "skill_id": 17,
       "task_type": "word_order",
@@ -314,10 +317,10 @@
       "response_type": "short_text",
       "estimated_seconds": 40,
       "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.questions.wo-main-clause",
+      "equivalence_group": "diagnostic.initial.writing.question-wo",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v2",
+      "rubric_version": "deterministic-text.v1",
       "public": {
         "instructions": "Ordena las palabras para formar una pregunta directa. Empieza con «Wo».",
         "prompt": "du · wohnst · Wo",
@@ -348,48 +351,48 @@
         }
       },
       "metadata": {
-        "topic": "identidad y residencia",
-        "context": "Pregunta elemental sobre lugar de residencia."
+        "topic": "producción escrita controlada",
+        "context": "Construcción de una pregunta elemental sobre residencia."
       },
       "editorial": {
         "tags": [
-          "preguntas-w",
-          "orden-pregunta",
+          "produccion-escrita",
+          "pregunta-w",
           "a1-inicial"
         ],
-        "authoring_notes": "Mide grammar.questions_basic con una pregunta W elemental. La consigna fija «Wo» al inicio; el verbo conjugado ocupa la segunda posición y «du» la tercera, por lo que solo hay un orden objetivo. Se aceptan únicamente esa secuencia sin signo y su forma ortográficamente estándar con «?». Preguntas eco, subordinadas, paráfrasis, cambios de sujeto o verbo y tokens añadidos siguen rechazados; no se elimina puntuación de manera global."
+        "authoring_notes": "Mide written_production controlada y aporta además evidencia directa sobre grammar.questions_basic: el alumno debe construir una pregunta W con los elementos dados. La consigna fija «Wo» al inicio y deja un único orden objetivo. Se aceptan la secuencia sin signo y la forma estándar con «?». Preguntas eco, subordinadas, paráfrasis y tokens añadidos siguen rechazados."
       }
     },
     {
-      "id": "diagnostic.initial.accusative.reading.001",
+      "id": "diagnostic.initial.reading.arrival-time.001",
       "version": "1.0.0",
-      "level": "A1",
-      "axis": "active_grammar",
+      "level": "pre-A1",
+      "axis": "reading_comprehension",
       "secondary_axes": [],
-      "skill_id": 20,
+      "skill_id": null,
       "task_type": "short_text_comprehension",
-      "difficulty": 3,
+      "difficulty": 1,
       "modality": "text",
       "response_type": "single_choice",
       "estimated_seconds": 45,
       "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.accusative.direct-object-reading",
+      "equivalence_group": "diagnostic.initial.reading.arrival-time",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
       "rubric_version": "deterministic-text.v1",
       "public": {
-        "instructions": "Lee el microtexto y elige a quién saluda Paul.",
-        "prompt": "Lena besucht Paul. Paul begrüßt den Lehrer.",
+        "instructions": "Lee el microtexto y elige a qué hora llega Lena a la escuela.",
+        "prompt": "Lena kommt um acht Uhr zur Schule. Der Unterricht beginnt um neun Uhr.",
         "options": [
-          "den Lehrer",
-          "Lena"
+          "Um acht Uhr.",
+          "Um neun Uhr."
         ]
       },
       "private": {
         "rubric": {
           "strategy": "exact_match",
           "accepted_responses": [
-            "den Lehrer"
+            "Um acht Uhr."
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -404,32 +407,32 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La opción normalizada coincide exactamente con «den Lehrer».",
-          "incorrect_condition": "Cualquier otra persona, relación gramatical, token añadido o puntuación es incorrecto. No hay crédito parcial."
+          "correct_condition": "La opción normalizada coincide exactamente con «Um acht Uhr.».",
+          "incorrect_condition": "Confundir la hora de llegada con el comienzo de la clase, alterar la opción o añadir contenido es incorrecto."
         }
       },
       "metadata": {
-        "topic": "comprensión breve y objeto directo",
-        "context": "Dos relaciones personales obligan a identificar el objeto de begrüßen."
+        "topic": "comprensión escrita de horarios",
+        "context": "Distinguir la hora de llegada de la hora de inicio de una actividad."
       },
       "editorial": {
         "tags": [
-          "comprension-breve",
-          "acusativo",
-          "objeto-directo"
+          "comprension-escrita",
+          "horarios",
+          "pre-a1"
         ],
-        "authoring_notes": "Cubre la prioridad de comprensión escrita mediante grammar.accusative_basic, la habilidad curricular textual no representada que mejor coincide con la relación evaluada. El currículo no contiene reading.*, por lo que el eje principal permanece active_grammar y no se inventa una proyección de lectura. Ambas opciones aparecen en el microtexto: elegir «den Lehrer» exige comprender quién realiza begrüßen y quién recibe la acción, no copiar la única expresión visible. «Lena» es sujeto de la primera oración y no es saludada por Paul."
+        "authoring_notes": "Mide reading_comprehension y usa skill_id nulo porque el currículo no contiene una habilidad de lectura equivalente. Las dos horas aparecen en el texto: acertar exige relacionar «kommt» con la llegada y distinguirla de «beginnt». El vocabulario es elemental, ambas opciones son plausibles y no se atribuye evidencia gramatical auxiliar."
       }
     },
     {
       "id": "diagnostic.initial.laboratory.mikroskop.001",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "level": "A1",
       "axis": "productive_vocabulary",
       "secondary_axes": [],
       "skill_id": 22,
       "task_type": "gap_fill",
-      "difficulty": 3,
+      "difficulty": 2,
       "modality": "text",
       "response_type": "short_text",
       "estimated_seconds": 40,
@@ -439,7 +442,7 @@
       "scoring_mode": "deterministic",
       "rubric_version": "deterministic-text.v1",
       "public": {
-        "instructions": "Completa el hueco con la palabra alemana para «microscopio». Escribe únicamente la palabra que falta.",
+        "instructions": "Completa el hueco con el nombre alemán del instrumento que permite observar objetos muy pequeños. Escribe únicamente la palabra que falta.",
         "prompt": "Das ___ steht im Labor.",
         "options": []
       },
@@ -477,39 +480,100 @@
           "laboratorio",
           "instrumentos"
         ],
-        "authoring_notes": "Sustituye el vocabulario cotidiano productivo solicitado por vocabulary.laboratory_intro porque vocabulary.everyday_core ya está representado y es la única habilidad léxica textual nueva del currículo. «Mikroskop» es el término alemán básico e inequívoco para el instrumento indicado; el contexto no exige conocimiento científico. Se tolera únicamente un punto final accidental. «Mikroskope», «das Mikroskop» y otros instrumentos cambian número, formato o significado y se rechazan."
+        "authoring_notes": "Mide directamente vocabulary.laboratory_intro como segunda muestra de productive_vocabulary. La descripción funcional evita una traducción española literal; «Mikroskop» es el término básico e inequívoco y el contexto no exige conocimiento científico especializado. La dificultad baja a 2 para crear una ruta desde el vocabulario cotidiano de dificultad 1. Se tolera únicamente un punto final accidental; artículo, plural y otros instrumentos se rechazan."
       }
     },
     {
-      "id": "diagnostic.initial.articles.frau.001",
+      "id": "diagnostic.initial.reading.afternoon-activity.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "reading_comprehension",
+      "secondary_axes": [],
+      "skill_id": null,
+      "task_type": "short_text_comprehension",
+      "difficulty": 2,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 40,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.reading.afternoon-activity",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Lee el microtexto y elige qué hace Jonas por la tarde.",
+        "prompt": "Jonas arbeitet am Morgen. Am Nachmittag lernt er Deutsch.",
+        "options": [
+          "Er lernt Deutsch.",
+          "Er arbeitet."
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Er lernt Deutsch."
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La opción normalizada coincide exactamente con «Er lernt Deutsch.».",
+          "incorrect_condition": "Confundir la actividad de la mañana con la de la tarde, alterar la opción o añadir contenido es incorrecto."
+        }
+      },
+      "metadata": {
+        "topic": "comprensión escrita de rutina",
+        "context": "Relacionar dos actividades con momentos distintos del día."
+      },
+      "editorial": {
+        "tags": [
+          "comprension-escrita",
+          "rutina",
+          "a1-inicial"
+        ],
+        "authoring_notes": "Mide reading_comprehension y usa skill_id nulo porque el currículo no contiene una habilidad equivalente. Las dos actividades aparecen en el texto y son plausibles; la respuesta exige relacionar «am Nachmittag» con aprender alemán, no seleccionar el único sustantivo animado ni aplicar una regla de caso."
+      }
+    },
+    {
+      "id": "diagnostic.initial.everyday.transport.001",
       "version": "1.0.0",
       "level": "pre-A1",
-      "axis": "active_grammar",
+      "axis": "receptive_vocabulary",
       "secondary_axes": [],
-      "skill_id": 15,
+      "skill_id": 10,
       "task_type": "binary_choice",
       "difficulty": 2,
       "modality": "text",
       "response_type": "single_choice",
       "estimated_seconds": 30,
       "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.articles.frau-definite",
+      "equivalence_group": "diagnostic.initial.everyday.transport-tram",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
       "rubric_version": "deterministic-text.v1",
       "public": {
-        "instructions": "Elige el artículo definido correcto para completar la oración.",
-        "prompt": "___ Frau arbeitet hier.",
+        "instructions": "Lee la situación y elige la palabra alemana adecuada.",
+        "prompt": "Viajas por la ciudad en un vehículo que circula sobre raíles por la calle.",
         "options": [
-          "Der",
-          "Die"
+          "die Straßenbahn",
+          "der Bahnhof"
         ]
       },
       "private": {
         "rubric": {
           "strategy": "exact_match",
           "accepted_responses": [
-            "Die"
+            "die Straßenbahn"
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -524,114 +588,51 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La opción normalizada coincide exactamente con «Die».",
-          "incorrect_condition": "Cualquier otro artículo, palabra adicional o puntuación es incorrecto. No hay crédito parcial."
+          "correct_condition": "La opción normalizada coincide exactamente con «die Straßenbahn».",
+          "incorrect_condition": "Elegir el lugar «der Bahnhof», alterar la opción o añadir contenido es incorrecto."
         }
       },
       "metadata": {
-        "topic": "artículo definido",
-        "context": "Sujeto femenino singular en nominativo con vocabulario elemental."
+        "topic": "transporte cotidiano",
+        "context": "Reconocimiento de un vehículo frente a un lugar relacionado con el transporte."
       },
       "editorial": {
         "tags": [
-          "articulos",
-          "definido",
-          "femenino"
-        ],
-        "authoring_notes": "Mide grammar.articles_basic con el sustantivo elemental «Frau». La frase solo usa nominativo porque el grupo nominal es el sujeto; no introduce acusativo ni dativo. La consigna solicita artículo definido, por lo que «Die» es la única opción correcta. «Der» no concuerda con «Frau» en esta función y «eine», aunque formaría otra oración posible, es indefinido y queda fuera del contrato."
-      }
-    },
-    {
-      "id": "diagnostic.initial.nominative.subject.001",
-      "version": "1.0.0",
-      "level": "A1",
-      "axis": "active_grammar",
-      "secondary_axes": [],
-      "skill_id": 16,
-      "task_type": "binary_choice",
-      "difficulty": 2,
-      "modality": "text",
-      "response_type": "single_choice",
-      "estimated_seconds": 35,
-      "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.nominative.subject-identification",
-      "ambiguity_risk": "low",
-      "scoring_mode": "deterministic",
-      "rubric_version": "deterministic-text.v1",
-      "public": {
-        "instructions": "Lee la oración y elige quién realiza la acción.",
-        "prompt": "Der Junge spielt Fußball.",
-        "options": [
-          "Der Junge",
-          "Fußball"
-        ]
-      },
-      "private": {
-        "rubric": {
-          "strategy": "exact_match",
-          "accepted_responses": [
-            "Der Junge"
-          ],
-          "partial_responses": [],
-          "expected_tokens": [],
-          "case_sensitive": false
-        },
-        "scoring_policy": {
-          "normalization": {
-            "unicode_form": "NFC",
-            "trim_outer_whitespace": true,
-            "collapse_internal_whitespace": true,
-            "case_sensitive": false,
-            "punctuation": "significant"
-          },
-          "maximum_score": 1.0,
-          "correct_condition": "La opción normalizada coincide exactamente con «Der Junge».",
-          "incorrect_condition": "El objeto, una forma incompleta, tokens adicionales o puntuación son incorrectos. No hay crédito parcial."
-        }
-      },
-      "metadata": {
-        "topic": "identificación del sujeto",
-        "context": "Oración cotidiana con un sujeto nominal y un objeto claramente distintos."
-      },
-      "editorial": {
-        "tags": [
-          "nominativo",
-          "sujeto",
+          "vocabulario-cotidiano",
+          "transporte",
           "reconocimiento"
         ],
-        "authoring_notes": "Mide grammar.nominative_basic sin repetir la selección de pronombres: el alumno identifica el grupo nominal que realiza «spielt». «Der Junge» es el sujeto en nominativo; «Fußball» nombra aquello que se juega y no realiza la acción. El vocabulario es elemental y no se exige producir declinación."
+        "authoring_notes": "Mide directamente vocabulary.everyday_core mediante reconocimiento contextual. «die Straßenbahn» nombra el vehículo descrito; «der Bahnhof» es un distractor plausible del mismo dominio, pero designa un lugar y no un vehículo. La respuesta no aparece en el prompt y no depende de una regla gramatical ni de conocimiento cultural específico."
       }
     },
     {
-      "id": "diagnostic.initial.negation.kein-auto.001",
+      "id": "diagnostic.initial.everyday.water.001",
       "version": "1.0.0",
-      "level": "A1",
-      "axis": "active_grammar",
+      "level": "pre-A1",
+      "axis": "productive_vocabulary",
       "secondary_axes": [],
-      "skill_id": 18,
-      "task_type": "binary_choice",
-      "difficulty": 2,
+      "skill_id": 10,
+      "task_type": "gap_fill",
+      "difficulty": 1,
       "modality": "text",
-      "response_type": "single_choice",
+      "response_type": "short_text",
       "estimated_seconds": 30,
       "prerequisites": [],
-      "equivalence_group": "diagnostic.initial.negation.kein-bare-noun",
+      "equivalence_group": "diagnostic.initial.everyday.water-lexeme",
       "ambiguity_risk": "low",
       "scoring_mode": "deterministic",
       "rubric_version": "deterministic-text.v1",
       "public": {
-        "instructions": "Elige la palabra que completa la negación neutral.",
-        "prompt": "Ich habe ___ Auto.",
-        "options": [
-          "nicht",
-          "kein"
-        ]
+        "instructions": "Quieres pedir agua en una cafetería. Completa la frase con la palabra alemana que falta y escribe únicamente esa palabra.",
+        "prompt": "Ich möchte ___, bitte.",
+        "options": []
       },
       "private": {
         "rubric": {
-          "strategy": "exact_match",
+          "strategy": "accepted_answers",
           "accepted_responses": [
-            "kein"
+            "Wasser",
+            "Wasser."
           ],
           "partial_responses": [],
           "expected_tokens": [],
@@ -646,32 +647,32 @@
             "punctuation": "significant"
           },
           "maximum_score": 1.0,
-          "correct_condition": "La opción normalizada coincide exactamente con «kein».",
-          "incorrect_condition": "«nicht», otra flexión, una frase completa, tokens adicionales o puntuación son incorrectos. No hay crédito parcial."
+          "correct_condition": "La respuesta normalizada coincide con la variante cerrada «Wasser» o «Wasser.».",
+          "incorrect_condition": "Otra bebida, un artículo, una frase completa, tokens adicionales o puntuación distinta es incorrecta."
         }
       },
       "metadata": {
-        "topic": "negación con kein",
-        "context": "Posesión negada de forma neutral ante un sustantivo sin determinante."
+        "topic": "bebidas cotidianas",
+        "context": "Recuperación productiva de una palabra elemental en una petición cerrada."
       },
       "editorial": {
         "tags": [
-          "negacion",
-          "kein",
-          "sustantivo"
+          "vocabulario-productivo",
+          "bebidas",
+          "pre-a1"
         ],
-        "authoring_notes": "Mide grammar.negation_basic en un contexto controlado. La negación neutral de posesión ante el sustantivo contable «Auto» sin artículo usa «kein»: «Ich habe kein Auto». «Ich habe nicht Auto» no es la construcción neutral alemana; un contraste con nicht exigiría otra estructura, por ejemplo un determinante o un foco discursivo que esta tarea no presenta."
+        "authoring_notes": "Mide directamente vocabulary.everyday_core como entrada de productive_vocabulary. La situación fija agua y evita sinónimos cotidianos razonables; la frase objetivo natural es «Ich möchte Wasser, bitte». La consigna exige solo el lexema. Se admite únicamente un punto final accidental; artículo, frase completa y otras bebidas se rechazan."
       }
     },
     {
       "id": "diagnostic.initial.communication.repeat.001",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "level": "A1",
       "axis": "communication_repair.typed",
       "secondary_axes": [],
-      "skill_id": 21,
+      "skill_id": null,
       "task_type": "communication_repair.typed",
-      "difficulty": 3,
+      "difficulty": 1,
       "modality": "text",
       "response_type": "single_choice",
       "estimated_seconds": 45,
@@ -684,8 +685,8 @@
         "instructions": "Lee la situación y elige la respuesta adecuada en alemán.",
         "prompt": "No has entendido lo que una persona acaba de decir y quieres pedir que lo repita.",
         "options": [
-          "Ich verstehe alles.",
-          "Können Sie das bitte wiederholen?"
+          "Können Sie das bitte wiederholen?",
+          "Können Sie bitte langsamer sprechen?"
         ]
       },
       "private": {
@@ -708,7 +709,7 @@
           },
           "maximum_score": 1.0,
           "correct_condition": "La opción normalizada coincide exactamente con «Können Sie das bitte wiederholen?».",
-          "incorrect_condition": "Una afirmación que no repara la comunicación, otra función, tokens adicionales o puntuación distinta son incorrectos. No hay crédito parcial."
+          "incorrect_condition": "Pedir menor velocidad no cumple la función específica de solicitar repetición; cualquier opción alterada o contenido añadido es incorrecto."
         }
       },
       "metadata": {
@@ -719,9 +720,9 @@
         "tags": [
           "reparacion-comunicativa",
           "peticion",
-          "verbo-modal"
+          "repeticion"
         ],
-        "authoring_notes": "Cubre communication_repair.typed mediante una situación escrita y no infiere escucha ni habla. a0-a1.v1 no contiene una habilidad de reparación comunicativa textual; grammar.modal_verbs_basic es la aproximación curricular nueva más cercana porque la fórmula objetivo usa «können» en una pregunta principal sencilla. No se utiliza speaking.basic. «Ich verstehe alles.» contradice la necesidad de reparación; otras peticiones lingüísticamente posibles quedan fuera de esta selección cerrada y no se interpretan como paráfrasis aceptadas."
+        "authoring_notes": "Mide communication_repair.typed mediante la función específica de pedir repetición y no infiere escucha ni habla. Usa skill_id nulo: a0-a1.v1 no contiene una habilidad equivalente y la presencia de «können» no demuestra grammar.modal_verbs_basic. El distractor pide menor velocidad, una reparación plausible pero distinta; la situación exige repetir. Es independiente de la tarea de hablar más despacio."
       }
     }
   ]
