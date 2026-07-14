@@ -15,9 +15,9 @@ data/
 `data/diagnostic/` es la ubicación autorizada para bancos diagnósticos. Los
 otros directorios siguen reservados para contratos posteriores. La
 infraestructura no usa red y no habilita LLM, audio, frontend ni proyección al
-progreso. Desde `0.1.0` existe una primera muestra auténtica de seis tareas en
-estado `draft`; no está disponible para el alumno ni constituye un diagnóstico
-completo.
+progreso. `0.1.0` inició una muestra auténtica con seis tareas y `0.2.0` la
+amplía de forma compatible a doce. El banco permanece en estado `draft`: no
+está disponible para el alumno ni constituye un diagnóstico completo.
 
 Se conserva `data/` porque ya separa de forma clara contenido versionable,
 datos locales y código, funciona desde el SSD externo y no presenta un riesgo
@@ -192,7 +192,7 @@ documenta el contrato que ya ejecuta el scorer, sin modificarlo:
 - condiciones explícitas para respuesta correcta e incorrecta.
 
 El validador rechaza una discrepancia entre la sensibilidad a mayúsculas de la
-política y la rúbrica. Las seis tareas iniciales ignoran diferencias de
+política y la rúbrica. Las tareas del banco inicial ignoran diferencias de
 capitalización. La puntuación continúa siendo significativa: la revisión
 editorial `0.1.1` enumera de forma cerrada el punto final tolerado en los dos
 huecos y la oración declarativa, y el signo de interrogación final tolerado en

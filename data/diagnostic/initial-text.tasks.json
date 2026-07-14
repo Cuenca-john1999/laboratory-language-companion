@@ -359,6 +359,370 @@
         ],
         "authoring_notes": "Mide grammar.questions_basic con una pregunta W elemental. La consigna fija «Wo» al inicio; el verbo conjugado ocupa la segunda posición y «du» la tercera, por lo que solo hay un orden objetivo. Se aceptan únicamente esa secuencia sin signo y su forma ortográficamente estándar con «?». Preguntas eco, subordinadas, paráfrasis, cambios de sujeto o verbo y tokens añadidos siguen rechazados; no se elimina puntuación de manera global."
       }
+    },
+    {
+      "id": "diagnostic.initial.accusative.reading.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 20,
+      "task_type": "short_text_comprehension",
+      "difficulty": 3,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 45,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.accusative.direct-object-reading",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Lee el microtexto y elige a quién saluda Paul.",
+        "prompt": "Lena besucht Paul. Paul begrüßt den Lehrer.",
+        "options": [
+          "den Lehrer",
+          "Lena"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "den Lehrer"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La opción normalizada coincide exactamente con «den Lehrer».",
+          "incorrect_condition": "Cualquier otra persona, relación gramatical, token añadido o puntuación es incorrecto. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "comprensión breve y objeto directo",
+        "context": "Dos relaciones personales obligan a identificar el objeto de begrüßen."
+      },
+      "editorial": {
+        "tags": [
+          "comprension-breve",
+          "acusativo",
+          "objeto-directo"
+        ],
+        "authoring_notes": "Cubre la prioridad de comprensión escrita mediante grammar.accusative_basic, la habilidad curricular textual no representada que mejor coincide con la relación evaluada. El currículo no contiene reading.*, por lo que el eje principal permanece active_grammar y no se inventa una proyección de lectura. Ambas opciones aparecen en el microtexto: elegir «den Lehrer» exige comprender quién realiza begrüßen y quién recibe la acción, no copiar la única expresión visible. «Lena» es sujeto de la primera oración y no es saludada por Paul."
+      }
+    },
+    {
+      "id": "diagnostic.initial.laboratory.mikroskop.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "productive_vocabulary",
+      "secondary_axes": [],
+      "skill_id": 22,
+      "task_type": "gap_fill",
+      "difficulty": 3,
+      "modality": "text",
+      "response_type": "short_text",
+      "estimated_seconds": 40,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.laboratory.mikroskop-lexeme",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Completa el hueco con la palabra alemana para «microscopio». Escribe únicamente la palabra que falta.",
+        "prompt": "Das ___ steht im Labor.",
+        "options": []
+      },
+      "private": {
+        "rubric": {
+          "strategy": "accepted_answers",
+          "accepted_responses": [
+            "Mikroskop",
+            "Mikroskop."
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide con la variante cerrada «Mikroskop» o «Mikroskop.».",
+          "incorrect_condition": "Cualquier otro sustantivo, plural, frase completa, puntuación distinta o token adicional es incorrecto. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "instrumentos de laboratorio",
+        "context": "Recuperación productiva de un término profesional inicial y concreto."
+      },
+      "editorial": {
+        "tags": [
+          "vocabulario-productivo",
+          "laboratorio",
+          "instrumentos"
+        ],
+        "authoring_notes": "Sustituye el vocabulario cotidiano productivo solicitado por vocabulary.laboratory_intro porque vocabulary.everyday_core ya está representado y es la única habilidad léxica textual nueva del currículo. «Mikroskop» es el término alemán básico e inequívoco para el instrumento indicado; el contexto no exige conocimiento científico. Se tolera únicamente un punto final accidental. «Mikroskope», «das Mikroskop» y otros instrumentos cambian número, formato o significado y se rechazan."
+      }
+    },
+    {
+      "id": "diagnostic.initial.articles.frau.001",
+      "version": "1.0.0",
+      "level": "pre-A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 15,
+      "task_type": "binary_choice",
+      "difficulty": 2,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 30,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.articles.frau-definite",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Elige el artículo definido correcto para completar la oración.",
+        "prompt": "___ Frau arbeitet hier.",
+        "options": [
+          "Der",
+          "Die"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Die"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La opción normalizada coincide exactamente con «Die».",
+          "incorrect_condition": "Cualquier otro artículo, palabra adicional o puntuación es incorrecto. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "artículo definido",
+        "context": "Sujeto femenino singular en nominativo con vocabulario elemental."
+      },
+      "editorial": {
+        "tags": [
+          "articulos",
+          "definido",
+          "femenino"
+        ],
+        "authoring_notes": "Mide grammar.articles_basic con el sustantivo elemental «Frau». La frase solo usa nominativo porque el grupo nominal es el sujeto; no introduce acusativo ni dativo. La consigna solicita artículo definido, por lo que «Die» es la única opción correcta. «Der» no concuerda con «Frau» en esta función y «eine», aunque formaría otra oración posible, es indefinido y queda fuera del contrato."
+      }
+    },
+    {
+      "id": "diagnostic.initial.nominative.subject.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 16,
+      "task_type": "binary_choice",
+      "difficulty": 2,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 35,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.nominative.subject-identification",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Lee la oración y elige quién realiza la acción.",
+        "prompt": "Der Junge spielt Fußball.",
+        "options": [
+          "Der Junge",
+          "Fußball"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Der Junge"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La opción normalizada coincide exactamente con «Der Junge».",
+          "incorrect_condition": "El objeto, una forma incompleta, tokens adicionales o puntuación son incorrectos. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "identificación del sujeto",
+        "context": "Oración cotidiana con un sujeto nominal y un objeto claramente distintos."
+      },
+      "editorial": {
+        "tags": [
+          "nominativo",
+          "sujeto",
+          "reconocimiento"
+        ],
+        "authoring_notes": "Mide grammar.nominative_basic sin repetir la selección de pronombres: el alumno identifica el grupo nominal que realiza «spielt». «Der Junge» es el sujeto en nominativo; «Fußball» nombra aquello que se juega y no realiza la acción. El vocabulario es elemental y no se exige producir declinación."
+      }
+    },
+    {
+      "id": "diagnostic.initial.negation.kein-auto.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 18,
+      "task_type": "binary_choice",
+      "difficulty": 2,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 30,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.negation.kein-bare-noun",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Elige la palabra que completa la negación neutral.",
+        "prompt": "Ich habe ___ Auto.",
+        "options": [
+          "nicht",
+          "kein"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "kein"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La opción normalizada coincide exactamente con «kein».",
+          "incorrect_condition": "«nicht», otra flexión, una frase completa, tokens adicionales o puntuación son incorrectos. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "negación con kein",
+        "context": "Posesión negada de forma neutral ante un sustantivo sin determinante."
+      },
+      "editorial": {
+        "tags": [
+          "negacion",
+          "kein",
+          "sustantivo"
+        ],
+        "authoring_notes": "Mide grammar.negation_basic en un contexto controlado. La negación neutral de posesión ante el sustantivo contable «Auto» sin artículo usa «kein»: «Ich habe kein Auto». «Ich habe nicht Auto» no es la construcción neutral alemana; un contraste con nicht exigiría otra estructura, por ejemplo un determinante o un foco discursivo que esta tarea no presenta."
+      }
+    },
+    {
+      "id": "diagnostic.initial.communication.repeat.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "communication_repair.typed",
+      "secondary_axes": [],
+      "skill_id": 21,
+      "task_type": "communication_repair.typed",
+      "difficulty": 3,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 45,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.communication.request-repetition",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Lee la situación y elige la respuesta adecuada en alemán.",
+        "prompt": "No has entendido lo que una persona acaba de decir y quieres pedir que lo repita.",
+        "options": [
+          "Ich verstehe alles.",
+          "Können Sie das bitte wiederholen?"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Können Sie das bitte wiederholen?"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La opción normalizada coincide exactamente con «Können Sie das bitte wiederholen?».",
+          "incorrect_condition": "Una afirmación que no repara la comunicación, otra función, tokens adicionales o puntuación distinta son incorrectos. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "pedir repetición",
+        "context": "Reparación comunicativa escrita mediante una petición cortés y elemental."
+      },
+      "editorial": {
+        "tags": [
+          "reparacion-comunicativa",
+          "peticion",
+          "verbo-modal"
+        ],
+        "authoring_notes": "Cubre communication_repair.typed mediante una situación escrita y no infiere escucha ni habla. a0-a1.v1 no contiene una habilidad de reparación comunicativa textual; grammar.modal_verbs_basic es la aproximación curricular nueva más cercana porque la fórmula objetivo usa «können» en una pregunta principal sencilla. No se utiliza speaking.basic. «Ich verstehe alles.» contradice la necesidad de reparación; otras peticiones lingüísticamente posibles quedan fuera de esta selección cerrada y no se interpretan como paráfrasis aceptadas."
+      }
     }
   ]
 }

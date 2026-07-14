@@ -1,7 +1,7 @@
 {
   "schema_version": "diagnostic-bank-manifest.v1",
   "bank_id": "deutschos.diagnostic.initial-text",
-  "bank_version": "0.1.1",
+  "bank_version": "0.2.0",
   "diagnostic_version": "diagnostic-text.v1",
   "target_language": "de",
   "levels": [
@@ -13,7 +13,9 @@
   ],
   "axes": [
     "active_grammar",
-    "receptive_vocabulary"
+    "receptive_vocabulary",
+    "productive_vocabulary",
+    "communication_repair.typed"
   ],
   "editorial_status": "draft",
   "created_on": "2026-07-14",
@@ -29,5 +31,5 @@
     "diagnostic_engine_version": "diagnostic-engine.v1",
     "curriculum_version": "a0-a1.v1"
   },
-  "editorial_notes": "Revisión pedagógica 0.1.1 del primer banco auténtico: la tarea de saludo ahora exige relacionar una situación con vocabulario alemán y las respuestas textuales usan variantes cerradas de puntuación final. Contiene exactamente seis tareas pre-A1/A1 iniciales y permanece deliberadamente en draft; no constituye un diagnóstico completo ni contenido publicable. Requiere una nueva revisión independiente antes de cualquier promoción."
+  "editorial_notes": "Ampliación editorial 0.2.0: conserva sin cambios las seis tareas auditadas de 0.1.1 y añade seis tareas textuales deterministas con seis skill_id nuevos. La comprensión breve se ancla en acusativo mediante una relación explícita de objeto directo; la reparación escrita se aproxima mediante una fórmula con können porque a0-a1.v1 no contiene una habilidad curricular de reparación comunicativa textual. El banco suma doce tareas y permanece deliberadamente en draft; no constituye un diagnóstico completo ni contenido publicable. Requiere auditoría pedagógica independiente antes de cualquier promoción."
 }
