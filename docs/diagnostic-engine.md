@@ -531,6 +531,39 @@ La creación no necesita una restricción nueva: `BEGIN IMMEDIATE` hace que las
 creaciones realizadas mediante este servicio sean seriales. Escritores que
 eviten deliberadamente el servicio no reciben esa garantía de dominio.
 
+### Contratos de entrega v1 y v2
+
+Las tareas históricas usan `legacy-text.v1`: incluso una selección cerrada se
+entrega mediante `response_text` y conserva el scoring textual original. Las
+tareas de archivo `diagnostic-task-file.v2` declaran uno de dos contratos:
+
+- `option-id.v1`: el cliente envía una respuesta estructurada
+  `single_choice` con `selected_option_id`;
+- `text.v2`: el cliente envía una respuesta estructurada `text`.
+
+Una petición no puede incluir a la vez el campo legacy y `answer`. El servicio
+comprueba el contrato de la tarea persistida, no la forma que el cliente quiera
+dar a la respuesta. Un ID existente pero incorrecto genera evidencia negativa;
+un ID inexistente es una violación de contrato, devuelve `422` y no persiste
+respuesta ni evidencia.
+
+El scoring `option_id` compara exactamente la identidad: no aplica Unicode NFC,
+trim, casefold ni normalización de puntuación. El label público no interviene en
+evaluación o idempotencia. La ayuda se aplica después de determinar la categoría
+correcta, igual que en el scoring textual.
+
+No se necesita migración SQL. `DiagnosticResponse.response_text` conserva el
+valor canónico y el snapshot privado de rúbrica guarda
+`submission_encoding`. La ausencia histórica de ese discriminador significa
+`legacy-text.v1`; una respuesta nueva por opción guarda `option-id.v1`. El
+snapshot de tarea conserva opciones, labels y rúbrica, de modo que un cambio de
+label en otra versión no reinterpreta evidencia previa.
+
+La idempotencia compara contrato, valor canónico, estado de instrucción,
+asistencia y demás campos semánticos; nunca reconstruye ni compara labels. Una
+corrección evaluadora sigue siendo append-only, hereda el snapshot y no edita la
+selección original.
+
 ## 11. Pausa, reinicio y reconstrucción
 
 La tarea presentada conserva contenido, rúbrica, identidad y versión. Al
@@ -662,8 +695,12 @@ contenido devuelve `409`. Esto incluye entregas concurrentes idénticas; SQLite
 las serializa y solo una crea filas.
 
 Los DTO públicos se construyen campo por campo. Una tarea incluye instrucciones,
-enunciado, opciones, modalidad, eje y dificultad, pero nunca `expected_answer`,
+enunciado, opciones, `response_type`, `answer_contract`, modalidad, eje y
+dificultad, pero nunca `expected_answer`,
 rúbrica, claves de equivalencia, prerrequisitos internos ni razón de selección.
+En v2 cada opción pública contiene solo su ID opaco y label, en el orden
+editorial; ninguna marca identifica la opción correcta. V1 conserva su lista de
+strings para clientes legacy.
 Una respuesta pública incluye el resultado estructurado, no el texto del alumno,
 justificación ni códigos internos. Además, el adaptador rechaza recursivamente
 claves reservadas dentro del contenido proporcionado por un banco antes de

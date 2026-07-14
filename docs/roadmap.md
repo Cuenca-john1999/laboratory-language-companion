@@ -22,12 +22,15 @@ El orden de trabajo es:
 
 1. `#006E4C`, completado: validación estática, escenarios y simulación
    reproducible de alcanzabilidad;
-2. `#006E4D`: reequilibrar el banco `draft` con tareas de entrada y cobertura
-   suficiente;
-3. probar sesiones completas con escenarios correctos, incorrectos, mixtos y no
-   evaluables;
-4. realizar una auditoría pedagógica final antes de `reviewed`;
-5. iniciar el frontend para el alumno solo cuando el banco sea alcanzable.
+2. `#006E4D`, completado: banco `draft` reequilibrado con dos tareas por eje;
+3. `#006E4E` y `#006E4E1`, completados: sesiones end-to-end y confianza
+   conservadora para evidencia asistida;
+4. `#006E4F1`, completado: infraestructura compatible para opciones con ID
+   estable, manteniendo intacto el banco v1;
+5. `#006E4F2`: migrar editorialmente las siete tareas cerradas del banco a IDs
+   estables, con nuevas versiones y auditoría pedagógica;
+6. realizar una auditoría final antes de `reviewed`;
+7. iniciar el frontend para el alumno solo después de cerrar esos contratos.
 
 Hasta entonces se usan la herramienta editorial, pruebas HTTP y el simulador de
 alcanzabilidad; ningún banco `draft` se ofrece en producción.

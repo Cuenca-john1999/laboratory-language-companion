@@ -13,13 +13,17 @@ from collections.abc import Sequence
 
 from deutschos_api.models import DiagnosticPolarity
 
+from .exceptions import InvalidSubmissionContractError
 from .schemas import (
     AmbiguityRisk,
     EvaluationOutcome,
     EvaluationResult,
+    NoAnswer,
     ResponseSubmission,
     RubricStrategy,
+    SingleChoiceAnswer,
     TaskCandidate,
+    TextAnswer,
 )
 
 SCORES = {
@@ -173,7 +177,52 @@ def evaluate_response(
             justification="No se entendió la instrucción; no se infiere desconocimiento del alemán.",
         )
 
-    response = submission.response_text or ""
+    if isinstance(submission.answer, NoAnswer):
+        return _not_evaluable(
+            candidate,
+            reason_code="empty_response",
+            justification="Una respuesta vacía no permite evaluar la habilidad.",
+        )
+
+    if candidate.rubric.strategy == RubricStrategy.OPTION_ID:
+        if not isinstance(submission.answer, SingleChoiceAnswer):
+            raise InvalidSubmissionContractError("La tarea cerrada exige selected_option_id.")
+        selected_option_id = submission.answer.selected_option_id
+        available_option_ids = {
+            option["id"]
+            for option in candidate.options
+            if isinstance(option, dict) and isinstance(option.get("id"), str)
+        }
+        if selected_option_id not in available_option_ids:
+            raise InvalidSubmissionContractError(
+                "La opción indicada no pertenece al contrato de la tarea."
+            )
+        if selected_option_id in candidate.rubric.partial_option_ids:
+            return _evaluated(
+                candidate,
+                outcome=EvaluationOutcome.PARTIAL,
+                match="partial_option_id",
+                reason_code="deterministic_partial_option_id",
+                justification="La opción coincide con una identidad parcial versionada.",
+            )
+        if selected_option_id in candidate.rubric.accepted_option_ids:
+            return _correct_result(candidate, submission, match="option_id")
+        return _evaluated(
+            candidate,
+            outcome=EvaluationOutcome.INCORRECT,
+            match="option_id_no_match",
+            reason_code="deterministic_option_id_no_match",
+            justification="La opción pertenece a la tarea, pero no coincide con la clave.",
+        )
+
+    if isinstance(submission.answer, SingleChoiceAnswer):
+        raise InvalidSubmissionContractError("La tarea textual no acepta selected_option_id.")
+
+    response = (
+        submission.answer.text
+        if isinstance(submission.answer, TextAnswer)
+        else submission.response_text or ""
+    )
     if not response.strip():
         return _not_evaluable(
             candidate,

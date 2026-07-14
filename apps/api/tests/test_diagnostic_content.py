@@ -13,8 +13,10 @@ from deutschos_api.api import diagnostic as diagnostic_api
 from deutschos_api.content.diagnostic import (
     DIAGNOSTIC_BANK_SCHEMA_VERSION,
     DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION,
+    DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION_V2,
     DiagnosticContentFormatError,
     DiagnosticTaskDefinition,
+    DiagnosticTaskDefinitionV2,
     EditorialStatus,
     FilesystemCandidateProvider,
     file_sha256,
@@ -104,6 +106,63 @@ def task_file_payload(bank_id: str, *tasks: dict):
         "bank_id": bank_id,
         "tasks": list(tasks),
     }
+
+
+def option_task_payload(identifier: str = "test.option-v2", **overrides):
+    payload = {
+        **task_payload(identifier),
+        "version": "2",
+        "answer_contract": "option-id.v1",
+        "rubric_version": "deterministic-option-id.v1",
+        "public": {
+            "instructions": "Elige una opción sintética.",
+            "prompt": "Contenido v2 exclusivo de prueba.",
+            "options": [
+                {"id": "opt_k4m2", "label": "Alpha"},
+                {"id": "opt_p7q9", "label": "Beta"},
+            ],
+        },
+        "private": {
+            "rubric": {
+                "strategy": "option_id",
+                "accepted_option_ids": ["opt_k4m2"],
+                "partial_option_ids": [],
+            },
+            "scoring_policy": {
+                "comparison": "exact_option_id",
+                "maximum_score": 1.0,
+                "correct_condition": "El ID coincide exactamente con la clave privada.",
+                "incorrect_condition": "Otra opción existente es incorrecta.",
+            },
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def write_v2_bank(
+    directory: Path,
+    *tasks: dict,
+    bank_id: str = "test.bank-v2",
+) -> tuple[Path, Path]:
+    task_path = write_json(
+        directory / "synthetic-v2.tasks.json",
+        {
+            "schema_version": DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION_V2,
+            "bank_id": bank_id,
+            "tasks": list(tasks),
+        },
+    )
+    manifest_path = write_json(
+        directory / "synthetic-v2.bank.json",
+        manifest_payload(
+            bank_id,
+            *tasks,
+            file_path=task_path.name,
+            diagnostic_version="diagnostic-text.v2",
+        ),
+    )
+    return manifest_path, task_path
 
 
 def manifest_payload(
@@ -206,6 +265,121 @@ def test_task_schema_separates_public_private_and_editorial_fields():
         "editorial",
     }.issubset(required)
     assert schema["additionalProperties"] is False
+
+
+def test_v2_option_schema_maps_stable_ids_without_using_labels_as_keys(tmp_path):
+    task = option_task_payload()
+    write_v2_bank(tmp_path, task)
+
+    banks = load_diagnostic_banks(tmp_path, curriculum_skill_ids=current_skills())
+    provider = FilesystemCandidateProvider.from_directory(
+        tmp_path,
+        curriculum_skill_ids=current_skills(),
+        production_only=False,
+    )
+    candidate = provider.candidates(diagnostic_version="diagnostic-text.v2")[0]
+
+    assert isinstance(banks[0].tasks[0], DiagnosticTaskDefinitionV2)
+    assert candidate.options == [
+        {"id": "opt_k4m2", "label": "Alpha"},
+        {"id": "opt_p7q9", "label": "Beta"},
+    ]
+    assert candidate.expected_answer == {
+        "response_type": "single_choice",
+        "answer_contract": "option-id.v1",
+        "rubric_version": "deterministic-option-id.v1",
+        "scoring_mode": "deterministic",
+        "accepted_option_ids": ["opt_k4m2"],
+    }
+    assert candidate.rubric.accepted_option_ids == ["opt_k4m2"]
+    assert "Alpha" not in candidate.rubric.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [
+        "opt_Ab12",
+        " opt_ab12",
+        "opt_ab12 ",
+        "opt_äb12",
+        "",
+        "opt_" + "a" * 37,
+        "opt_correct",
+        "opt_wrong1",
+    ],
+)
+def test_v2_option_schema_rejects_invalid_or_revealing_ids(invalid_id):
+    payload = option_task_payload()
+    payload["public"]["options"][0]["id"] = invalid_id
+    payload["private"]["rubric"]["accepted_option_ids"] = [invalid_id]
+
+    with pytest.raises(ValidationError):
+        DiagnosticTaskDefinitionV2.model_validate(payload)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["public"]["options"].__setitem__(
+            1, {"id": "opt_k4m2", "label": "Beta"}
+        ),
+        lambda payload: payload["public"]["options"][0].__setitem__("label", ""),
+        lambda payload: payload["public"]["options"][0].__setitem__("extra", True),
+        lambda payload: payload["private"]["rubric"].__setitem__(
+            "accepted_option_ids", ["opt_z9x8"]
+        ),
+        lambda payload: payload["public"].__setitem__("options", ["Alpha", "Beta"]),
+        lambda payload: payload["private"].__setitem__(
+            "rubric", {"strategy": "exact_match", "accepted_responses": ["Alpha"]}
+        ),
+    ],
+)
+def test_v2_option_schema_rejects_mixed_or_incoherent_contracts(mutate):
+    payload = option_task_payload()
+    mutate(payload)
+
+    with pytest.raises(ValidationError):
+        DiagnosticTaskDefinitionV2.model_validate(payload)
+
+
+def test_v1_and_v2_task_files_coexist_without_shape_inference(tmp_path):
+    write_bank(tmp_path, task_payload("test.legacy"), bank_id="test.legacy-bank")
+    write_v2_bank(tmp_path, option_task_payload(), bank_id="test.option-bank")
+
+    banks = load_diagnostic_banks(tmp_path, curriculum_skill_ids=current_skills())
+
+    assert {bank.manifest.diagnostic_version for bank in banks} == {
+        "diagnostic-text.v1",
+        "diagnostic-text.v2",
+    }
+    assert any(isinstance(bank.tasks[0], DiagnosticTaskDefinition) for bank in banks)
+    assert any(isinstance(bank.tasks[0], DiagnosticTaskDefinitionV2) for bank in banks)
+
+
+def test_v2_text_task_uses_structured_text_contract_without_option_ids():
+    payload = {
+        **task_payload("test.text-v2"),
+        "answer_contract": "text.v2",
+        "response_type": "short_text",
+        "task_type": "gap_fill",
+        "public": {
+            "instructions": "Escribe alpha.",
+            "prompt": "___",
+            "options": [],
+        },
+    }
+
+    task = DiagnosticTaskDefinitionV2.model_validate(payload)
+
+    assert task.to_candidate().expected_answer["answer_contract"] == "text.v2"
+    with pytest.raises(ValidationError):
+        DiagnosticTaskDefinitionV2.model_validate(
+            {
+                **payload,
+                "public": option_task_payload()["public"],
+                "private": option_task_payload()["private"],
+            }
+        )
 
 
 def test_loader_maps_a_valid_production_bank_to_engine_candidates(tmp_path):

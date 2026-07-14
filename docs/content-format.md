@@ -135,6 +135,12 @@ Cada archivo declarado usa `diagnostic-task-file.v1`:
 `bank_id` impide asociar accidentalmente un fragmento con otro banco. Un mismo
 archivo no puede declararse dos veces ni pertenecer a dos manifiestos.
 
+La infraestructura admite además `diagnostic-task-file.v2`. La versión se
+declara explícitamente en `schema_version`: el cargador no intenta deducirla por
+la forma de `options`. V1 conserva opciones textuales y scoring legacy; v2 añade
+contratos de respuesta estructurados. El banco real 0.3.0 continúa íntegramente
+en v1 hasta una migración editorial posterior.
+
 ## 6. Contrato de tarea
 
 Una tarea separa explícitamente tres ámbitos:
@@ -200,6 +206,35 @@ Las estrategias reutilizan `RubricStrategy` del motor:
 - `accepted_answers`;
 - `ordered_tokens`;
 - `manual_only`.
+
+V2 añade `option_id` para selección cerrada. Una opción v2 tiene esta forma:
+
+```json
+{
+  "id": "opt_k4m2",
+  "label": "Können Sie das bitte wiederholen?"
+}
+```
+
+El ID es una identidad opaca versionada: usa ASCII minúsculo, el prefijo
+`opt_`, entre 8 y 40 caracteres, no admite espacios ni pistas como `correct`,
+`wrong`, `answer` o `expected`, y es único dentro de la tarea. No depende de la
+posición ni se deriva automáticamente del label. El label conserva exactamente
+el texto visible y nunca participa en scoring o idempotencia.
+
+Una tarea v2 declara además `answer_contract`:
+
+- `option-id.v1` para `single_choice`, con opciones objeto y rúbrica
+  `option_id`;
+- `text.v2` para texto estructurado, sin opciones y con las mismas estrategias
+  textuales deterministas ya existentes.
+
+La rúbrica cerrada usa `accepted_option_ids` y, si procede,
+`partial_option_ids`. Todos deben existir entre las opciones públicas. La
+comparación es exacta: no aplica NFC, trim, colapso de espacios, casefold ni
+normalización de puntuación. Un ID bien formado que pertenece a la tarea puede
+ser correcto, parcial o incorrecto; un ID ausente es un error de contrato y no
+produce evidencia.
 
 El validador cruza `response_type`, `scoring_mode`, opciones y rúbrica. Entre
 otras condiciones:
@@ -386,3 +421,12 @@ Los campos de fecha y la política privada de scoring se cerraron antes del
 primer banco persistido. Por ello continúan bajo los contratos v1: no había
 manifiestos previos que migrar y no cambia la proyección al motor ni al DTO
 público.
+
+### Migración futura de tareas cerradas
+
+Pasar una tarea cerrada de v1 a v2 es un cambio semántico. La publicación debe
+crear nuevas versiones de tarea y rúbrica, asignar IDs opacos a cada opción y
+usar una nueva `diagnostic_version` para las sesiones nuevas. No se reescriben
+respuestas históricas ni se mezclan candidatos v1 y v2 dentro de una sesión ya
+iniciada. La versión del banco cambia cuando se publique ese conjunto; el banco
+0.3.0 no se migra en esta entrega.

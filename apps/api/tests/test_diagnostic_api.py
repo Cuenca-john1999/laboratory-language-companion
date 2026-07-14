@@ -70,6 +70,65 @@ def candidate(
     )
 
 
+def option_id_candidate(suffix: str = "option-v2") -> TaskCandidate:
+    return TaskCandidate(
+        candidate_id=f"http.{suffix}",
+        version="2",
+        equivalence_key=f"http.eq.{suffix}",
+        axis=DiagnosticAxis.READING_COMPREHENSION,
+        task_type=DiagnosticTaskType.BINARY_CHOICE,
+        difficulty=1,
+        modality="text",
+        content={
+            "instructions": "Selecciona una opción sintética.",
+            "prompt": "Tarea HTTP v2 exclusiva de prueba.",
+        },
+        options=[
+            {"id": "opt_k4m2", "label": "Alpha"},
+            {"id": "opt_p7q9", "label": "Beta"},
+        ],
+        expected_answer={
+            "response_type": "single_choice",
+            "answer_contract": "option-id.v1",
+            "rubric_version": "deterministic-option-id.v1",
+        },
+        rubric=DeterministicRubric(
+            strategy=RubricStrategy.OPTION_ID,
+            accepted_option_ids=["opt_k4m2"],
+        ),
+        auto_evaluable=True,
+        estimated_seconds=30,
+    )
+
+
+def structured_text_candidate() -> TaskCandidate:
+    return TaskCandidate(
+        candidate_id="http.text-v2",
+        version="2",
+        equivalence_key="http.eq.text-v2",
+        axis=DiagnosticAxis.WRITTEN_PRODUCTION,
+        task_type=DiagnosticTaskType.GAP_FILL,
+        difficulty=1,
+        modality="text",
+        content={
+            "instructions": "Escribe la palabra sintética.",
+            "prompt": "___",
+        },
+        options=[],
+        expected_answer={
+            "response_type": "short_text",
+            "answer_contract": "text.v2",
+            "rubric_version": "deterministic-text.v1",
+        },
+        rubric=DeterministicRubric(
+            strategy=RubricStrategy.EXACT_MATCH,
+            accepted_answers=["alpha"],
+        ),
+        auto_evaluable=True,
+        estimated_seconds=30,
+    )
+
+
 @pytest.fixture
 def candidate_provider() -> StaticCandidateProvider:
     return StaticCandidateProvider(
@@ -309,6 +368,203 @@ async def test_next_task_is_idempotent_and_never_exposes_private_fields(
     assert recursive_keys(first_task).isdisjoint(forbidden)
     with db_session_factory() as db:
         assert db.scalar(select(func.count(DiagnosticTask.id))) == 1
+
+
+async def test_v2_option_http_contract_scores_ids_and_persists_encoding(
+    diagnostic_client,
+    db_session_factory,
+):
+    app.dependency_overrides[get_diagnostic_candidate_provider] = lambda: StaticCandidateProvider(
+        [option_id_candidate()]
+    )
+    session_id = await create_started_session(diagnostic_client)
+    task = await select_task(diagnostic_client, session_id)
+
+    assert task["response_type"] == "single_choice"
+    assert task["answer_contract"] == "option-id.v1"
+    assert task["options"] == [
+        {"id": "opt_k4m2", "label": "Alpha"},
+        {"id": "opt_p7q9", "label": "Beta"},
+    ]
+    assert recursive_keys(task).isdisjoint(
+        {"accepted_option_ids", "correct_option_id", "rubric", "scoring_policy"}
+    )
+
+    payload = {
+        "task_id": task["task_id"],
+        "evaluation_id": str(uuid4()),
+        "submission_id": str(uuid4()),
+        "answer": {"kind": "single_choice", "selected_option_id": "opt_k4m2"},
+        "instruction_state": "understood",
+    }
+    first = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json=payload,
+    )
+    replay = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json=payload,
+    )
+    conflict = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json={
+            **payload,
+            "answer": {"kind": "single_choice", "selected_option_id": "opt_p7q9"},
+        },
+    )
+
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["evaluation"] == {
+        "outcome": "correct_without_help",
+        "score": 1.0,
+        "polarity": "positive",
+        "evaluator_confidence": 1.0,
+    }
+    assert first.json()["created"] is True
+    assert replay.json()["created"] is False
+    assert conflict.status_code == 409
+    with db_session_factory() as db:
+        response = db.scalar(select(DiagnosticResponse))
+        persisted_task = db.get(DiagnosticTask, task["task_id"])
+        assert response is not None
+        assert response.response_text == "opt_k4m2"
+        assert response.rubric["submission_encoding"] == "option-id.v1"
+        assert persisted_task is not None
+        assert persisted_task.options == task["options"]
+        assert persisted_task.expected_answer["answer_contract"] == "option-id.v1"
+        assert persisted_task.rubric["deterministic"]["accepted_option_ids"] == ["opt_k4m2"]
+
+
+@pytest.mark.parametrize(
+    "invalid_fields",
+    [
+        {"answer": {"kind": "single_choice", "selected_option_id": "opt_z8x7"}},
+        {"response_text": "Alpha"},
+        {"answer": {"kind": "text", "text": "Alpha"}},
+        {
+            "response_text": "Alpha",
+            "answer": {"kind": "single_choice", "selected_option_id": "opt_k4m2"},
+        },
+        {"answer": {"kind": "single_choice", "selected_option_id": "OPT_K4M2"}},
+        {"answer": {"kind": "single_choice", "selected_option_id": " opt_k4m2"}},
+    ],
+)
+async def test_v2_option_http_rejects_invalid_contract_without_evidence(
+    diagnostic_client,
+    db_session_factory,
+    invalid_fields,
+):
+    app.dependency_overrides[get_diagnostic_candidate_provider] = lambda: StaticCandidateProvider(
+        [option_id_candidate()]
+    )
+    session_id = await create_started_session(diagnostic_client)
+    task = await select_task(diagnostic_client, session_id)
+    payload = {
+        "task_id": task["task_id"],
+        "evaluation_id": str(uuid4()),
+        "submission_id": str(uuid4()),
+        "instruction_state": "understood",
+        **invalid_fields,
+    }
+
+    response = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json=payload,
+    )
+
+    assert response.status_code == 422
+    assert "accepted" not in response.text.casefold()
+    assert "correct_option" not in response.text.casefold()
+    with db_session_factory() as db:
+        assert db.scalar(select(func.count(DiagnosticResponse.id))) == 0
+        persisted_task = db.get(DiagnosticTask, task["task_id"])
+        assert persisted_task is not None and persisted_task.status == "presented"
+
+
+async def test_v2_existing_incorrect_option_is_linguistic_evidence(diagnostic_client):
+    app.dependency_overrides[get_diagnostic_candidate_provider] = lambda: StaticCandidateProvider(
+        [option_id_candidate()]
+    )
+    session_id = await create_started_session(diagnostic_client)
+    task = await select_task(diagnostic_client, session_id)
+    response = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json={
+            "task_id": task["task_id"],
+            "evaluation_id": str(uuid4()),
+            "submission_id": str(uuid4()),
+            "answer": {"kind": "single_choice", "selected_option_id": "opt_p7q9"},
+            "instruction_state": "understood",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["evaluation"]["outcome"] == "incorrect"
+    assert response.json()["evaluation"]["score"] == 0.0
+
+
+async def test_structured_text_v2_accepts_text_and_rejects_option_ids(
+    diagnostic_client,
+    db_session_factory,
+):
+    app.dependency_overrides[get_diagnostic_candidate_provider] = lambda: StaticCandidateProvider(
+        [structured_text_candidate()]
+    )
+    session_id = await create_started_session(diagnostic_client)
+    task = await select_task(diagnostic_client, session_id)
+    invalid = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json={
+            "task_id": task["task_id"],
+            "evaluation_id": str(uuid4()),
+            "submission_id": str(uuid4()),
+            "answer": {"kind": "single_choice", "selected_option_id": "opt_k4m2"},
+        },
+    )
+    valid = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json={
+            "task_id": task["task_id"],
+            "evaluation_id": str(uuid4()),
+            "submission_id": str(uuid4()),
+            "answer": {"kind": "text", "text": "alpha"},
+            "response_language": "de",
+        },
+    )
+
+    assert task["response_type"] == "short_text"
+    assert task["answer_contract"] == "text.v2"
+    assert invalid.status_code == 422
+    assert valid.status_code == 200
+    assert valid.json()["evaluation"]["outcome"] == "correct_without_help"
+    with db_session_factory() as db:
+        rows = db.scalars(select(DiagnosticResponse)).all()
+        assert len(rows) == 1
+        assert rows[0].response_text == "alpha"
+        assert rows[0].rubric["submission_encoding"] == "text.v2"
+
+
+async def test_legacy_task_rejects_structured_answer_without_reinterpreting_it(
+    diagnostic_client,
+    db_session_factory,
+):
+    session_id = await create_started_session(diagnostic_client)
+    task = await select_task(diagnostic_client, session_id)
+    response = await diagnostic_client.post(
+        f"/api/diagnostic/sessions/{session_id}/responses",
+        json={
+            "task_id": task["task_id"],
+            "evaluation_id": str(uuid4()),
+            "submission_id": str(uuid4()),
+            "answer": {"kind": "text", "text": "ja"},
+            "response_language": "de",
+        },
+    )
+
+    assert task["answer_contract"] == "legacy-text.v1"
+    assert response.status_code == 422
+    with db_session_factory() as db:
+        assert db.scalar(select(func.count(DiagnosticResponse.id))) == 0
 
 
 @pytest.mark.parametrize(

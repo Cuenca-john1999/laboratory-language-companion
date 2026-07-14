@@ -5,10 +5,18 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 from uuid import UUID
 
-from pydantic import AwareDatetime, Field, JsonValue, model_validator
+from pydantic import (
+    AwareDatetime,
+    BeforeValidator,
+    Field,
+    JsonValue,
+    StringConstraints,
+    TypeAdapter,
+    model_validator,
+)
 
 from deutschos_api.models import (
     DiagnosticAxis,
@@ -25,6 +33,9 @@ from deutschos_api.schemas.diagnostic import AssistanceKind, InstructionState
 DIAGNOSTIC_ENGINE_VERSION = "diagnostic-engine.v1"
 DEFAULT_DIAGNOSTIC_VERSION = "diagnostic-text.v1"
 DEFAULT_PERSISTENCE_VERSION = "diagnostic-persistence-v1"
+LEGACY_TEXT_ANSWER_CONTRACT = "legacy-text.v1"
+OPTION_ID_ANSWER_CONTRACT = "option-id.v1"
+STRUCTURED_TEXT_ANSWER_CONTRACT = "text.v2"
 CORE_TEXT_AXES = (
     DiagnosticAxis.READING_COMPREHENSION,
     DiagnosticAxis.WRITTEN_PRODUCTION,
@@ -119,6 +130,54 @@ class RubricStrategy(StrEnum):
     ACCEPTED_ANSWERS = "accepted_answers"
     ORDERED_TOKENS = "ordered_tokens"
     MANUAL_ONLY = "manual_only"
+    OPTION_ID = "option_id"
+
+
+_BANNED_OPTION_ID_HINTS = frozenset({"answer", "correct", "expected", "wrong"})
+
+
+def _validate_option_identifier(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    if value != value.strip():
+        raise ValueError("option IDs cannot contain outer whitespace")
+    lowered = value.lower()
+    if any(hint in lowered for hint in _BANNED_OPTION_ID_HINTS):
+        raise ValueError("option IDs cannot contain scoring hints")
+    return value
+
+
+OptionIdentifier = Annotated[
+    str,
+    BeforeValidator(_validate_option_identifier),
+    StringConstraints(
+        min_length=8,
+        max_length=40,
+        pattern=r"^opt_[a-z0-9]{4,36}$",
+        strip_whitespace=False,
+    ),
+]
+_OPTION_ID_ADAPTER = TypeAdapter(OptionIdentifier)
+
+
+class SingleChoiceAnswer(APIModel):
+    kind: Literal["single_choice"]
+    selected_option_id: OptionIdentifier
+
+
+class TextAnswer(APIModel):
+    kind: Literal["text"]
+    text: str = Field(max_length=10_000)
+
+
+class NoAnswer(APIModel):
+    kind: Literal["no_answer"]
+
+
+StructuredAnswer = Annotated[
+    SingleChoiceAnswer | TextAnswer | NoAnswer,
+    Field(discriminator="kind"),
+]
 
 
 class DeterministicRubric(APIModel):
@@ -126,6 +185,8 @@ class DeterministicRubric(APIModel):
     accepted_answers: list[str] = Field(default_factory=list, max_length=50)
     partial_answers: list[str] = Field(default_factory=list, max_length=50)
     expected_tokens: list[str] = Field(default_factory=list, max_length=100)
+    accepted_option_ids: list[OptionIdentifier] = Field(default_factory=list, max_length=50)
+    partial_option_ids: list[OptionIdentifier] = Field(default_factory=list, max_length=50)
     case_sensitive: bool = False
 
     @model_validator(mode="after")
@@ -135,6 +196,18 @@ class DeterministicRubric(APIModel):
                 raise ValueError("answer-matching rubrics require accepted_answers")
         if self.strategy == RubricStrategy.ORDERED_TOKENS and not self.expected_tokens:
             raise ValueError("ordered-token rubrics require expected_tokens")
+        if self.strategy == RubricStrategy.OPTION_ID:
+            if not self.accepted_option_ids:
+                raise ValueError("option-id rubrics require accepted_option_ids")
+            if self.accepted_answers or self.partial_answers or self.expected_tokens:
+                raise ValueError("option-id rubrics cannot contain textual answer keys")
+            if self.case_sensitive:
+                raise ValueError("option IDs use exact identity instead of text case policy")
+            all_ids = [*self.accepted_option_ids, *self.partial_option_ids]
+            if len(set(all_ids)) != len(all_ids):
+                raise ValueError("option-id rubric keys must be unique")
+        elif self.accepted_option_ids or self.partial_option_ids:
+            raise ValueError("text rubrics cannot contain option IDs")
         return self
 
 
@@ -184,6 +257,27 @@ class TaskCandidate(APIModel):
             raise ValueError("candidate prerequisites must be unique and cannot reference self")
         if self.auto_evaluable and self.rubric.strategy == RubricStrategy.MANUAL_ONLY:
             raise ValueError("manual-only rubrics cannot claim automatic evaluation")
+        if self.rubric.strategy == RubricStrategy.OPTION_ID:
+            if (self.expected_answer or {}).get("answer_contract") != OPTION_ID_ANSWER_CONTRACT:
+                raise ValueError("option-id candidates require an explicit option-id contract")
+            option_ids: list[str] = []
+            for option in self.options:
+                if not isinstance(option, dict) or set(option) != {"id", "label"}:
+                    raise ValueError("option-id candidates require strict public option objects")
+                option_id = option.get("id")
+                label = option.get("label")
+                if not isinstance(option_id, str) or not isinstance(label, str):
+                    raise ValueError("option-id candidates require string IDs and labels")
+                option_ids.append(_OPTION_ID_ADAPTER.validate_python(option_id))
+            if len(option_ids) < 2 or len(set(option_ids)) != len(option_ids):
+                raise ValueError("option-id candidates require at least two unique option IDs")
+            rubric_ids = {*self.rubric.accepted_option_ids, *self.rubric.partial_option_ids}
+            if not rubric_ids.issubset(option_ids):
+                raise ValueError("option-id rubric keys must exist in public options")
+        elif any(isinstance(option, dict) for option in self.options):
+            raise ValueError("structured option objects require an option-id rubric")
+        elif (self.expected_answer or {}).get("answer_contract") == OPTION_ID_ANSWER_CONTRACT:
+            raise ValueError("option-id contracts require an option-id rubric")
         return self
 
     @property
@@ -269,6 +363,7 @@ class ResponseSubmission(APIModel):
     evaluation_id: UUID
     submission_id: UUID
     response_text: str | None = Field(default=None, max_length=10_000)
+    answer: StructuredAnswer | None = None
     response_language: str | None = Field(default=None, max_length=20)
     instruction_state: InstructionState = "unknown"
     assistance: list[AssistanceKind] = Field(default_factory=list, max_length=20)
@@ -279,6 +374,8 @@ class ResponseSubmission(APIModel):
 
     @model_validator(mode="after")
     def response_flags_are_unambiguous(self):
+        if self.answer is not None and self.response_text is not None:
+            raise ValueError("legacy response_text and structured answer are mutually exclusive")
         if len(set(self.assistance)) != len(self.assistance):
             raise ValueError("assistance entries cannot be duplicated")
         if "none" in self.assistance and len(self.assistance) > 1:
@@ -541,10 +638,15 @@ __all__ = [
     "EvaluationResult",
     "EvidenceObservation",
     "FUTURE_MODALITY_AXES",
+    "LEGACY_TEXT_ANSWER_CONTRACT",
+    "NoAnswer",
+    "OPTION_ID_ANSWER_CONTRACT",
+    "OptionIdentifier",
     "PresentedTaskObservation",
     "ResponseReceipt",
     "ResponseSubmission",
     "RubricStrategy",
+    "SingleChoiceAnswer",
     "SelectTaskCommand",
     "SelectionContext",
     "SelectionDecision",
@@ -555,9 +657,12 @@ __all__ = [
     "SessionSnapshot",
     "SessionStateReceipt",
     "StopDecision",
+    "StructuredAnswer",
     "TEXT_AXES",
     "TaskAction",
     "TaskCandidate",
     "TaskReceipt",
+    "TextAnswer",
+    "STRUCTURED_TEXT_ANSWER_CONTRACT",
     "require_aware_utc",
 ]

@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from deutschos_api.diagnostic_engine.aggregation import aggregate_axis, aggregate_by_axis
 from deutschos_api.diagnostic_engine.exceptions import (
     CandidateUnavailableError,
+    InvalidSubmissionContractError,
     InvalidTransitionError,
 )
 from deutschos_api.diagnostic_engine.schemas import (
@@ -163,6 +164,32 @@ def submission(**overrides) -> ResponseSubmission:
     }
     values.update(overrides)
     return ResponseSubmission.model_validate(values)
+
+
+def option_candidate() -> TaskCandidate:
+    return TaskCandidate(
+        candidate_id="candidate.option-id",
+        version="v2",
+        equivalence_key="equivalence.option-id",
+        axis=DiagnosticAxis.RECEPTIVE_VOCABULARY,
+        task_type=DiagnosticTaskType.BINARY_CHOICE,
+        difficulty=1,
+        content={"prompt": "Prueba cerrada v2"},
+        options=[
+            {"id": "opt_k4m2", "label": "Alpha"},
+            {"id": "opt_p7q9", "label": "Beta"},
+        ],
+        expected_answer={
+            "response_type": "single_choice",
+            "answer_contract": "option-id.v1",
+        },
+        rubric=DeterministicRubric(
+            strategy=RubricStrategy.OPTION_ID,
+            accepted_option_ids=["opt_k4m2"],
+            partial_option_ids=["opt_p7q9"],
+        ),
+        estimated_seconds=30,
+    )
 
 
 def context(
@@ -594,6 +621,46 @@ def test_correct_answer_with_help_is_never_unassisted():
     assert result.score == 0.7
     assert result.polarity == DiagnosticPolarity.POSITIVE
     assert result.evaluator_confidence == 1.0
+
+
+def test_option_id_scoring_uses_exact_identity_and_applies_help_after_matching():
+    task = option_candidate()
+    correct = submission(
+        response_text=None,
+        answer={"kind": "single_choice", "selected_option_id": "opt_k4m2"},
+    )
+    helped = correct.model_copy(update={"assistance": ["clarification"]})
+    partial = submission(
+        response_text=None,
+        answer={"kind": "single_choice", "selected_option_id": "opt_p7q9"},
+    )
+
+    assert evaluate_response(task, correct).outcome == EvaluationOutcome.CORRECT_WITHOUT_HELP
+    assert evaluate_response(task, helped).outcome == EvaluationOutcome.CORRECT_WITH_HELP
+    assert evaluate_response(task, partial).outcome == EvaluationOutcome.PARTIAL
+
+
+def test_option_id_scoring_rejects_unknown_ids_and_legacy_labels_as_contract_errors():
+    task = option_candidate()
+    unknown = submission(
+        response_text=None,
+        answer={"kind": "single_choice", "selected_option_id": "opt_z8x7"},
+    )
+    legacy_label = submission(response_text="Alpha")
+
+    with pytest.raises(InvalidSubmissionContractError):
+        evaluate_response(task, unknown)
+    with pytest.raises(InvalidSubmissionContractError):
+        evaluate_response(task, legacy_label)
+
+
+@pytest.mark.parametrize("invalid_id", ["OPT_K4M2", " opt_k4m2", "opt_k4m2 ", "opt_ä4m2"])
+def test_structured_option_answers_reject_id_normalization(invalid_id):
+    with pytest.raises(ValidationError):
+        submission(
+            response_text=None,
+            answer={"kind": "single_choice", "selected_option_id": invalid_id},
+        )
 
 
 def test_out_of_topic_and_partially_communicative_responses_are_distinguished():

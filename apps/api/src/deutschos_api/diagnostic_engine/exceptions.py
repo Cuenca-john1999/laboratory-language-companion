@@ -27,3 +27,7 @@ class CandidateUnavailableError(DiagnosticEngineError):
 
 class EvaluationConflictError(DiagnosticEngineError):
     """An attempt or append-only correction conflicts with persisted history."""
+
+
+class InvalidSubmissionContractError(DiagnosticEngineError):
+    """A response does not match the versioned contract of its presented task."""

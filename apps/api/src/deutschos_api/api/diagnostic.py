@@ -25,9 +25,11 @@ from deutschos_api.diagnostic_engine.exceptions import (
     DiagnosticIdempotencyConflictError,
     DiagnosticNotFoundError,
     EvaluationConflictError,
+    InvalidSubmissionContractError,
     InvalidTransitionError,
 )
 from deutschos_api.diagnostic_engine.schemas import (
+    LEGACY_TEXT_ANSWER_CONTRACT,
     AxisAggregate,
     CandidateProvider,
     CorrectEvaluationCommand,
@@ -72,14 +74,17 @@ _PROVIDER_UNAVAILABLE_DETAIL = (
 _RESERVED_TASK_KEYS = frozenset(
     {
         "accepted_answers",
+        "accepted_option_ids",
         "answer_key",
         "correct_answer",
+        "correct_option_id",
         "equivalence_key",
         "evaluator",
         "evaluator_only",
         "expected_answer",
         "internal",
         "partial_answers",
+        "partial_option_ids",
         "prerequisite_candidate_ids",
         "private",
         "reason_codes",
@@ -166,7 +171,7 @@ def _execute[T](operation: Callable[[], T]) -> T:
             status_code=status.HTTP_409_CONFLICT,
             detail="La operación entra en conflicto con el estado diagnóstico actual.",
         ) from exc
-    except ValidationError as exc:
+    except (InvalidSubmissionContractError, ValidationError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="El contrato diagnóstico contiene una combinación inválida.",
@@ -227,6 +232,15 @@ def _public_session(receipt: SessionStateReceipt) -> DiagnosticSessionPublic:
 def _public_task(receipt: TaskReceipt) -> DiagnosticTaskPublic:
     candidate = receipt.candidate
     _assert_public_task_content(candidate.content)
+    expected_answer = candidate.expected_answer or {}
+    response_type = expected_answer.get(
+        "response_type",
+        "single_choice" if candidate.options else "short_text",
+    )
+    answer_contract = expected_answer.get(
+        "answer_contract",
+        LEGACY_TEXT_ANSWER_CONTRACT,
+    )
     return DiagnosticTaskPublic(
         task_id=receipt.task_id,
         session_id=receipt.session_id,
@@ -239,6 +253,8 @@ def _public_task(receipt: TaskReceipt) -> DiagnosticTaskPublic:
         skill_id=candidate.skill_id,
         difficulty=candidate.difficulty,
         modality="text",
+        response_type=response_type,
+        answer_contract=answer_contract,
         content=candidate.content,
         options=list(candidate.options),
         estimated_seconds=candidate.estimated_seconds,

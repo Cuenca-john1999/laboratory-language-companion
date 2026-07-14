@@ -57,11 +57,13 @@ CURRICULUM_VERSION = "a0-a1.v1"
 
 _FORBIDDEN_PUBLIC_KEYS = {
     "accepted_answers",
+    "accepted_option_ids",
     "accepted_responses",
     "authoring_notes",
     "candidate",
     "candidate_id",
     "correct_answer",
+    "correct_option_id",
     "editorial",
     "expected_answer",
     "justification",
@@ -109,6 +111,40 @@ class SessionRun:
     completed: dict[str, object]
 
 
+class SyntheticOptionProvider:
+    def __init__(self) -> None:
+        self.candidate = TaskCandidate(
+            candidate_id="e2e.synthetic.option-id",
+            version="2",
+            equivalence_key="e2e.synthetic.option-id.eq",
+            axis="reading_comprehension",
+            task_type="binary_choice",
+            difficulty=1,
+            content={
+                "instructions": "Selecciona una opción sintética.",
+                "prompt": "Contenido E2E v2 exclusivo de prueba.",
+            },
+            options=[
+                {"id": "opt_k4m2", "label": "Alpha"},
+                {"id": "opt_p7q9", "label": "Beta"},
+            ],
+            expected_answer={
+                "response_type": "single_choice",
+                "answer_contract": "option-id.v1",
+                "rubric_version": "deterministic-option-id.v1",
+            },
+            rubric={
+                "strategy": "option_id",
+                "accepted_option_ids": ["opt_k4m2"],
+            },
+            estimated_seconds=30,
+        )
+
+    def candidates(self, *, diagnostic_version: str):
+        assert diagnostic_version == DIAGNOSTIC_VERSION
+        return [self.candidate]
+
+
 class EndToEndHarness:
     """One migrated database plus an explicitly editorial candidate provider."""
 
@@ -150,7 +186,12 @@ class EndToEndHarness:
         self.engine.dispose()
 
     @asynccontextmanager
-    async def client(self, *, inject_draft: bool = True) -> AsyncIterator[httpx.AsyncClient]:
+    async def client(
+        self,
+        *,
+        inject_draft: bool = True,
+        provider: object | None = None,
+    ) -> AsyncIterator[httpx.AsyncClient]:
         def override_db():
             with self.factory() as db:
                 yield db
@@ -163,7 +204,8 @@ class EndToEndHarness:
         )
         app.dependency_overrides[get_db] = override_db
         if inject_draft:
-            app.dependency_overrides[get_diagnostic_candidate_provider] = lambda: self.provider
+            selected_provider = provider or self.provider
+            app.dependency_overrides[get_diagnostic_candidate_provider] = lambda: selected_provider
         else:
             app.dependency_overrides.pop(get_diagnostic_candidate_provider, None)
         try:
@@ -1150,4 +1192,95 @@ async def test_draft_requires_explicit_injection_and_production_remains_unavaila
     assert len(harness.candidates) == 12
     with harness.factory() as db:
         assert db.scalar(select(func.count(DiagnosticSession.id))) == 1
+    _assert_database_integrity(harness)
+
+
+async def test_synthetic_v2_option_runs_end_to_end_without_projection(
+    e2e_harness_factory,
+):
+    harness = e2e_harness_factory("synthetic-option-v2")
+    provider = SyntheticOptionProvider()
+    before_progress = _progress_snapshot(harness.factory)
+    evaluation_id = uuid4()
+    submission_id = uuid4()
+    async with harness.client(provider=provider) as client:
+        session_id = await _create_started_session(client)
+        selection = _json(
+            await client.post(
+                f"/api/diagnostic/sessions/{session_id}/next-task",
+                json=_operation_payload(),
+            )
+        )
+        task = selection["task"]
+        assert task["response_type"] == "single_choice"
+        assert task["answer_contract"] == "option-id.v1"
+        assert task["options"] == [
+            {"id": "opt_k4m2", "label": "Alpha"},
+            {"id": "opt_p7q9", "label": "Beta"},
+        ]
+        payload = {
+            "task_id": task["task_id"],
+            "evaluation_id": str(evaluation_id),
+            "submission_id": str(submission_id),
+            "answer": {"kind": "single_choice", "selected_option_id": "opt_k4m2"},
+            "instruction_state": "understood",
+        }
+        first = _json(
+            await client.post(
+                f"/api/diagnostic/sessions/{session_id}/responses",
+                json=payload,
+            )
+        )
+        replay = _json(
+            await client.post(
+                f"/api/diagnostic/sessions/{session_id}/responses",
+                json=payload,
+            )
+        )
+        assert first["evaluation"]["outcome"] == "correct_without_help"
+        assert first["created"] is True
+        assert replay["created"] is False
+        results = _json(await client.get(f"/api/diagnostic/sessions/{session_id}/results"))
+        reading = next(
+            result for result in results["results"] if result["axis"] == "reading_comprehension"
+        )
+        assert reading["evidence_count"] == 1
+        assert reading["coverage_status"] == "insufficient"
+
+    harness.reopen()
+    async with harness.client(provider=provider) as client:
+        restored = _json(await client.get(f"/api/diagnostic/sessions/{session_id}"))
+        assert restored["session"]["tasks_evaluable"] == 1
+        exhausted = _json(
+            await client.post(
+                f"/api/diagnostic/sessions/{session_id}/next-task",
+                json=_operation_payload(),
+            )
+        )
+        assert exhausted["task"] is None
+        assert exhausted["stop"]["reason"] == "no_candidates"
+        completed = _json(
+            await client.post(
+                f"/api/diagnostic/sessions/{session_id}/complete",
+                json=_operation_payload(),
+            )
+        )
+        assert completed["session"]["state"] == "completed"
+
+    with harness.factory() as db:
+        response = db.scalar(
+            select(DiagnosticResponse)
+            .join(DiagnosticTask)
+            .where(DiagnosticTask.session_id == session_id)
+        )
+        assert response is not None
+        assert response.response_text == "opt_k4m2"
+        assert response.rubric["submission_encoding"] == "option-id.v1"
+        assert {
+            result.projection_status
+            for result in db.scalars(
+                select(DiagnosticResult).where(DiagnosticResult.session_id == session_id)
+            )
+        } == {"not_projected"}
+    assert _progress_snapshot(harness.factory) == before_progress
     _assert_database_integrity(harness)

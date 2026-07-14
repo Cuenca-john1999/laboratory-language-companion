@@ -725,6 +725,26 @@ La respuesta HTTP tampoco devuelve el texto libre de Jhon ni las justificaciones
 internas. El endpoint de resultados usa la agregación reconstruida en memoria y
 no crea revisiones al hacer `GET`.
 
+Las tareas cerradas v2 publican `answer_contract = option-id.v1` y opciones
+`{id, label}`. La entrega usa una unión discriminada:
+
+```json
+{
+  "answer": {
+    "kind": "single_choice",
+    "selected_option_id": "opt_k4m2"
+  }
+}
+```
+
+El equivalente textual v2 usa `{"kind": "text", "text": "..."}`. Las tareas
+v1 continúan aceptando exclusivamente `response_text`; combinar ambos formatos
+devuelve `422`. Los option IDs se comparan de forma exacta y el label nunca es
+una respuesta válida v2. La respuesta persistida conserva un discriminador en
+su snapshot, por lo que replay, idempotencia y correcciones no reinterpretan el
+valor aunque cambie un label en una versión posterior. Este contrato no proyecta
+evidencia a `StudentSkill` ni `SkillEvidence`.
+
 El `CandidateProvider` es una dependencia. Solo las pruebas usan fixtures
 deterministas pequeños. Como aún no existe un banco pedagógico de producción,
 la API real devuelve `503` para todas las operaciones diagnósticas en lugar de

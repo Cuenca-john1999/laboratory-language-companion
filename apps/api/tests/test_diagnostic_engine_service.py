@@ -103,6 +103,34 @@ def candidate(
     )
 
 
+def option_candidate(*, label: str = "Alpha", version: str = "2") -> TaskCandidate:
+    return TaskCandidate(
+        candidate_id="test.option-id",
+        version=version,
+        equivalence_key="test.eq.option-id",
+        axis=DiagnosticAxis.READING_COMPREHENSION,
+        task_type=DiagnosticTaskType.BINARY_CHOICE,
+        difficulty=1,
+        modality="text",
+        content={"instruction": "Selecciona una opción sintética."},
+        options=[
+            {"id": "opt_k4m2", "label": label},
+            {"id": "opt_p7q9", "label": "Beta"},
+        ],
+        expected_answer={
+            "response_type": "single_choice",
+            "answer_contract": "option-id.v1",
+            "rubric_version": "deterministic-option-id.v1",
+        },
+        rubric=DeterministicRubric(
+            strategy=RubricStrategy.OPTION_ID,
+            accepted_option_ids=["opt_k4m2"],
+        ),
+        auto_evaluable=True,
+        estimated_seconds=30,
+    )
+
+
 def run_alembic(database_path: Path, *arguments: str) -> None:
     environment = os.environ.copy()
     environment["DEUTSCHOS_DATABASE_URL"] = f"sqlite:///{database_path}"
@@ -516,6 +544,102 @@ def test_empty_response_twice_is_skipped_and_remains_insufficient(diagnostic_fac
         persisted_session = db.get(DiagnosticSession, session_id)
         assert persisted_session is not None
         assert persisted_session.tasks_evaluable == 0
+
+
+def test_option_id_snapshot_survives_restart_label_changes_and_corrections(
+    diagnostic_factory,
+):
+    original_provider = StaticCandidateProvider([option_candidate(label="Alpha")])
+    with diagnostic_factory() as db:
+        service = DiagnosticEngineService(db, original_provider, clock=MutableClock())
+        session_id = create_started_session(service)
+        task = present_task(service, session_id)
+        task_id = task.task_id
+
+    changed_provider = StaticCandidateProvider(
+        [option_candidate(label="Etiqueta cambiada", version="3")]
+    )
+    evaluation_id = uuid4()
+    submission_id = uuid4()
+    with diagnostic_factory() as db:
+        service = DiagnosticEngineService(db, changed_provider, clock=MutableClock())
+        command = submission(
+            session_id,
+            task_id,
+            evaluation_id=evaluation_id,
+            submission_id=submission_id,
+            response_text=None,
+            response_language=None,
+            answer={"kind": "single_choice", "selected_option_id": "opt_k4m2"},
+        )
+        receipt = service.submit_response(command)
+        replay = service.submit_response(command)
+
+        assert receipt.evaluation.outcome == EvaluationOutcome.CORRECT_WITHOUT_HELP
+        assert replay.created is False
+        persisted_task = db.get(DiagnosticTask, task_id)
+        persisted_response = db.get(DiagnosticResponse, receipt.response_id)
+        assert persisted_task is not None
+        assert persisted_task.options[0] == {"id": "opt_k4m2", "label": "Alpha"}
+        assert persisted_task.template_version == "2"
+        assert persisted_response is not None
+        assert persisted_response.response_text == "opt_k4m2"
+        assert persisted_response.rubric["submission_encoding"] == "option-id.v1"
+
+        with pytest.raises(DiagnosticIdempotencyConflictError):
+            service.submit_response(
+                ResponseSubmission.model_validate(
+                    {
+                        **command.model_dump(),
+                        "answer": {
+                            "kind": "single_choice",
+                            "selected_option_id": "opt_p7q9",
+                        },
+                    }
+                )
+            )
+        with pytest.raises(DiagnosticIdempotencyConflictError):
+            service.submit_response(
+                submission(
+                    session_id,
+                    task_id,
+                    evaluation_id=uuid4(),
+                    submission_id=submission_id,
+                    response_text=None,
+                    response_language=None,
+                    answer={"kind": "single_choice", "selected_option_id": "opt_p7q9"},
+                )
+            )
+
+        correction = service.record_evaluation(
+            CorrectEvaluationCommand(
+                session_id=session_id,
+                response_id=receipt.response_id,
+                evaluation_id=uuid4(),
+                outcome=EvaluationOutcome.INCORRECT,
+                score=0.0,
+                polarity=DiagnosticPolarity.NEGATIVE,
+                evaluator_confidence=1.0,
+                justification="Corrección sintética v2.",
+                reason_codes=["synthetic_v2_correction"],
+            )
+        )
+        corrected = db.get(DiagnosticResponse, correction.response_id)
+        assert corrected is not None
+        assert corrected.response_text == "opt_k4m2"
+        assert corrected.rubric["submission_encoding"] == "option-id.v1"
+        assert corrected.supersedes_response_id == receipt.response_id
+
+    legacy_provider = StaticCandidateProvider([candidate("legacy-coexistence")])
+    with diagnostic_factory() as db:
+        service = DiagnosticEngineService(db, legacy_provider, clock=MutableClock())
+        legacy_session_id = create_started_session(service)
+        legacy_task = present_task(service, legacy_session_id)
+        legacy = service.submit_response(submission(legacy_session_id, legacy_task.task_id))
+        legacy_response = db.get(DiagnosticResponse, legacy.response_id)
+        assert legacy_response is not None
+        assert legacy_response.response_text == "ja"
+        assert legacy_response.rubric["submission_encoding"] == "legacy-text.v1"
 
 
 def test_not_understood_can_retry_once_without_fabricating_grammar_evidence(

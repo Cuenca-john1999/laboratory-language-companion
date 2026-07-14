@@ -14,6 +14,8 @@ from deutschos_api.diagnostic_engine.schemas import (
     CoverageStatus,
     EngineSessionState,
     EvaluationOutcome,
+    OptionIdentifier,
+    StructuredAnswer,
 )
 from deutschos_api.models import (
     DiagnosticAxis,
@@ -64,6 +66,7 @@ class DiagnosticResponseSubmitRequest(APIModel):
     evaluation_id: UUID
     submission_id: UUID
     response_text: str | None = Field(default=None, max_length=10_000)
+    answer: StructuredAnswer | None = None
     response_language: str | None = Field(default=None, max_length=20)
     instruction_state: InstructionState = "unknown"
     assistance: list[AssistanceKind] = Field(default_factory=list, max_length=20)
@@ -74,6 +77,8 @@ class DiagnosticResponseSubmitRequest(APIModel):
 
     @model_validator(mode="after")
     def response_flags_are_unambiguous(self):
+        if self.answer is not None and self.response_text is not None:
+            raise ValueError("legacy response_text and structured answer are mutually exclusive")
         if len(set(self.assistance)) != len(self.assistance):
             raise ValueError("assistance entries cannot be duplicated")
         if "none" in self.assistance and len(self.assistance) > 1:
@@ -110,6 +115,11 @@ class DiagnosticSessionPublic(APIModel):
     abandoned_at: AwareDatetime | None = None
 
 
+class DiagnosticOptionPublic(APIModel):
+    id: OptionIdentifier
+    label: str = Field(min_length=1, max_length=5000)
+
+
 class DiagnosticTaskPublic(APIModel):
     task_id: int = Field(ge=1)
     session_id: int = Field(ge=1)
@@ -122,8 +132,10 @@ class DiagnosticTaskPublic(APIModel):
     skill_id: int | None = Field(default=None, ge=1)
     difficulty: int = Field(ge=1, le=5)
     modality: Literal["text"] = "text"
+    response_type: Literal["single_choice", "short_text", "ordered_tokens", "free_text"]
+    answer_contract: Literal["legacy-text.v1", "option-id.v1", "text.v2"]
     content: dict[str, JsonValue]
-    options: list[JsonValue] = Field(default_factory=list, max_length=50)
+    options: list[str | DiagnosticOptionPublic] = Field(default_factory=list, max_length=50)
     estimated_seconds: int = Field(ge=5, le=600)
     presented_at: AwareDatetime | None = None
     created: bool
@@ -196,6 +208,7 @@ __all__ = [
     "DiagnosticCorrectionRequest",
     "DiagnosticEvaluationPublic",
     "DiagnosticNextTaskRequest",
+    "DiagnosticOptionPublic",
     "DiagnosticOperationRequest",
     "DiagnosticResponsePublic",
     "DiagnosticResponseSubmitRequest",

@@ -26,10 +26,14 @@ from deutschos_api.diagnostic_engine.exceptions import (
     DiagnosticIdempotencyConflictError,
     DiagnosticNotFoundError,
     EvaluationConflictError,
+    InvalidSubmissionContractError,
     InvalidTransitionError,
 )
 from deutschos_api.diagnostic_engine.schemas import (
     DIAGNOSTIC_ENGINE_VERSION,
+    LEGACY_TEXT_ANSWER_CONTRACT,
+    OPTION_ID_ANSWER_CONTRACT,
+    STRUCTURED_TEXT_ANSWER_CONTRACT,
     AggregateReceipt,
     AxisAggregate,
     CandidateProvider,
@@ -42,6 +46,7 @@ from deutschos_api.diagnostic_engine.schemas import (
     EvaluationOutcome,
     EvaluationResult,
     EvidenceObservation,
+    NoAnswer,
     PresentedTaskObservation,
     ResponseReceipt,
     ResponseSubmission,
@@ -53,10 +58,12 @@ from deutschos_api.diagnostic_engine.schemas import (
     SessionQuery,
     SessionSnapshot,
     SessionStateReceipt,
+    SingleChoiceAnswer,
     StopDecision,
     TaskAction,
     TaskCandidate,
     TaskReceipt,
+    TextAnswer,
     require_aware_utc,
 )
 from deutschos_api.diagnostic_engine.scoring import evaluate_submission
@@ -513,8 +520,15 @@ class DiagnosticEngineService:
         return list(self.candidate_provider.candidates(diagnostic_version=diagnostic_version))
 
     def _candidate_storage_rubric(self, candidate: TaskCandidate) -> dict[str, Any]:
+        deterministic = candidate.rubric.model_dump(mode="json")
+        if candidate.rubric.strategy.value == "option_id":
+            for key in ("accepted_answers", "partial_answers", "expected_tokens"):
+                deterministic.pop(key, None)
+        else:
+            for key in ("accepted_option_ids", "partial_option_ids"):
+                deterministic.pop(key, None)
         return {
-            "deterministic": candidate.rubric.model_dump(mode="json"),
+            "deterministic": deterministic,
             "engine": {
                 "equivalence_key": candidate.equivalence_key,
                 "prerequisite_candidate_ids": list(candidate.prerequisite_candidate_ids),
@@ -971,14 +985,56 @@ class DiagnosticEngineService:
             "partially_communicative": command.partially_communicative,
         }
 
+    def _resolve_submission(
+        self,
+        task: DiagnosticTask,
+        command: ResponseSubmission,
+    ) -> tuple[str | None, str]:
+        expected_answer = task.expected_answer or {}
+        answer_contract = expected_answer.get(
+            "answer_contract",
+            LEGACY_TEXT_ANSWER_CONTRACT,
+        )
+        if answer_contract == LEGACY_TEXT_ANSWER_CONTRACT:
+            if command.answer is not None:
+                raise InvalidSubmissionContractError("La tarea legacy exige response_text.")
+            return command.response_text, LEGACY_TEXT_ANSWER_CONTRACT
+        if answer_contract == OPTION_ID_ANSWER_CONTRACT:
+            if isinstance(command.answer, SingleChoiceAnswer):
+                return command.answer.selected_option_id, OPTION_ID_ANSWER_CONTRACT
+            if isinstance(command.answer, NoAnswer):
+                return None, OPTION_ID_ANSWER_CONTRACT
+            raise InvalidSubmissionContractError("La tarea cerrada exige selected_option_id.")
+        if answer_contract == STRUCTURED_TEXT_ANSWER_CONTRACT:
+            if isinstance(command.answer, TextAnswer):
+                return command.answer.text, STRUCTURED_TEXT_ANSWER_CONTRACT
+            if isinstance(command.answer, NoAnswer):
+                return None, STRUCTURED_TEXT_ANSWER_CONTRACT
+            raise InvalidSubmissionContractError(
+                "La tarea textual exige una respuesta estructurada de texto."
+            )
+        raise InvalidSubmissionContractError(
+            "La tarea persistida usa un contrato de respuesta desconocido."
+        )
+
     def _response_matches_submission(
-        self, response: DiagnosticResponse, command: ResponseSubmission
+        self,
+        response: DiagnosticResponse,
+        command: ResponseSubmission,
+        *,
+        persisted_value: str | None,
+        submission_encoding: str,
     ) -> bool:
         flags = (response.rubric or {}).get("submission_flags", {})
         return (
             response.task_id == command.task_id
             and response.submission_id == str(command.submission_id)
-            and response.response_text == command.response_text
+            and response.response_text == persisted_value
+            and (response.rubric or {}).get(
+                "submission_encoding",
+                LEGACY_TEXT_ANSWER_CONTRACT,
+            )
+            == submission_encoding
             and response.response_language == command.response_language
             and response.instruction_state == command.instruction_state
             and list(response.assistance) == list(command.assistance)
@@ -1016,6 +1072,7 @@ class DiagnosticEngineService:
             task = self._get_task(command.task_id)
             if task.session_id != diagnostic_session.id:
                 raise EvaluationConflictError("La tarea no pertenece a la sesión indicada.")
+            persisted_value, submission_encoding = self._resolve_submission(task, command)
 
             existing = self.db.scalar(
                 select(DiagnosticResponse).where(
@@ -1023,7 +1080,12 @@ class DiagnosticEngineService:
                 )
             )
             if existing is not None:
-                if not self._response_matches_submission(existing, command):
+                if not self._response_matches_submission(
+                    existing,
+                    command,
+                    persisted_value=persisted_value,
+                    submission_encoding=submission_encoding,
+                ):
                     raise DiagnosticIdempotencyConflictError(
                         "evaluation_id ya se usó con otra respuesta."
                     )
@@ -1097,6 +1159,7 @@ class DiagnosticEngineService:
             evaluation = evaluate_submission(candidate, command, attempt_number=attempt_number)
             rubric_snapshot = deepcopy(evaluation.rubric_snapshot)
             rubric_snapshot["submission_flags"] = self._submission_flags(command)
+            rubric_snapshot["submission_encoding"] = submission_encoding
 
             response = DiagnosticResponse(
                 evaluation_id=str(command.evaluation_id),
@@ -1104,7 +1167,7 @@ class DiagnosticEngineService:
                 task_id=task.id,
                 attempt_number=attempt_number,
                 evaluation_revision=1,
-                response_text=command.response_text,
+                response_text=persisted_value,
                 response_language=command.response_language,
                 instruction_state=command.instruction_state,
                 assistance=list(command.assistance),

@@ -10,17 +10,27 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, ValidationError, field_validator, model_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from deutschos_api.core.version import APPLICATION_VERSION
 from deutschos_api.diagnostic_engine.exceptions import CandidateUnavailableError
 from deutschos_api.diagnostic_engine.schemas import (
     DIAGNOSTIC_ENGINE_VERSION,
+    OPTION_ID_ANSWER_CONTRACT,
+    STRUCTURED_TEXT_ANSWER_CONTRACT,
     TEXT_AXES,
     AmbiguityRisk,
     DeterministicRubric,
+    OptionIdentifier,
     RubricStrategy,
     TaskCandidate,
 )
@@ -30,6 +40,7 @@ from deutschos_api.schemas.base import APIModel
 
 DIAGNOSTIC_BANK_SCHEMA_VERSION = "diagnostic-bank-manifest.v1"
 DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION = "diagnostic-task-file.v1"
+DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION_V2 = "diagnostic-task-file.v2"
 MAX_CONTENT_FILE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_CONTENT_BYTES = 16 * 1024 * 1024
 MAX_DECLARED_FILES = 100
@@ -194,15 +205,63 @@ class DiagnosticScoringPolicy(APIModel):
     incorrect_condition: str = Field(min_length=1, max_length=1000)
 
 
+class DiagnosticOptionDefinition(APIModel):
+    id: OptionIdentifier
+    label: str = Field(min_length=1, max_length=5000)
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def label_has_no_outer_whitespace(cls, value: object) -> object:
+        if isinstance(value, str) and value != value.strip():
+            raise ValueError("option labels cannot contain outer whitespace")
+        return value
+
+
+class DiagnosticOptionRubricDefinition(APIModel):
+    strategy: Literal[RubricStrategy.OPTION_ID]
+    accepted_option_ids: list[OptionIdentifier] = Field(min_length=1, max_length=50)
+    partial_option_ids: list[OptionIdentifier] = Field(default_factory=list, max_length=50)
+
+    def to_engine_rubric(self) -> DeterministicRubric:
+        return DeterministicRubric(
+            strategy=RubricStrategy.OPTION_ID,
+            accepted_option_ids=self.accepted_option_ids,
+            partial_option_ids=self.partial_option_ids,
+        )
+
+    @model_validator(mode="after")
+    def option_keys_are_valid(self):
+        self.to_engine_rubric()
+        return self
+
+
+class DiagnosticOptionScoringPolicy(APIModel):
+    comparison: Literal["exact_option_id"]
+    maximum_score: Literal[1.0]
+    correct_condition: str = Field(min_length=1, max_length=1000)
+    incorrect_condition: str = Field(min_length=1, max_length=1000)
+
+
 class DiagnosticPublicFields(APIModel):
     instructions: str = Field(min_length=1, max_length=5000)
     prompt: str = Field(min_length=1, max_length=10_000)
     options: list[str] = Field(default_factory=list, max_length=50)
 
 
+class DiagnosticPublicFieldsV2(APIModel):
+    instructions: str = Field(min_length=1, max_length=5000)
+    prompt: str = Field(min_length=1, max_length=10_000)
+    options: list[DiagnosticOptionDefinition] = Field(default_factory=list, max_length=50)
+
+
 class DiagnosticPrivateFields(APIModel):
     rubric: DiagnosticRubricDefinition
     scoring_policy: DiagnosticScoringPolicy
+
+
+class DiagnosticPrivateFieldsV2(APIModel):
+    rubric: DiagnosticRubricDefinition | DiagnosticOptionRubricDefinition
+    scoring_policy: DiagnosticScoringPolicy | DiagnosticOptionScoringPolicy
 
 
 class DiagnosticTaskDefinition(APIModel):
@@ -316,10 +375,150 @@ class DiagnosticTaskDefinition(APIModel):
         )
 
 
+class DiagnosticTaskDefinitionV2(APIModel):
+    id: str = Field(min_length=2, max_length=100, pattern=_STABLE_ID_PATTERN)
+    version: str = Field(min_length=1, max_length=50)
+    level: ContentLevel
+    axis: DiagnosticAxis
+    secondary_axes: list[DiagnosticAxis] = Field(default_factory=list, max_length=8)
+    skill_id: int | None = Field(ge=1)
+    task_type: DiagnosticTaskType
+    difficulty: int = Field(ge=1, le=5)
+    modality: Literal["text"]
+    response_type: ExpectedResponseType
+    answer_contract: Literal["option-id.v1", "text.v2"]
+    estimated_seconds: int = Field(ge=5, le=600)
+    prerequisites: list[str] = Field(max_length=20)
+    equivalence_group: str = Field(
+        min_length=2,
+        max_length=100,
+        pattern=_STABLE_ID_PATTERN,
+    )
+    ambiguity_risk: AmbiguityRisk
+    scoring_mode: ScoringMode
+    rubric_version: str = Field(min_length=1, max_length=50)
+    public: DiagnosticPublicFieldsV2
+    private: DiagnosticPrivateFieldsV2
+    metadata: DiagnosticTaskMetadata
+    editorial: DiagnosticEditorialFields
+
+    @model_validator(mode="after")
+    def task_contract_is_coherent(self):
+        if self.id in self.prerequisites:
+            raise ValueError("a task cannot require itself")
+        if len(set(self.prerequisites)) != len(self.prerequisites):
+            raise ValueError("task prerequisites must be unique")
+        if self.axis in self.secondary_axes or len(set(self.secondary_axes)) != len(
+            self.secondary_axes
+        ):
+            raise ValueError("task axes must be unique")
+        if any(axis not in TEXT_AXES for axis in (self.axis, *self.secondary_axes)):
+            raise ValueError("diagnostic bank v2 tasks may use only text axes")
+
+        rubric = self.private.rubric
+        scoring_policy = self.private.scoring_policy
+        if self.response_type == ExpectedResponseType.SINGLE_CHOICE:
+            if self.answer_contract != OPTION_ID_ANSWER_CONTRACT:
+                raise ValueError("v2 single_choice tasks require option-id.v1")
+            if not isinstance(rubric, DiagnosticOptionRubricDefinition) or not isinstance(
+                scoring_policy, DiagnosticOptionScoringPolicy
+            ):
+                raise ValueError("v2 single_choice tasks require option-id scoring")
+            option_ids = [option.id for option in self.public.options]
+            if len(option_ids) < 2 or len(set(option_ids)) != len(option_ids):
+                raise ValueError("v2 single_choice tasks require at least two unique option IDs")
+            rubric_ids = {*rubric.accepted_option_ids, *rubric.partial_option_ids}
+            if not rubric_ids.issubset(option_ids):
+                raise ValueError("option-id rubric keys must exist in public options")
+        else:
+            if self.answer_contract != STRUCTURED_TEXT_ANSWER_CONTRACT:
+                raise ValueError("v2 text tasks require text.v2")
+            if self.public.options:
+                raise ValueError("only single_choice tasks may define public options")
+            if not isinstance(rubric, DiagnosticRubricDefinition) or not isinstance(
+                scoring_policy, DiagnosticScoringPolicy
+            ):
+                raise ValueError("v2 text tasks require a textual rubric and scoring policy")
+            if scoring_policy.normalization.case_sensitive != rubric.case_sensitive:
+                raise ValueError("scoring policy case sensitivity must match the engine rubric")
+            allowed_strategies = {
+                ExpectedResponseType.SHORT_TEXT: {
+                    RubricStrategy.EXACT_MATCH,
+                    RubricStrategy.ACCEPTED_ANSWERS,
+                },
+                ExpectedResponseType.ORDERED_TOKENS: {RubricStrategy.ORDERED_TOKENS},
+                ExpectedResponseType.FREE_TEXT: {RubricStrategy.MANUAL_ONLY},
+            }
+            if rubric.strategy not in allowed_strategies[self.response_type]:
+                raise ValueError("response_type is incompatible with private rubric strategy")
+
+        engine_rubric = rubric.to_engine_rubric()
+        if self.scoring_mode == ScoringMode.DETERMINISTIC:
+            if engine_rubric.strategy == RubricStrategy.MANUAL_ONLY:
+                raise ValueError("deterministic scoring requires an evaluable rubric")
+        elif engine_rubric.strategy != RubricStrategy.MANUAL_ONLY:
+            raise ValueError("manual scoring must use the manual_only rubric strategy")
+        return self
+
+    def to_candidate(self) -> TaskCandidate:
+        rubric = self.private.rubric.to_engine_rubric()
+        expected_answer: dict[str, JsonValue] = {
+            "response_type": self.response_type.value,
+            "answer_contract": self.answer_contract,
+            "rubric_version": self.rubric_version,
+            "scoring_mode": self.scoring_mode.value,
+        }
+        if rubric.accepted_option_ids:
+            expected_answer["accepted_option_ids"] = list(rubric.accepted_option_ids)
+        if rubric.partial_option_ids:
+            expected_answer["partial_option_ids"] = list(rubric.partial_option_ids)
+        if rubric.accepted_answers:
+            expected_answer["accepted_responses"] = list(rubric.accepted_answers)
+        if rubric.partial_answers:
+            expected_answer["partial_responses"] = list(rubric.partial_answers)
+        if rubric.expected_tokens:
+            expected_answer["expected_tokens"] = list(rubric.expected_tokens)
+        return TaskCandidate(
+            candidate_id=self.id,
+            version=self.version,
+            equivalence_key=self.equivalence_group,
+            axis=self.axis,
+            secondary_axes=self.secondary_axes,
+            task_type=self.task_type,
+            difficulty=self.difficulty,
+            prerequisite_candidate_ids=self.prerequisites,
+            modality="text",
+            content={
+                "instructions": self.public.instructions,
+                "prompt": self.public.prompt,
+            },
+            options=[option.model_dump(mode="json") for option in self.public.options],
+            expected_answer=expected_answer,
+            rubric=rubric,
+            auto_evaluable=self.scoring_mode == ScoringMode.DETERMINISTIC,
+            ambiguity_risk=self.ambiguity_risk,
+            estimated_seconds=self.estimated_seconds,
+            skill_id=self.skill_id,
+        )
+
+
 class DiagnosticTaskFile(APIModel):
     schema_version: Literal["diagnostic-task-file.v1"] = DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION
     bank_id: str = Field(min_length=2, max_length=100, pattern=_STABLE_ID_PATTERN)
     tasks: list[DiagnosticTaskDefinition] = Field(default_factory=list, max_length=1000)
+
+
+class DiagnosticTaskFileV2(APIModel):
+    schema_version: Literal["diagnostic-task-file.v2"] = DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION_V2
+    bank_id: str = Field(min_length=2, max_length=100, pattern=_STABLE_ID_PATTERN)
+    tasks: list[DiagnosticTaskDefinitionV2] = Field(default_factory=list, max_length=1000)
+
+
+DiagnosticTaskFileContract = Annotated[
+    DiagnosticTaskFile | DiagnosticTaskFileV2,
+    Field(discriminator="schema_version"),
+]
+_TASK_FILE_ADAPTER = TypeAdapter(DiagnosticTaskFileContract)
 
 
 class DiagnosticTaskBank(APIModel):
@@ -327,7 +526,7 @@ class DiagnosticTaskBank(APIModel):
 
     manifest_file: str
     manifest: DiagnosticBankManifest
-    tasks: tuple[DiagnosticTaskDefinition, ...]
+    tasks: tuple[DiagnosticTaskDefinition | DiagnosticTaskDefinitionV2, ...]
 
 
 def _semantic_version(value: str) -> tuple[int, int, int]:
@@ -376,6 +575,32 @@ def _read_model[T: APIModel](
         raw = resolved.read_text(encoding="utf-8")
         payload = json.loads(raw)
         return model.model_validate(payload), size
+    except DiagnosticContentFormatError:
+        raise
+    except json.JSONDecodeError as exc:
+        raise DiagnosticContentFormatError(
+            f"{path.name}:{exc.lineno}:{exc.colno}: malformed JSON"
+        ) from exc
+    except ValidationError as exc:
+        raise DiagnosticContentFormatError(_validation_detail(path, exc)) from exc
+    except (OSError, UnicodeError) as exc:
+        raise DiagnosticContentFormatError(f"{path.name}: file is not readable UTF-8") from exc
+
+
+def _read_task_file(
+    root: Path,
+    path: Path,
+    *,
+    location: str,
+) -> tuple[DiagnosticTaskFile | DiagnosticTaskFileV2, int]:
+    resolved = _authorised_file(root, path, location=location)
+    try:
+        size = resolved.stat().st_size
+        if size > MAX_CONTENT_FILE_BYTES:
+            raise DiagnosticContentFormatError(f"{path.name}: file exceeds 2 MiB limit")
+        raw = resolved.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+        return _TASK_FILE_ADAPTER.validate_python(payload), size
     except DiagnosticContentFormatError:
         raise
     except json.JSONDecodeError as exc:
@@ -481,7 +706,7 @@ def load_diagnostic_banks(
             )
         bank_ids.add(manifest.bank_id)
 
-        tasks: list[DiagnosticTaskDefinition] = []
+        tasks: list[DiagnosticTaskDefinition | DiagnosticTaskDefinitionV2] = []
         task_ids: set[str] = set()
         for index, reference in enumerate(manifest.files):
             task_path = directory / PurePosixPath(reference.path)
@@ -490,10 +715,9 @@ def load_diagnostic_banks(
             if resolved in declared_resolved:
                 raise DiagnosticContentFormatError(f"{location}: file is declared more than once")
             declared_resolved.add(resolved)
-            task_file, task_size = _read_model(
+            task_file, task_size = _read_task_file(
                 root,
                 task_path,
-                DiagnosticTaskFile,
                 location=location,
             )
             total_bytes += task_size
@@ -529,7 +753,10 @@ def load_diagnostic_banks(
             f"{undeclared[0].name}: JSON file is not declared by any bank manifest"
         )
 
-    tasks_by_version: dict[str, dict[str, DiagnosticTaskDefinition]] = defaultdict(dict)
+    tasks_by_version: dict[
+        str,
+        dict[str, DiagnosticTaskDefinition | DiagnosticTaskDefinitionV2],
+    ] = defaultdict(dict)
     equivalence_dimensions: dict[tuple[str, str], tuple[DiagnosticAxis, int | None]] = {}
     for bank in loaded:
         diagnostic_version = bank.manifest.diagnostic_version
@@ -606,6 +833,7 @@ class FilesystemCandidateProvider:
 __all__ = [
     "DIAGNOSTIC_BANK_SCHEMA_VERSION",
     "DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION",
+    "DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION_V2",
     "ContentLevel",
     "DiagnosticBankManifest",
     "DiagnosticContentError",
@@ -615,11 +843,16 @@ __all__ = [
     "DiagnosticPrivateFields",
     "DiagnosticPublicFields",
     "DiagnosticNormalizationPolicy",
+    "DiagnosticOptionDefinition",
+    "DiagnosticOptionRubricDefinition",
+    "DiagnosticOptionScoringPolicy",
     "DiagnosticRubricDefinition",
     "DiagnosticScoringPolicy",
     "DiagnosticTaskBank",
     "DiagnosticTaskDefinition",
+    "DiagnosticTaskDefinitionV2",
     "DiagnosticTaskFile",
+    "DiagnosticTaskFileV2",
     "DiagnosticTaskMetadata",
     "EditorialStatus",
     "ExpectedResponseType",
