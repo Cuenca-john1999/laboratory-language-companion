@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -18,11 +19,17 @@ from deutschos_api.content.diagnostic import (
     file_sha256,
     load_diagnostic_banks,
 )
+from deutschos_api.db.session import get_db
 from deutschos_api.diagnostic_engine.exceptions import CandidateUnavailableError
+from deutschos_api.diagnostic_engine.schemas import EvaluationOutcome, ResponseSubmission
+from deutschos_api.diagnostic_engine.scoring import evaluate_response
 from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION
+from deutschos_api.main import app
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 VALIDATOR = PROJECT_ROOT / "scripts" / "validate-diagnostic-bank.sh"
+REPOSITORY_BANK = PROJECT_ROOT / "data" / "diagnostic"
+REPOSITORY_SKILL_IDS = {9, 10, 11, 12, 13, 17}
 
 
 def task_payload(identifier: str = "test.placeholder", **overrides):
@@ -52,7 +59,19 @@ def task_payload(identifier: str = "test.placeholder", **overrides):
             "rubric": {
                 "strategy": "exact_match",
                 "accepted_responses": ["alpha"],
-            }
+            },
+            "scoring_policy": {
+                "normalization": {
+                    "unicode_form": "NFC",
+                    "trim_outer_whitespace": True,
+                    "collapse_internal_whitespace": True,
+                    "case_sensitive": False,
+                    "punctuation": "significant",
+                },
+                "maximum_score": 1.0,
+                "correct_condition": "Coincidencia exacta con alpha tras normalizar.",
+                "incorrect_condition": "Cualquier otra respuesta evaluable.",
+            },
         },
         "metadata": {"topic": "synthetic-test", "context": None},
         "editorial": {
@@ -97,6 +116,8 @@ def manifest_payload(
         "modalities": ["text"],
         "axes": axes,
         "editorial_status": status,
+        "created_on": "2026-07-14",
+        "updated_on": "2026-07-14",
         "files": [file_reference],
         "minimum_compatibility": {
             "application_version": "0.3.0",
@@ -524,5 +545,129 @@ def test_editorial_tool_returns_nonzero_and_location_for_invalid_fixture(tmp_pat
     assert "invalid.tasks.json:1:2" in result.stderr
 
 
-def test_repository_contains_no_manifest_or_task_content():
-    assert load_diagnostic_banks(diagnostic_api.DIAGNOSTIC_CONTENT_DIRECTORY) == ()
+def test_repository_draft_bank_is_valid_complete_and_not_available_in_production():
+    skill_map = current_skills(*REPOSITORY_SKILL_IDS)
+    banks = load_diagnostic_banks(REPOSITORY_BANK, curriculum_skill_ids=skill_map)
+    production = FilesystemCandidateProvider.from_directory(
+        REPOSITORY_BANK,
+        curriculum_skill_ids=skill_map,
+    )
+    editorial = FilesystemCandidateProvider.from_directory(
+        REPOSITORY_BANK,
+        curriculum_skill_ids=skill_map,
+        production_only=False,
+    )
+
+    assert len(banks) == 1
+    bank = banks[0]
+    assert bank.manifest.bank_id == "deutschos.diagnostic.initial-text"
+    assert bank.manifest.bank_version == "0.1.0"
+    assert bank.manifest.editorial_status == EditorialStatus.DRAFT
+    assert bank.manifest.created_on.isoformat() == "2026-07-14"
+    assert bank.manifest.updated_on >= bank.manifest.created_on
+    assert len(bank.tasks) == 6
+    assert {task.skill_id for task in bank.tasks} == REPOSITORY_SKILL_IDS
+    assert {task.modality for task in bank.tasks} == {"text"}
+    assert {task.scoring_mode.value for task in bank.tasks} == {"deterministic"}
+    assert all(task.ambiguity_risk.value == "low" for task in bank.tasks)
+    assert len({task.id for task in bank.tasks}) == 6
+    assert len({task.equivalence_group for task in bank.tasks}) == 6
+    assert all(task.private.scoring_policy.maximum_score == 1.0 for task in bank.tasks)
+    assert all(
+        task.private.scoring_policy.normalization.case_sensitive
+        == task.private.rubric.case_sensitive
+        for task in bank.tasks
+    )
+
+    assert production.has_candidates is False
+    assert editorial.has_candidates is True
+    candidates = editorial.candidates(diagnostic_version="diagnostic-text.v1")
+    assert len(candidates) == 6
+    assert [candidate.candidate_id for candidate in candidates] == sorted(
+        candidate.candidate_id for candidate in candidates
+    )
+    assert all(set(candidate.content) == {"instructions", "prompt"} for candidate in candidates)
+    public_payload = json.dumps(
+        [{"content": candidate.content, "options": candidate.options} for candidate in candidates],
+        ensure_ascii=False,
+    )
+    assert all(
+        private_key not in public_payload
+        for private_key in (
+            "accepted_responses",
+            "authoring_notes",
+            "correct_condition",
+            "editorial",
+            "expected_tokens",
+            "private",
+            "rubric",
+            "scoring_policy",
+        )
+    )
+
+    correct_responses = {
+        "diagnostic.initial.pronouns.wir.001": "Wir",
+        "diagnostic.initial.everyday.greeting.001": "Guten Morgen",
+        "diagnostic.initial.sein.du.001": "bist",
+        "diagnostic.initial.haben.wir.001": "haben",
+        "diagnostic.initial.regular.lernen-order.001": "Ich lerne Deutsch",
+        "diagnostic.initial.questions.wo-order.001": "Wo wohnst du",
+    }
+    for task_id, candidate in enumerate(candidates, start=1):
+        result = evaluate_response(
+            candidate,
+            ResponseSubmission(
+                session_id=1,
+                task_id=task_id,
+                evaluation_id=uuid4(),
+                submission_id=uuid4(),
+                response_text=correct_responses[candidate.candidate_id],
+                response_language="de",
+            ),
+        )
+        assert result.outcome == EvaluationOutcome.CORRECT_WITHOUT_HELP
+        assert result.score == 1.0
+
+    for candidate_id, response in (
+        ("diagnostic.initial.regular.lernen-order.001", "Ich lerne Deutsch heute"),
+        ("diagnostic.initial.questions.wo-order.001", "Wo wohnst du?"),
+    ):
+        candidate = next(item for item in candidates if item.candidate_id == candidate_id)
+        result = evaluate_response(
+            candidate,
+            ResponseSubmission(
+                session_id=1,
+                task_id=1,
+                evaluation_id=uuid4(),
+                submission_id=uuid4(),
+                response_text=response,
+                response_language="de",
+            ),
+        )
+        assert result.outcome == EvaluationOutcome.INCORRECT
+        assert result.score == 0.0
+
+
+@pytest.mark.anyio
+async def test_repository_draft_bank_keeps_production_http_api_unavailable(client):
+    class CurriculumRows:
+        def all(self):
+            return sorted(REPOSITORY_SKILL_IDS)
+
+    class CurriculumOnlySession:
+        def scalars(self, _statement):
+            return CurriculumRows()
+
+    app.dependency_overrides[get_db] = lambda: CurriculumOnlySession()
+    response = await client.post(
+        "/api/diagnostic/sessions",
+        json={
+            "request_id": "f98bc330-6193-4d2e-947e-ac567877331d",
+            "curriculum_version": CURRICULUM_VERSION,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "El banco diagnóstico versionado no está configurado en esta instalación."
+    }

@@ -21,6 +21,8 @@ from deutschos_api.models import (
     StudentProfile,
 )
 
+MIGRATED_CURRICULUM_SKILL_ID_OFFSET = 8
+
 
 @pytest.fixture
 def anyio_backend():
@@ -56,6 +58,10 @@ def _seed_database(factory):
         skill_ids: dict[str, int] = {}
         for definition in CURRICULUM:
             skill = Skill(
+                # Migration 0003 created eight foundation skills before 0004
+                # introduced the versioned curriculum. Keep fixture IDs faithful
+                # to both a fresh migration and the user's existing database.
+                id=definition.curriculum_order + MIGRATED_CURRICULUM_SKILL_ID_OFFSET,
                 code=definition.code,
                 name=definition.name,
                 category=definition.category,

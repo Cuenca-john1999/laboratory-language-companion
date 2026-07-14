@@ -7,6 +7,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from datetime import date
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Literal
@@ -108,6 +109,8 @@ class DiagnosticBankManifest(APIModel):
     modalities: list[Literal["text"]] = Field(min_length=1, max_length=1)
     axes: list[DiagnosticAxis] = Field(min_length=1, max_length=len(TEXT_AXES))
     editorial_status: EditorialStatus
+    created_on: date
+    updated_on: date
     files: list[DiagnosticContentFileReference] = Field(
         default_factory=list,
         max_length=MAX_DECLARED_FILES,
@@ -117,6 +120,8 @@ class DiagnosticBankManifest(APIModel):
 
     @model_validator(mode="after")
     def declarations_are_coherent(self):
+        if self.updated_on < self.created_on:
+            raise ValueError("manifest updated_on cannot precede created_on")
         if len(set(self.levels)) != len(self.levels):
             raise ValueError("manifest levels must be unique")
         if self.modalities != ["text"]:
@@ -174,6 +179,21 @@ class DiagnosticRubricDefinition(APIModel):
         return self
 
 
+class DiagnosticNormalizationPolicy(APIModel):
+    unicode_form: Literal["NFC"]
+    trim_outer_whitespace: Literal[True]
+    collapse_internal_whitespace: Literal[True]
+    case_sensitive: bool
+    punctuation: Literal["significant"]
+
+
+class DiagnosticScoringPolicy(APIModel):
+    normalization: DiagnosticNormalizationPolicy
+    maximum_score: Literal[1.0]
+    correct_condition: str = Field(min_length=1, max_length=1000)
+    incorrect_condition: str = Field(min_length=1, max_length=1000)
+
+
 class DiagnosticPublicFields(APIModel):
     instructions: str = Field(min_length=1, max_length=5000)
     prompt: str = Field(min_length=1, max_length=10_000)
@@ -182,6 +202,7 @@ class DiagnosticPublicFields(APIModel):
 
 class DiagnosticPrivateFields(APIModel):
     rubric: DiagnosticRubricDefinition
+    scoring_policy: DiagnosticScoringPolicy
 
 
 class DiagnosticTaskDefinition(APIModel):
@@ -224,6 +245,9 @@ class DiagnosticTaskDefinition(APIModel):
             raise ValueError("diagnostic bank v1 tasks may use only text axes")
 
         rubric = self.private.rubric
+        scoring_policy = self.private.scoring_policy
+        if scoring_policy.normalization.case_sensitive != rubric.case_sensitive:
+            raise ValueError("scoring policy case sensitivity must match the engine rubric")
         allowed_strategies = {
             ExpectedResponseType.SINGLE_CHOICE: {
                 RubricStrategy.EXACT_MATCH,
@@ -590,7 +614,9 @@ __all__ = [
     "DiagnosticEditorialFields",
     "DiagnosticPrivateFields",
     "DiagnosticPublicFields",
+    "DiagnosticNormalizationPolicy",
     "DiagnosticRubricDefinition",
+    "DiagnosticScoringPolicy",
     "DiagnosticTaskBank",
     "DiagnosticTaskDefinition",
     "DiagnosticTaskFile",

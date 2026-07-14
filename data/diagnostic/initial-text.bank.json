@@ -1,0 +1,33 @@
+{
+  "schema_version": "diagnostic-bank-manifest.v1",
+  "bank_id": "deutschos.diagnostic.initial-text",
+  "bank_version": "0.1.0",
+  "diagnostic_version": "diagnostic-text.v1",
+  "target_language": "de",
+  "levels": [
+    "pre-A1",
+    "A1"
+  ],
+  "modalities": [
+    "text"
+  ],
+  "axes": [
+    "active_grammar",
+    "receptive_vocabulary"
+  ],
+  "editorial_status": "draft",
+  "created_on": "2026-07-14",
+  "updated_on": "2026-07-14",
+  "files": [
+    {
+      "path": "initial-text.tasks.json",
+      "sha256": null
+    }
+  ],
+  "minimum_compatibility": {
+    "application_version": "0.3.0",
+    "diagnostic_engine_version": "diagnostic-engine.v1",
+    "curriculum_version": "a0-a1.v1"
+  },
+  "editorial_notes": "Primera muestra pedagógica auténtica para revisar claridad, corrección determinista y compatibilidad editorial. Contiene seis tareas textuales pre-A1/A1 iniciales y permanece deliberadamente en draft; no constituye un diagnóstico completo ni contenido publicable. Requiere revisión pedagógica independiente antes de cualquier promoción."
+}

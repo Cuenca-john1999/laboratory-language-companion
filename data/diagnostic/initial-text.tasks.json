@@ -1,0 +1,360 @@
+{
+  "schema_version": "diagnostic-task-file.v1",
+  "bank_id": "deutschos.diagnostic.initial-text",
+  "tasks": [
+    {
+      "id": "diagnostic.initial.pronouns.wir.001",
+      "version": "1.0.0",
+      "level": "pre-A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 9,
+      "task_type": "binary_choice",
+      "difficulty": 1,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 30,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.pronouns.wir.subject",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Elige el pronombre que completa la frase.",
+        "prompt": "Marta und ich lernen Deutsch. ___ lernen zusammen.",
+        "options": [
+          "Wir",
+          "Sie"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Wir"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide exactamente con «Wir».",
+          "incorrect_condition": "Cualquier respuesta evaluable distinta de «Wir» es incorrecta. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "identidad y grupo",
+        "context": "Dos personas se incluyen explícitamente como sujeto."
+      },
+      "editorial": {
+        "tags": [
+          "pronombres-personales",
+          "sujeto",
+          "pre-a1"
+        ],
+        "authoring_notes": "Mide exclusivamente grammar.personal_pronouns. «Marta und ich» exige «wir»; «sie» excluiría al hablante, de modo que no existe una segunda opción válida. La forma verbal ya está dada para no convertir la tarea en una prueba de conjugación. No depende del género de Marta ni de conocimiento cultural."
+      }
+    },
+    {
+      "id": "diagnostic.initial.everyday.greeting.001",
+      "version": "1.0.0",
+      "level": "pre-A1",
+      "axis": "receptive_vocabulary",
+      "secondary_axes": [],
+      "skill_id": 10,
+      "task_type": "short_text_comprehension",
+      "difficulty": 1,
+      "modality": "text",
+      "response_type": "single_choice",
+      "estimated_seconds": 35,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.everyday.greeting.morning",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Lee el diálogo y elige la fórmula que usan las dos personas para saludarse.",
+        "prompt": "– Guten Morgen, Lea!\n– Guten Morgen, Tom!",
+        "options": [
+          "Gute Nacht",
+          "Guten Morgen"
+        ]
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Guten Morgen"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide exactamente con «Guten Morgen».",
+          "incorrect_condition": "Cualquier respuesta evaluable distinta de «Guten Morgen» es incorrecta. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "saludos cotidianos",
+        "context": "Microdiálogo de saludo matutino con la respuesta visible."
+      },
+      "editorial": {
+        "tags": [
+          "vocabulario-cotidiano",
+          "saludos",
+          "comprension-breve"
+        ],
+        "authoring_notes": "Mide reconocimiento de vocabulary.everyday_core en un microtexto. La instrucción pregunta por la fórmula escrita literalmente dos veces; no exige inferir la hora ni conocer costumbres culturales. «Gute Nacht» es una fórmula real, pero no aparece en el diálogo y no constituye una alternativa válida."
+      }
+    },
+    {
+      "id": "diagnostic.initial.sein.du.001",
+      "version": "1.0.0",
+      "level": "pre-A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 11,
+      "task_type": "gap_fill",
+      "difficulty": 1,
+      "modality": "text",
+      "response_type": "short_text",
+      "estimated_seconds": 30,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.sein.du.present",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Completa el hueco con la forma correcta de «sein».",
+        "prompt": "Du ___ neu hier.",
+        "options": []
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "bist"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide exactamente con «bist».",
+          "incorrect_condition": "Cualquier respuesta evaluable distinta de «bist» es incorrecta. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "presentación básica",
+        "context": "Estado de una persona nueva en un lugar."
+      },
+      "editorial": {
+        "tags": [
+          "sein",
+          "segunda-persona",
+          "pre-a1"
+        ],
+        "authoring_notes": "Mide la forma de segunda persona singular de grammar.sein_present. El pronombre «du» y el infinitivo indicado hacen que «bist» sea la única forma correcta. «neu hier» es vocabulario elemental y no añade conocimiento externo. Se pide solo el fragmento ausente, por lo que una oración completa no se acepta silenciosamente."
+      }
+    },
+    {
+      "id": "diagnostic.initial.haben.wir.001",
+      "version": "1.0.0",
+      "level": "pre-A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 12,
+      "task_type": "gap_fill",
+      "difficulty": 1,
+      "modality": "text",
+      "response_type": "short_text",
+      "estimated_seconds": 30,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.haben.wir.present",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Completa el hueco con la forma correcta de «haben».",
+        "prompt": "Wir ___ heute Zeit.",
+        "options": []
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "haben"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide exactamente con «haben».",
+          "incorrect_condition": "Cualquier respuesta evaluable distinta de «haben» es incorrecta. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "disponibilidad cotidiana",
+        "context": "Disponibilidad de tiempo expresada en presente."
+      },
+      "editorial": {
+        "tags": [
+          "haben",
+          "primera-persona-plural",
+          "pre-a1"
+        ],
+        "authoring_notes": "Mide la forma de primera persona plural de grammar.haben_present. «Wir» fija inequívocamente «haben» y el contexto «heute Zeit» es cotidiano. No se admiten formas de otro sujeto ni una frase completa porque la consigna pide únicamente completar el hueco."
+      }
+    },
+    {
+      "id": "diagnostic.initial.regular.lernen-order.001",
+      "version": "1.0.0",
+      "level": "pre-A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 13,
+      "task_type": "word_order",
+      "difficulty": 2,
+      "modality": "text",
+      "response_type": "short_text",
+      "estimated_seconds": 40,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.regular.lernen.main-clause",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Ordena las palabras para formar una oración. Empieza con «Ich» y no añadas puntuación.",
+        "prompt": "Deutsch · Ich · lerne",
+        "options": []
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Ich lerne Deutsch"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide exactamente con «Ich lerne Deutsch».",
+          "incorrect_condition": "Cualquier orden distinto, token añadido u omitido o puntuación añadida es incorrecto. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "aprendizaje de alemán",
+        "context": "Oración principal afirmativa de tres elementos."
+      },
+      "editorial": {
+        "tags": [
+          "presente-regular",
+          "orden-oracion",
+          "pre-a1"
+        ],
+        "authoring_notes": "Mide grammar.present_regular mediante una oración principal mínima. Indicar que debe empezar con «Ich» elimina la inversión; con esos tres tokens, el verbo finito ocupa inequívocamente la segunda posición. No se usa un adverbio que permita varios órdenes naturales. La ausencia de puntuación se explicita porque el scorer la considera significativa."
+      }
+    },
+    {
+      "id": "diagnostic.initial.questions.wo-order.001",
+      "version": "1.0.0",
+      "level": "A1",
+      "axis": "active_grammar",
+      "secondary_axes": [],
+      "skill_id": 17,
+      "task_type": "word_order",
+      "difficulty": 2,
+      "modality": "text",
+      "response_type": "short_text",
+      "estimated_seconds": 40,
+      "prerequisites": [],
+      "equivalence_group": "diagnostic.initial.questions.wo-main-clause",
+      "ambiguity_risk": "low",
+      "scoring_mode": "deterministic",
+      "rubric_version": "deterministic-text.v1",
+      "public": {
+        "instructions": "Ordena las palabras para formar una pregunta. Empieza con «Wo» y no añadas puntuación.",
+        "prompt": "du · wohnst · Wo",
+        "options": []
+      },
+      "private": {
+        "rubric": {
+          "strategy": "exact_match",
+          "accepted_responses": [
+            "Wo wohnst du"
+          ],
+          "partial_responses": [],
+          "expected_tokens": [],
+          "case_sensitive": false
+        },
+        "scoring_policy": {
+          "normalization": {
+            "unicode_form": "NFC",
+            "trim_outer_whitespace": true,
+            "collapse_internal_whitespace": true,
+            "case_sensitive": false,
+            "punctuation": "significant"
+          },
+          "maximum_score": 1.0,
+          "correct_condition": "La respuesta normalizada coincide exactamente con «Wo wohnst du».",
+          "incorrect_condition": "Cualquier orden distinto, token añadido u omitido o puntuación añadida es incorrecto. No hay crédito parcial."
+        }
+      },
+      "metadata": {
+        "topic": "identidad y residencia",
+        "context": "Pregunta elemental sobre lugar de residencia."
+      },
+      "editorial": {
+        "tags": [
+          "preguntas-w",
+          "orden-pregunta",
+          "a1-inicial"
+        ],
+        "authoring_notes": "Mide grammar.questions_basic con una pregunta W elemental. La consigna fija «Wo» al inicio; el verbo conjugado debe ocupar la segunda posición y «du» la tercera, por lo que solo hay un orden correcto. Se omite el signo de interrogación de forma explícita para coincidir con la política de puntuación significativa."
+      }
+    }
+  ]
+}

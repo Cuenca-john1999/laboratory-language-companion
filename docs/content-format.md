@@ -13,9 +13,11 @@ data/
 ```
 
 `data/diagnostic/` es la ubicación autorizada para bancos diagnósticos. Los
-otros directorios siguen reservados para contratos posteriores. Esta
-infraestructura no contiene preguntas reales, no usa red y no habilita LLM,
-audio, frontend ni proyección al progreso.
+otros directorios siguen reservados para contratos posteriores. La
+infraestructura no usa red y no habilita LLM, audio, frontend ni proyección al
+progreso. Desde `0.1.0` existe una primera muestra auténtica de seis tareas en
+estado `draft`; no está disponible para el alumno ni constituye un diagnóstico
+completo.
 
 Se conserva `data/` porque ya separa de forma clara contenido versionable,
 datos locales y código, funciona desde el SSD externo y no presenta un riesgo
@@ -50,6 +52,8 @@ El esquema actual es `diagnostic-bank-manifest.v1`. Su forma es:
   "modalities": ["text"],
   "axes": ["<eje-declarado>"],
   "editorial_status": "draft",
+  "created_on": "2026-07-14",
+  "updated_on": "2026-07-14",
   "files": [
     {
       "path": "<nombre>.tasks.json",
@@ -81,6 +85,8 @@ para Jhon.
 | `modalities` | Exactamente `text` en v1 |
 | `axes` | Ejes primarios y secundarios realmente presentes |
 | `editorial_status` | `draft`, `reviewed`, `production` o `deprecated` |
+| `created_on` | Fecha ISO 8601 de creación editorial |
+| `updated_on` | Fecha ISO 8601 de revisión; nunca anterior a `created_on` |
 | `files` | Lista cerrada de archivos relativos `.tasks.json` |
 | `minimum_compatibility` | Aplicación, motor y currículo mínimos admitidos |
 | `editorial_notes` | Decisiones, revisión pendiente y contexto de publicación |
@@ -100,8 +106,8 @@ válido por archivo declarado. Los checksums son opcionales durante `draft` y
 `reviewed` para no convertir cada edición en trabajo mecánico. Si se proporciona
 uno en cualquier estado, siempre se verifica.
 
-No existe actualmente ningún manifiesto en el repositorio y, por tanto, ningún
-banco `production`. La API mantiene su `503` conocido.
+Existe un manifiesto `draft`, pero ningún banco `production`. La API mantiene su
+`503` conocido: la presencia de material en revisión no lo activa.
 
 ## 5. Archivo de tareas
 
@@ -123,7 +129,8 @@ archivo no puede declararse dos veces ni pertenecer a dos manifiestos.
 Una tarea separa explícitamente tres ámbitos:
 
 - `public`: instrucciones, prompt y opciones que puede recibir el alumno;
-- `private`: rúbrica y claves usadas por el evaluador;
+- `private`: rúbrica, claves y política explícita de scoring usada por el
+  evaluador;
 - `editorial`: tags y notas de autoría que nunca llegan al motor ni al cliente.
 
 El resto del objeto contiene identidad, selección y compatibilidad:
@@ -147,7 +154,7 @@ El resto del objeto contiene identidad, selección y compatibilidad:
 | `scoring_mode` | `deterministic` o `manual` |
 | `rubric_version` | Versión independiente de la semántica evaluadora |
 | `public` | Contenido visible estricto |
-| `private` | Rúbrica estricta |
+| `private` | Rúbrica y política de scoring estrictas |
 | `metadata` | Tema y contexto no sensibles |
 | `editorial` | Tags y `authoring_notes` |
 
@@ -173,6 +180,21 @@ otras condiciones:
 - scoring determinista no acepta `manual_only`;
 - scoring manual solo acepta `manual_only`;
 - producción no admite tareas no deterministas.
+
+Cada tarea determinista declara además `private.scoring_policy`. Este bloque
+documenta el contrato que ya ejecuta el scorer, sin modificarlo:
+
+- normalización Unicode NFC;
+- eliminación de espacios exteriores y colapso de espacios interiores;
+- sensibilidad a mayúsculas coherente con `rubric.case_sensitive`;
+- puntuación significativa;
+- score máximo `1.0`;
+- condiciones explícitas para respuesta correcta e incorrecta.
+
+El validador rechaza una discrepancia entre la sensibilidad a mayúsculas de la
+política y la rúbrica. Las seis tareas iniciales ignoran diferencias de
+capitalización, pero no ignoran signos añadidos. En las tareas de ordenar, la
+instrucción pide expresamente no añadir puntuación.
 
 La conversión a `TaskCandidate` copia únicamente `public.instructions`,
 `public.prompt` y opciones al contenido presentable. Rúbrica, respuestas,
@@ -271,3 +293,8 @@ definir la transición desde `skill_id`.
 Se mantiene el nombre `docs/content-format.md` porque ya es el punto de entrada
 versionado y no existe una razón técnica para romper enlaces o duplicar la
 documentación.
+
+Los campos de fecha y la política privada de scoring se cerraron antes del
+primer banco persistido. Por ello continúan bajo los contratos v1: no había
+manifiestos previos que migrar y no cambia la proyección al motor ni al DTO
+público.
