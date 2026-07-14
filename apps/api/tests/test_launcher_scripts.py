@@ -10,6 +10,8 @@ SCRIPTS = PROJECT_ROOT / "scripts"
 
 
 def launcher_environment(tmp_path: Path) -> dict[str, str]:
+    materials = tmp_path / "materials"
+    materials.mkdir(exist_ok=True)
     environment = os.environ.copy()
     environment.update(
         {
@@ -22,6 +24,8 @@ def launcher_environment(tmp_path: Path) -> dict[str, str]:
             "DEUTSCHOS_LAUNCHER_NO_OPEN": "1",
             "DEUTSCHOS_LAUNCHER_NO_ALERT": "1",
             "DEUTSCHOS_LAUNCHER_TIMEOUT": "1",
+            "DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR": str(materials),
+            "DEUTSCHOS_EDUCATIONAL_LIBRARY_RUNTIME_DIR": str(tmp_path / "library"),
         }
     )
     return environment
@@ -176,6 +180,9 @@ def test_status_machine_output_is_stable_and_parseable(tmp_path):
         "format": "deutschos-status-v1",
         "ssd": "available",
         "model_count": "0",
+        "library_path": str(tmp_path / "materials"),
+        "library": "available",
+        "library_source_count": "0",
         "ollama": "inactive",
         "api": "inactive",
         "web": "inactive",

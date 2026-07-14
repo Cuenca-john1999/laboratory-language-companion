@@ -39,6 +39,8 @@ coverage/
 /dist/
 /logs/
 /run/
+/var/
+/material educativo/
 *.bak
 *.backup
 

@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     ollama_model: str = ""
     timezone: str = "Europe/Berlin"
     cors_origins: list[str] = ["http://127.0.0.1:3000", "http://localhost:3000"]
+    educational_materials_dir: Path = PROJECT_ROOT / "material educativo"
+    educational_library_runtime_dir: Path = PROJECT_ROOT / "var" / "educational-library"
+    educational_library_scan_on_startup: bool = True
+    educational_library_scan_interval_seconds: int = 900
+    educational_library_embedding_model: str = ""
+    educational_library_max_extract_bytes: int = 512 * 1024 * 1024
+    educational_library_max_text_characters: int = 12_000_000
+    educational_library_max_pdf_pages: int = 2_000
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -68,6 +76,40 @@ class Settings(BaseSettings):
             raise ValueError("timezone must be a valid IANA timezone") from exc
         return value
 
+    @field_validator("educational_materials_dir", "educational_library_runtime_dir")
+    @classmethod
+    def anchor_library_paths(cls, value: Path) -> Path:
+        path = value.expanduser()
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path.resolve(strict=False)
+
+    @field_validator("educational_library_scan_interval_seconds")
+    @classmethod
+    def safe_scan_interval(cls, value: int) -> int:
+        if value < 60 or value > 86_400:
+            raise ValueError("library scan interval must be between 60 and 86400 seconds")
+        return value
+
+    @field_validator(
+        "educational_library_max_extract_bytes",
+        "educational_library_max_text_characters",
+        "educational_library_max_pdf_pages",
+    )
+    @classmethod
+    def positive_library_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("educational library limits must be positive")
+        return value
+
+    @model_validator(mode="after")
+    def separate_library_roots(self):
+        materials = self.educational_materials_dir
+        runtime = self.educational_library_runtime_dir
+        if materials == runtime or materials in runtime.parents or runtime in materials.parents:
+            raise ValueError("educational materials and runtime directories must be separate")
+        return self
+
     @staticmethod
     def _require_loopback_url(value: str, field_name: str) -> None:
         parsed = urlsplit(value)
@@ -86,6 +128,13 @@ class Settings(BaseSettings):
         database_path = self.database_path
         if database_path is not None:
             database_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def ensure_educational_library_directory(self) -> None:
+        self.educational_library_runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    @property
+    def educational_library_database_path(self) -> Path:
+        return self.educational_library_runtime_dir / "library.sqlite3"
 
     @property
     def database_path(self) -> Path | None:

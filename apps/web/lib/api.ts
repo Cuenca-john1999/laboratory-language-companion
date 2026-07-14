@@ -7,6 +7,14 @@ import type {
   LearningAttemptReceipt,
   LearningReviewsResponse,
   LearningSkill,
+  GroundedDraft,
+  KnowledgeUnit,
+  LibraryChunk,
+  LibraryJob,
+  LibrarySearchResponse,
+  LibrarySource,
+  LibrarySourceVersion,
+  LibrarySummary,
   Mistake,
   ModelsResponse,
   Profile,
@@ -156,4 +164,80 @@ export const recordLearningAttempt = (payload: LearningAttemptCreate) =>
   api<LearningAttemptReceipt>("/api/learning/attempts", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+
+export const getLibrarySummary = () =>
+  api<LibrarySummary>("/api/library/status");
+export const getLibrarySources = () =>
+  api<LibrarySource[]>("/api/library/sources?limit=100");
+export const getLibraryJobs = () =>
+  api<LibraryJob[]>("/api/library/jobs?limit=20");
+export const getLibraryKnowledge = () =>
+  api<KnowledgeUnit[]>("/api/library/knowledge?limit=50");
+export const getLibrarySourceChunks = (sourceId: string) =>
+  api<LibraryChunk[]>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/chunks?limit=50`,
+  );
+export const getLibrarySourceVersions = (sourceId: string) =>
+  api<LibrarySourceVersion[]>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/versions`,
+  );
+export const scanLibrary = () =>
+  api<LibraryJob>("/api/library/scan", {
+    method: "POST",
+    body: JSON.stringify({ process_documents: true }),
+  });
+export const processLibraryPending = () =>
+  api<LibraryJob>("/api/library/process", { method: "POST" });
+export const reprocessLibrarySource = (sourceId: string) =>
+  api<LibrarySource>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/reprocess`,
+    { method: "POST" },
+  );
+export const excludeLibrarySource = (sourceId: string) =>
+  api<LibrarySource>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/exclude`,
+    { method: "POST" },
+  );
+export const pauseLibraryJob = (jobId: string) =>
+  api<LibraryJob>(`/api/library/jobs/${encodeURIComponent(jobId)}/pause`, {
+    method: "POST",
+  });
+export const retryLibraryJob = (jobId: string) =>
+  api<LibraryJob>(`/api/library/jobs/${encodeURIComponent(jobId)}/retry`, {
+    method: "POST",
+  });
+export const searchLibrary = (
+  query: string,
+  mode: "lexical" | "semantic" | "hybrid",
+) =>
+  api<LibrarySearchResponse>(
+    `/api/library/search?query=${encodeURIComponent(query)}&mode=${mode}&limit=20`,
+  );
+export const reviewKnowledge = (unitId: string, action: "approve" | "reject") =>
+  api<KnowledgeUnit>(
+    `/api/library/knowledge/${encodeURIComponent(unitId)}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({ action, comment: null }),
+    },
+  );
+export const generateGroundedDraft = (payload: {
+  query: string;
+  level: string;
+  objective:
+    | "explanation"
+    | "micro_lesson"
+    | "exercises"
+    | "answer"
+    | "error_explanation";
+  model: string | null;
+}) =>
+  api<GroundedDraft>("/api/library/grounded/generate", {
+    method: "POST",
+    body: JSON.stringify({
+      ...payload,
+      explanation_language: "es",
+      max_sources: 5,
+    }),
   });

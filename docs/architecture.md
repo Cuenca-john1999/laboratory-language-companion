@@ -6,6 +6,13 @@ La API es la autoridad para datos de aprendizaje. El historial del LLM no es mem
 
 Los errores de proveedor son visibles como disponibilidad falsa o HTTP 503. La generación estructurada valida con Pydantic, permite una sola reparación controlada y falla sin persistir si sigue siendo inválida.
 
+La biblioteca educativa usa una segunda SQLite reconstruible y versionada,
+separada deliberadamente de la base de progreso. `educational_library` contiene
+el escáner incremental, extractores, chunker, FTS5, embeddings opcionales y la
+memoria derivada con provenance. FastAPI compone esos servicios sin hacer que
+Ollama sea requisito para catálogo o búsqueda léxica. Consulta
+[Biblioteca educativa](educational-library.md).
+
 Las rutas SQLite relativas se anclan a la raíz calculada desde el código, por lo
 que FastAPI, Alembic y los scripts usan el mismo archivo aunque se invoquen
 desde otro directorio del SSD. La API activa claves foráneas en cada conexión.

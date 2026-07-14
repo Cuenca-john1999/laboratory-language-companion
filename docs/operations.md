@@ -67,7 +67,9 @@ La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal:
 - `scripts/status.sh --machine` al abrir y cada cuatro segundos.
 
 El protocolo `deutschos-status-v1` informa SSD, modelos, disponibilidad de
-Ollama/API/web y ownership de cada PID. Swift no reimplementa la detección de
+Ollama/API/web, disponibilidad y cantidad de fuentes de la biblioteca, y
+ownership de cada PID. Los campos de biblioteca son aditivos para conservar la
+compatibilidad del protocolo. Swift no reimplementa la detección de
 puertos, la validación de procesos ni el cierre de árboles. Durante un arranque
 o cierre conserva la fase transitoria y actualiza los servicios desde el estado
 real; las acciones incompatibles quedan deshabilitadas.
@@ -146,6 +148,15 @@ Ollama, API y web responden y no hay PID files huérfanos. Los artefactos
 `dist/`, `.build/`, `logs/`, `run/` y el almacén `Ollama/` son locales y están
 ignorados por Git. No hay LaunchAgent, permisos de administrador, telemetría ni
 inicio al iniciar sesión.
+
+## Biblioteca educativa
+
+La biblioteca se administra con `scripts/educational-library.sh`; los comandos
+y estados se documentan en [Biblioteca educativa](educational-library.md). Su
+SQLite y sus informes viven en `var/educational-library/`, fuera de Git y de los
+backups normales del progreso. La ausencia de la carpeta de materiales no impide
+arrancar la API: el estado queda disponible y el escaneo informa el error local.
+Eliminar el runtime obliga a reindexar, pero nunca elimina originales.
 
 ## Backup
 

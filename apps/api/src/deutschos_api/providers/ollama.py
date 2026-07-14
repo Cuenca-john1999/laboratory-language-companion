@@ -166,7 +166,8 @@ class OllamaProvider(ModelProvider):
     async def structured_generate(
         self, model: str, messages: list[dict[str, str]], schema: type[StructuredModel]
     ) -> StructuredModel:
-        raw = await self._structured_request(model, messages, schema.model_json_schema())
+        provider_schema = _ollama_compatible_schema(schema.model_json_schema())
+        raw = await self._structured_request(model, messages, provider_schema)
         try:
             return schema.model_validate_json(raw)
         except ValidationError:
@@ -177,9 +178,7 @@ class OllamaProvider(ModelProvider):
                     "content": "Repara el JSON para ajustarlo exactamente al esquema. Devuelve solo JSON.",
                 },
             ]
-            repaired = await self._structured_request(
-                model, repair_messages, schema.model_json_schema()
-            )
+            repaired = await self._structured_request(model, repair_messages, provider_schema)
             try:
                 return schema.model_validate_json(repaired)
             except ValidationError as exc:
@@ -203,3 +202,16 @@ class OllamaProvider(ModelProvider):
             raise ProviderUnavailableError("Falló la generación estructurada local.") from exc
         except (ValueError, ValidationError, json.JSONDecodeError) as exc:
             raise ProviderResponseError("Ollama devolvió datos estructurados ilegibles.") from exc
+
+
+def _ollama_compatible_schema(value: Any) -> Any:
+    """Keep semantic constraints in Pydantic without exceeding Ollama's grammar limits."""
+    if isinstance(value, dict):
+        return {
+            key: _ollama_compatible_schema(item)
+            for key, item in value.items()
+            if key not in {"maxLength", "minLength", "maxItems", "minItems"}
+        }
+    if isinstance(value, list):
+        return [_ollama_compatible_schema(item) for item in value]
+    return value

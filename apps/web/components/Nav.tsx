@@ -11,6 +11,7 @@ export function Nav() {
         <Link href="/progress">Plan</Link>
         <Link href="/skills">Fähigkeiten</Link>
         <Link href="/chat">Lehrer</Link>
+        <Link href="/library">Bibliothek</Link>
         <Link href="/mistakes">Fehler</Link>
         <Link href="/profile">Profil</Link>
       </nav>

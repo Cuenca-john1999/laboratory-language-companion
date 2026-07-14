@@ -209,3 +209,218 @@ export type LearningAttemptReceipt = {
   corrected_evidence_id: number | null;
   state: StudentSkillState;
 };
+
+export type LibraryCapabilities = {
+  fts5: boolean;
+  pdftotext: boolean;
+  ffprobe: boolean;
+  transcription_backend: string | null;
+  transcription_model: string | null;
+  semantic_available: boolean;
+  embedding_provider: string | null;
+  embedding_model: string | null;
+  ollama_available: boolean;
+};
+
+export type InventoryExtension = {
+  extension: string;
+  files: number;
+  bytes: number;
+};
+
+export type InventoryReport = {
+  generated_at: string;
+  root: string;
+  files: number;
+  directories: number;
+  total_bytes: number;
+  by_extension: InventoryExtension[];
+  without_extension: number;
+  hidden_files: number;
+  empty_files: number;
+  over_50_mb: number;
+  over_250_mb: number;
+  over_1_gb: number;
+  possible_duplicate_groups: number;
+  confirmed_duplicate_groups: number;
+  confirmed_duplicate_files: number;
+  symlinks: number;
+  unknown_formats: number;
+  documents: number;
+  subtitles: number;
+  audio: number;
+  video: number;
+  images: number;
+  archives: number;
+  problematic_names: string[];
+  overly_long_paths: string[];
+  inaccessible: string[];
+  duplicate_groups: string[][];
+};
+
+export type LibrarySummary = {
+  materials_root: string;
+  runtime_root: string;
+  schema_version: number;
+  total_sources: number;
+  total_bytes: number;
+  sources_present: number;
+  sources_missing: number;
+  processed: number;
+  pending: number;
+  errors: number;
+  unsupported: number;
+  needs_ocr: number;
+  needs_transcription: number;
+  chunks: number;
+  embeddings: number;
+  knowledge_units: number;
+  knowledge_by_status: Record<string, number>;
+  jobs_by_status: Record<string, number>;
+  capabilities: LibraryCapabilities;
+  latest_inventory: InventoryReport | null;
+};
+
+export type LibrarySource = {
+  id: string;
+  current_path: string;
+  name: string;
+  kind: string;
+  format: string;
+  size_bytes: number;
+  content_hash: string | null;
+  language: string | null;
+  cefr_level: string | null;
+  topics: string[];
+  provenance: string | null;
+  rights: string;
+  priority: number;
+  editorial_confidence: number;
+  review_status: string;
+  status: string;
+  processing_state: string;
+  duplicate_of_source_id: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  current_version: number;
+};
+
+export type LibrarySourceVersion = {
+  id: number;
+  source_id: string;
+  version_number: number;
+  content_hash: string;
+  size_bytes: number;
+  extractor: string | null;
+  extractor_version: string | null;
+  processing_state: string;
+  error_code: string | null;
+  statistics: Record<string, unknown>;
+  created_at: string;
+};
+
+export type LibraryChunk = {
+  id: number;
+  source_id: string;
+  source_version_id: number;
+  source_name: string;
+  source_path: string;
+  text: string;
+  title: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  level: string | null;
+  topics: string[];
+  review_status: string;
+  rights: string;
+  source_version: number;
+  content_role: string;
+};
+
+export type LibrarySearchResult = Omit<LibraryChunk, "text"> & {
+  lexical_score: number | null;
+  semantic_score: number | null;
+  combined_score: number;
+  snippet: string;
+};
+
+export type LibrarySearchResponse = {
+  query: string;
+  requested_mode: "lexical" | "semantic" | "hybrid";
+  effective_mode: "lexical" | "semantic" | "hybrid";
+  semantic_available: boolean;
+  results: LibrarySearchResult[];
+  warning: string | null;
+};
+
+export type LibraryJob = {
+  id: string;
+  kind: string;
+  state: string;
+  priority: number;
+  progress_current: number;
+  progress_total: number;
+  attempts: number;
+  cursor: string | null;
+  error_code: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  cancel_requested: boolean;
+};
+
+export type KnowledgeCitation = { chunk_id: number; quote: string };
+
+export type KnowledgeUnit = {
+  id: string;
+  kind: string;
+  title: string;
+  content_es: string;
+  german_examples: string[];
+  translations: string[];
+  cefr_level: string;
+  topics: string[];
+  keywords: string[];
+  warnings: string[];
+  citations: KnowledgeCitation[];
+  confidence: number;
+  status: string;
+  model: string;
+  prompt_version: string;
+  stale: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GroundedDraft = {
+  id: string;
+  query: string;
+  objective: string;
+  payload: {
+    title: string;
+    explanation: string;
+    examples: string[];
+    exercises: string[];
+    claims: { text: string; source_chunk_ids: number[] }[];
+    warnings: string[];
+    confidence: number;
+  };
+  sources: {
+    chunk_id: number;
+    source_id: string;
+    source_name: string;
+    page_start: number | null;
+    page_end: number | null;
+    start_seconds: number | null;
+    end_seconds: number | null;
+    source_version: number;
+    review_status: string;
+  }[];
+  model: string;
+  prompt_version: string;
+  review_status: "draft";
+  evidence_sufficient: boolean;
+  created_at: string;
+};

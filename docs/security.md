@@ -10,7 +10,8 @@ opcional y su indisponibilidad no bloquea el resto de la aplicación.
 ## Datos privados
 
 El perfil, las sesiones y el futuro historial pedagógico son datos privados.
-SQLite, audio, transcripciones, configuración local y backups están excluidos de
+SQLite, materiales educativos, índices, embeddings, audio, transcripciones,
+configuración local y backups están excluidos de
 Git. Los scripts no escriben logs persistentes ni muestran el contenido de
 `.env`, conversaciones o copias; los errores de los servidores sí permanecen
 visibles en la terminal para poder diagnosticarlos.
@@ -48,6 +49,13 @@ secreto.
 Los directorios de código llamados `models` no se ignoran globalmente. Solo se
 anclan los almacenes locales en la raíz para conservar rastreados los modelos
 SQLAlchemy de la API.
+
+La biblioteca no sigue symlinks, no ejecuta archivos, no extrae archivos
+comprimidos genéricos y rechaza rutas fuera de la raíz. Los temporales de PDF se
+crean en el runtime, nunca junto al original. Los límites de tamaño, páginas,
+texto y miembros ZIP reducen consumo accidental; los errores públicos omiten
+trazas y texto completo. La búsqueda local excluye soluciones por defecto y la
+generación solo puede citar IDs recuperados.
 
 ## Dependencias web auditadas
 

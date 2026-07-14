@@ -2,7 +2,7 @@ import json
 
 import httpx
 import pytest
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from deutschos_api.providers.base import (
     MalformedStructuredOutputError,
@@ -154,6 +154,31 @@ async def test_streaming_response_is_decoupled_into_text_chunks():
 class StructuredResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     score: float
+
+
+class LongStructuredResult(BaseModel):
+    text: str = Field(min_length=1, max_length=8_000)
+    items: list[str] = Field(min_length=1, max_length=50)
+
+
+async def test_structured_generation_sends_ollama_compatible_schema():
+    captured: dict[str, object] = {}
+
+    def handler(request):
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"message": {"content": '{"text":"ok","items":["one"]}'}},
+        )
+
+    provider = provider_with(handler)
+    result = await provider.structured_generate(
+        "model", [{"role": "user", "content": "test"}], LongStructuredResult
+    )
+
+    assert result.text == "ok"
+    assert "maxLength" not in json.dumps(captured["format"])
+    assert "maxItems" not in json.dumps(captured["format"])
 
 
 async def test_structured_generation_repairs_once_then_fails():

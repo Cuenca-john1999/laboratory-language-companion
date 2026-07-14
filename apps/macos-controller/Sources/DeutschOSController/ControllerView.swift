@@ -21,6 +21,18 @@ struct ControllerView: View {
           serviceRow("Ollama", active: controller.snapshot.ollamaActive, feminine: false)
           serviceRow("API", active: controller.snapshot.apiActive, feminine: true)
           serviceRow("Web", active: controller.snapshot.webActive, feminine: true)
+          HStack {
+            Text("Biblioteca:")
+              .frame(width: 76, alignment: .leading)
+            Text(
+              controller.snapshot.libraryAvailable
+                ? "disponible · \(controller.snapshot.librarySourceCount) fuentes"
+                : "no disponible"
+            )
+            .foregroundStyle(controller.snapshot.libraryAvailable ? .green : .secondary)
+            Spacer()
+          }
+          .font(.body)
         }
         .padding(.vertical, 2)
       }

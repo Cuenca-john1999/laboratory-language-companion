@@ -128,6 +128,26 @@ otro tiempo/motivación y `/skills` muestra únicamente estimaciones internas
 basadas en evidencia. Consulta [Learning Engine](docs/learning-engine.md) para
 el contrato de intentos idempotentes y correcciones append-only.
 
+## Biblioteca educativa
+
+Coloca materiales privados en `material educativo/` y abre `/library`. Los
+originales no se modifican; el catálogo reconstruible vive en
+`var/educational-library/` y ambos directorios están fuera de Git.
+
+```bash
+./scripts/educational-library.sh scan --metadata-only
+./scripts/educational-library.sh scan
+./scripts/educational-library.sh search "Akkusativ"
+./scripts/educational-library.sh integrity
+```
+
+La búsqueda léxica FTS5 funciona sin Ollama. Embeddings y transcripción se
+declaran no disponibles si no existe un proveedor local real; no se simulan ni
+se descargan modelos. Qwen puede crear KnowledgeUnits candidatas y borradores
+con fuentes, siempre separados del currículo y del progreso. Consulta
+[Biblioteca educativa](docs/educational-library.md) para formatos, API,
+seguridad y limitaciones.
+
 ## Modelo local opcional
 
 En una terminal independiente:
@@ -197,6 +217,8 @@ iniciar sesión. Al cambiar la ruta del SSD hay que recompilar el bundle.
 - `apps/macos-controller`: ventana nativa SwiftUI y parser del estado operativo.
 - `packages/shared`: contratos TypeScript compartidos.
 - `data`: estado local privado, excluido de Git.
+- `material educativo`: originales privados de solo lectura, excluidos de Git.
+- `var/educational-library`: catálogo e índices reconstruibles, excluidos de Git.
 - `docs`: arquitectura, pedagogía, seguridad, operaciones y roadmap.
 - `scripts`: diagnóstico, desarrollo y copias consistentes.
 

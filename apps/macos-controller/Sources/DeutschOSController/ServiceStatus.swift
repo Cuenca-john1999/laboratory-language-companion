@@ -40,6 +40,9 @@ struct ServiceSnapshot: Equatable {
   var ollamaActive: Bool
   var apiActive: Bool
   var webActive: Bool
+  var libraryAvailable: Bool
+  var librarySourceCount: Int
+  var libraryPath: String
   var ollamaPID: PIDOwnership
   var apiPID: PIDOwnership
   var webPID: PIDOwnership
@@ -50,6 +53,9 @@ struct ServiceSnapshot: Equatable {
     ollamaActive: false,
     apiActive: false,
     webActive: false,
+    libraryAvailable: false,
+    librarySourceCount: 0,
+    libraryPath: "",
     ollamaPID: .absent,
     apiPID: .absent,
     webPID: .absent
@@ -133,6 +139,7 @@ enum StatusOutputParser {
     guard let modelCount = Int(try required("model_count")), modelCount >= 0 else {
       throw StatusParseError.invalidField("model_count")
     }
+    let librarySourceCount = Int(fields["library_source_count"] ?? "0") ?? 0
 
     return ServiceSnapshot(
       ssdAvailable: try required("ssd") == "available",
@@ -140,6 +147,9 @@ enum StatusOutputParser {
       ollamaActive: try active("ollama"),
       apiActive: try active("api"),
       webActive: try active("web"),
+      libraryAvailable: fields["library"] == "available",
+      librarySourceCount: max(0, librarySourceCount),
+      libraryPath: fields["library_path"] ?? "",
       ollamaPID: try ownership("pid_ollama"),
       apiPID: try ownership("pid_api"),
       webPID: try ownership("pid_web")

@@ -27,6 +27,24 @@ if [[ "${1:-}" == "--machine" ]]; then
     MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
   fi
 
+  LIBRARY_MATERIALS_DIR="${DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
+  LIBRARY_RUNTIME_DIR="${DEUTSCHOS_EDUCATIONAL_LIBRARY_RUNTIME_DIR:-$PROJECT_ROOT/var/educational-library}"
+  printf 'library_path=%s\n' "$LIBRARY_MATERIALS_DIR"
+  if [[ -d "$LIBRARY_MATERIALS_DIR" ]]; then
+    printf 'library=available\n'
+  else
+    printf 'library=unavailable\n'
+  fi
+  LIBRARY_SOURCE_COUNT=0
+  if [[ -f "$LIBRARY_RUNTIME_DIR/library.sqlite3" ]] && command -v sqlite3 >/dev/null 2>&1; then
+    LIBRARY_SOURCE_COUNT="$(sqlite3 "$LIBRARY_RUNTIME_DIR/library.sqlite3" \
+      'SELECT count(*) FROM sources;' 2>/dev/null || printf '0')"
+  fi
+  case "$LIBRARY_SOURCE_COUNT" in
+    '' | *[!0-9]*) LIBRARY_SOURCE_COUNT=0 ;;
+  esac
+  printf 'library_source_count=%s\n' "$LIBRARY_SOURCE_COUNT"
+
   if ollama_ready; then
     printf 'ollama=active\n'
     ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
@@ -97,6 +115,13 @@ if ((MODEL_COUNT > 0)); then
 else
   printf '✗ No hay modelos en %s\n' "$OLLAMA_MODELS_DIR"
   FAILURES=$((FAILURES + 1))
+fi
+
+LIBRARY_MATERIALS_DIR="${DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
+if [[ -d "$LIBRARY_MATERIALS_DIR" ]]; then
+  printf '✓ Biblioteca educativa disponible (%s)\n' "$LIBRARY_MATERIALS_DIR"
+else
+  printf '! Biblioteca educativa no disponible (%s)\n' "$LIBRARY_MATERIALS_DIR"
 fi
 
 if ollama_ready; then
