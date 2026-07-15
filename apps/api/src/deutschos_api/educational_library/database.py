@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 1
+LIBRARY_SCHEMA_VERSION = 2
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -245,6 +245,51 @@ CREATE INDEX ix_jobs_state ON processing_jobs(state, priority, created_at);
 CREATE INDEX ix_knowledge_status ON knowledge_units(status, stale, confidence);
 """
 
+_MIGRATION_0002 = """
+CREATE TABLE teacher_conversations (
+    id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE teacher_queries (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES teacher_conversations(id) ON DELETE CASCADE,
+    parent_query_id TEXT REFERENCES teacher_queries(id) ON DELETE SET NULL,
+    question TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    answer_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    confidence TEXT NOT NULL,
+    model TEXT NOT NULL,
+    plan_prompt_version TEXT NOT NULL,
+    answer_prompt_version TEXT NOT NULL,
+    repair_prompt_version TEXT NOT NULL,
+    retrieval_mode TEXT NOT NULL,
+    semantic_available INTEGER NOT NULL CHECK(semantic_available IN (0, 1)),
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    timings_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE teacher_query_sources (
+    query_id TEXT NOT NULL REFERENCES teacher_queries(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK(sequence >= 0),
+    chunk_id INTEGER NOT NULL REFERENCES chunks(id),
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id),
+    retrieval_score REAL NOT NULL,
+    matched_queries_json TEXT NOT NULL DEFAULT '[]',
+    snippet TEXT NOT NULL,
+    PRIMARY KEY(query_id, sequence),
+    UNIQUE(query_id, chunk_id)
+);
+
+CREATE INDEX ix_teacher_queries_conversation
+    ON teacher_queries(conversation_id, created_at);
+CREATE INDEX ix_teacher_queries_created ON teacher_queries(created_at DESC);
+CREATE INDEX ix_teacher_query_sources_chunk ON teacher_query_sources(chunk_id);
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -267,13 +312,25 @@ class LibraryDatabase:
                     f"library schema {current} is newer than supported {LIBRARY_SCHEMA_VERSION}"
                 )
             if current == 0:
-                connection.executescript("BEGIN IMMEDIATE;\n" + _MIGRATION_0001)
-                connection.execute(
-                    "INSERT INTO library_schema(version, applied_at) VALUES (?, datetime('now'))",
-                    (1,),
-                )
-                connection.execute("COMMIT")
+                self._apply_migration(connection, 1, _MIGRATION_0001)
+                current = 1
+            if current < 2:
+                self._apply_migration(connection, 2, _MIGRATION_0002)
             return self._current_version(connection)
+
+    @staticmethod
+    def _apply_migration(connection: sqlite3.Connection, version: int, sql: str) -> None:
+        try:
+            connection.executescript("BEGIN IMMEDIATE;\n" + sql)
+            connection.execute(
+                "INSERT INTO library_schema(version, applied_at) VALUES (?, datetime('now'))",
+                (version,),
+            )
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
 
     @staticmethod
     def _current_version(connection: sqlite3.Connection) -> int:

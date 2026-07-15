@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from sqlalchemy.orm import Session
 
+from deutschos_api.db.session import get_db
 from deutschos_api.educational_library.dependencies import (
     get_library_knowledge,
     get_library_search,
     get_library_service,
+    get_library_teacher,
 )
 from deutschos_api.educational_library.knowledge import EducationalKnowledgeService
 from deutschos_api.educational_library.schemas import (
@@ -33,9 +36,16 @@ from deutschos_api.educational_library.schemas import (
     SourceStatus,
     SourceUpdateRequest,
     SourceVersionRead,
+    TeacherAskRequest,
+    TeacherConversationSummary,
+    TeacherQueryRead,
 )
 from deutschos_api.educational_library.search import EducationalSearchService
 from deutschos_api.educational_library.service import EducationalLibraryService
+from deutschos_api.educational_library.teacher import (
+    EducationalTeacherService,
+    learner_context_from_db,
+)
 from deutschos_api.providers.base import ModelProvider
 from deutschos_api.providers.dependencies import get_model_provider
 
@@ -286,6 +296,63 @@ async def search(
             source_id=source_id,
             limit=limit,
         )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/ask", response_model=TeacherQueryRead)
+async def ask_library(
+    request: TeacherAskRequest,
+    teacher: EducationalTeacherService = Depends(get_library_teacher),
+    db: Session = Depends(get_db),
+) -> TeacherQueryRead:
+    try:
+        return await teacher.ask(request, learner=learner_context_from_db(db))
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/queries/{query_id}", response_model=TeacherQueryRead)
+def teacher_query(
+    query_id: str,
+    teacher: EducationalTeacherService = Depends(get_library_teacher),
+) -> TeacherQueryRead:
+    try:
+        return teacher.get_query(query_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/conversations", response_model=list[TeacherConversationSummary])
+def teacher_conversations(
+    limit: int = Query(default=20, ge=1, le=50),
+    teacher: EducationalTeacherService = Depends(get_library_teacher),
+) -> list[TeacherConversationSummary]:
+    try:
+        return teacher.list_conversations(limit=limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/conversations/{conversation_id}", response_model=list[TeacherQueryRead])
+def teacher_conversation(
+    conversation_id: str,
+    teacher: EducationalTeacherService = Depends(get_library_teacher),
+) -> list[TeacherQueryRead]:
+    try:
+        return teacher.conversation_queries(conversation_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_teacher_conversation(
+    conversation_id: str,
+    teacher: EducationalTeacherService = Depends(get_library_teacher),
+) -> Response:
+    try:
+        teacher.delete_conversation(conversation_id)
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
         raise _translate(exc) from exc
 

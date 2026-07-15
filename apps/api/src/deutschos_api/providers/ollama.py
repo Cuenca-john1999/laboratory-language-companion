@@ -170,12 +170,23 @@ class OllamaProvider(ModelProvider):
         raw = await self._structured_request(model, messages, provider_schema)
         try:
             return schema.model_validate_json(raw)
-        except ValidationError:
+        except ValidationError as validation_error:
+            issues = [
+                {
+                    "location": ".".join(str(part) for part in issue["loc"]),
+                    "type": issue["type"],
+                    "message": issue["msg"],
+                }
+                for issue in validation_error.errors(include_input=False)
+            ][:20]
             repair_messages = messages + [
                 {"role": "assistant", "content": raw},
                 {
                     "role": "user",
-                    "content": "Repara el JSON para ajustarlo exactamente al esquema. Devuelve solo JSON.",
+                    "content": (
+                        "Repara el JSON para ajustarlo exactamente al esquema. Devuelve solo JSON. "
+                        "Errores de validación: " + json.dumps(issues, ensure_ascii=False)
+                    ),
                 },
             ]
             repaired = await self._structured_request(model, repair_messages, provider_schema)
@@ -193,7 +204,13 @@ class OllamaProvider(ModelProvider):
             async with self.client(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/api/chat",
-                    json={"model": model, "messages": messages, "stream": False, "format": schema},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "stream": False,
+                        "format": schema,
+                        "options": {"temperature": 0},
+                    },
                 )
                 response.raise_for_status()
                 payload = OllamaChatResponse.model_validate(response.json())

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import Field, JsonValue, model_validator
+from pydantic import Field, JsonValue, field_validator, model_validator
 
 from deutschos_api.schemas.base import APIModel
 
@@ -77,6 +77,36 @@ class SourceKind(StrEnum):
     IMAGE = "image"
     ARCHIVE = "archive"
     UNKNOWN = "unknown"
+
+
+class TeacherIntent(StrEnum):
+    DEFINITION = "definition"
+    DIFFERENCE = "difference"
+    GRAMMAR_EXPLANATION = "grammar_explanation"
+    USAGE = "usage"
+    SENTENCE_EXPLANATION = "sentence_explanation"
+    TRANSLATION_IN_CONTEXT = "translation_in_context"
+    SOURCE_LOOKUP = "source_lookup"
+    OVERVIEW = "overview"
+    UNKNOWN = "unknown"
+
+
+class QueryAmbiguity(StrEnum):
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+
+
+class EvidenceConfidence(StrEnum):
+    SOLID = "solid"
+    MODERATE = "moderate"
+    LIMITED = "limited"
+    INSUFFICIENT = "insufficient"
+
+
+class TeacherQueryStatus(StrEnum):
+    COMPLETED = "completed"
+    INSUFFICIENT = "insufficient"
 
 
 class ExtractedSection(APIModel):
@@ -353,6 +383,157 @@ class GroundedGenerationRead(APIModel):
     review_status: Literal["draft"]
     evidence_sufficient: bool
     created_at: datetime
+
+
+class TeacherQueryPlan(APIModel):
+    intent: TeacherIntent
+    language: Literal["de", "es", "mixed", "unknown"] = "unknown"
+    target_expression: str | None = Field(default=None, max_length=200)
+    user_language: Literal["es", "de"] = "es"
+    ambiguity: QueryAmbiguity
+    possible_interpretations: list[str] = Field(default_factory=list, max_length=5)
+    search_queries: list[str] = Field(min_length=1, max_length=6)
+    required_evidence: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator("target_expression")
+    @classmethod
+    def safe_target_expression(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        folded = value.casefold()
+        if (
+            not value.strip()
+            or any(ord(character) < 32 for character in value)
+            or "../" in value
+            or "file://" in folded
+            or "/volumes/" in folded
+        ):
+            raise ValueError("target expression is outside safe editorial limits")
+        return value
+
+    @field_validator("search_queries")
+    @classmethod
+    def safe_search_queries(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values:
+            if (
+                not value.strip()
+                or len(value) > 160
+                or any(ord(character) < 32 for character in value)
+            ):
+                raise ValueError("search query is outside safe editorial limits")
+            folded = value.casefold()
+            if "../" in value or "file://" in folded or "/volumes/" in folded:
+                raise ValueError("search query must not contain a filesystem path")
+            if value not in cleaned:
+                cleaned.append(value)
+        return cleaned
+
+
+class TeacherExample(APIModel):
+    german: str = Field(min_length=1, max_length=500)
+    spanish: str | None = Field(default=None, max_length=500)
+    note: str | None = Field(default=None, max_length=500)
+
+
+class TeacherClaim(APIModel):
+    text: str = Field(min_length=1, max_length=2_000)
+    source_chunk_ids: list[int] = Field(min_length=1, max_length=8)
+
+
+class TeacherAnswerDraft(APIModel):
+    evidence_sufficient: bool
+    direct_answer: str = Field(min_length=1, max_length=5_000)
+    key_points: list[str] = Field(default_factory=list, max_length=5)
+    examples: list[TeacherExample] = Field(default_factory=list, max_length=5)
+    important_nuance: str | None = Field(default=None, max_length=2_000)
+    ambiguity_note: str | None = Field(default=None, max_length=1_500)
+    follow_up_question: str | None = Field(default=None, max_length=500)
+    claims: list[TeacherClaim] = Field(default_factory=list, max_length=20)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="after")
+    def claims_required_for_grounded_answer(self):
+        if self.evidence_sufficient and not self.claims:
+            raise ValueError("a grounded answer requires at least one supported claim")
+        return self
+
+
+class TeacherPublicAnswer(APIModel):
+    direct_answer: str
+    key_points: list[str]
+    examples: list[TeacherExample]
+    important_nuance: str | None
+    ambiguity_note: str | None
+    follow_up_question: str | None
+
+
+class TeacherSourceRead(APIModel):
+    citation: str
+    source_id: str
+    source_name: str
+    page_start: int | None
+    page_end: int | None
+    start_seconds: float | None
+    end_seconds: float | None
+    section: str | None
+    snippet: str = Field(max_length=600)
+    review_status: str
+    rights: RightsCategory
+    extraction_quality: float = Field(ge=0, le=1)
+    content_role: str
+    retrieval_score: float = Field(ge=0)
+
+
+class TeacherTimings(APIModel):
+    planning_ms: int = Field(ge=0)
+    retrieval_ms: int = Field(ge=0)
+    generation_ms: int = Field(ge=0)
+    validation_ms: int = Field(ge=0)
+    total_ms: int = Field(ge=0)
+
+
+class TeacherAskRequest(APIModel):
+    question: str = Field(min_length=2, max_length=1_000)
+    conversation_id: str | None = Field(default=None, max_length=100)
+    source_id: str | None = Field(default=None, max_length=100)
+    continuation_action: (
+        Literal["expand", "more_examples", "rephrase", "use_in_sentence", "follow_up"] | None
+    ) = None
+
+    @field_validator("question")
+    @classmethod
+    def printable_question(cls, value: str) -> str:
+        if any(ord(character) < 32 and character not in "\n\t" for character in value):
+            raise ValueError("question contains control characters")
+        return value
+
+
+class TeacherQueryRead(APIModel):
+    query_id: str
+    conversation_id: str
+    parent_query_id: str | None
+    question: str
+    status: TeacherQueryStatus
+    answer: TeacherPublicAnswer
+    confidence: EvidenceConfidence
+    sources: list[TeacherSourceRead]
+    warnings: list[str]
+    retrieval_mode: Literal["lexical", "semantic", "hybrid"]
+    semantic_search_available: bool
+    timings: TeacherTimings
+    created_at: datetime
+
+
+class TeacherConversationSummary(APIModel):
+    conversation_id: str
+    latest_query_id: str
+    question: str
+    answer_excerpt: str
+    confidence: EvidenceConfidence
+    source_count: int = Field(ge=0)
+    turn_count: int = Field(ge=1)
+    updated_at: datetime
 
 
 class JobRead(APIModel):

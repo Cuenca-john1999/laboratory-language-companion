@@ -179,14 +179,17 @@ async def test_structured_generation_sends_ollama_compatible_schema():
     assert result.text == "ok"
     assert "maxLength" not in json.dumps(captured["format"])
     assert "maxItems" not in json.dumps(captured["format"])
+    assert captured["options"] == {"temperature": 0}
 
 
 async def test_structured_generation_repairs_once_then_fails():
     calls = 0
+    requests: list[dict[str, object]] = []
 
-    def handler(_request):
+    def handler(request):
         nonlocal calls
         calls += 1
+        requests.append(json.loads(request.content))
         return httpx.Response(200, json={"message": {"content": '{"wrong": true}'}})
 
     provider = provider_with(handler)
@@ -195,3 +198,6 @@ async def test_structured_generation_repairs_once_then_fails():
             "model", [{"role": "user", "content": "score"}], StructuredResult
         )
     assert calls == 2
+    repair_text = requests[1]["messages"][-1]["content"]
+    assert "score" in repair_text
+    assert "missing" in repair_text

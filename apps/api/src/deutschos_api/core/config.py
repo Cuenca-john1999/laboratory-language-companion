@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/deutschos.sqlite3"
     ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = ""
+    ollama_model: str = "qwen3:14b"
     timezone: str = "Europe/Berlin"
     cors_origins: list[str] = ["http://127.0.0.1:3000", "http://localhost:3000"]
     educational_materials_dir: Path = PROJECT_ROOT / "material educativo"
@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     educational_library_max_extract_bytes: int = 512 * 1024 * 1024
     educational_library_max_text_characters: int = 12_000_000
     educational_library_max_pdf_pages: int = 2_000
+    educational_library_teacher_max_search_queries: int = 6
+    educational_library_teacher_max_sources: int = 5
+    educational_library_teacher_max_chunks: int = 10
+    educational_library_teacher_max_chunks_per_source: int = 2
+    educational_library_teacher_max_context_characters: int = 18_000
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -95,6 +100,11 @@ class Settings(BaseSettings):
         "educational_library_max_extract_bytes",
         "educational_library_max_text_characters",
         "educational_library_max_pdf_pages",
+        "educational_library_teacher_max_search_queries",
+        "educational_library_teacher_max_sources",
+        "educational_library_teacher_max_chunks",
+        "educational_library_teacher_max_chunks_per_source",
+        "educational_library_teacher_max_context_characters",
     )
     @classmethod
     def positive_library_limit(cls, value: int) -> int:
