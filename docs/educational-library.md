@@ -1,7 +1,7 @@
 # Biblioteca educativa local
 
 La biblioteca convierte una carpeta de materiales de solo lectura en un catálogo
-reconstruible con extracción, fragmentos, búsqueda y borradores fundamentados.
+reconstruible con extracción, fragmentos, búsqueda y consultas educativas fundamentadas.
 No realiza fine-tuning, no sube documentos y no escribe en el Learning Engine.
 
 ## Límites de datos
@@ -22,9 +22,10 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 1 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 2 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
-KnowledgeUnits, revisiones y borradores fundamentados. Puede eliminarse y
+KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
+docentes. Puede eliminarse y
 reconstruirse desde los originales; no contiene progreso del alumno.
 
 Un escaneo compara ruta, tamaño y `mtime`; solo calcula SHA-256 para entradas
@@ -82,6 +83,55 @@ con versión de modelo/prompt. Si las fuentes no están aprobadas añade una
 advertencia y limita la confianza. Los ejemplos y ejercicios son síntesis
 originales; la API devuelve fragmentos breves y no capítulos.
 
+## Preguntar a la biblioteca
+
+`EducationalTeacherService` es el único pipeline de consulta educativa. Qwen crea
+primero un plan estricto `library-query-plan.v1`: intención, ambigüedad y hasta
+seis consultas locales. El servicio valida el plan, ejecuta la recuperación
+híbrida con fallback léxico, combina KnowledgeUnits con chunks originales, baja
+la prioridad de solucionarios y deduplica por hash, grupo de duplicados y
+similitud. Se seleccionan como máximo cinco fuentes, diez chunks, dos chunks por
+fuente y 18 000 caracteres de contexto; todos los límites son configurables.
+
+El prompt `library-teacher-answer.v1` explica en español, genera ejemplos breves
+en alemán y exige que cada afirmación central cite IDs del paquete recuperado.
+La API valida que las citas existan, que los puntos esenciales tengan soporte,
+que no se copien pasajes largos y que no aparezcan rutas, prompts, jerga del
+ranking ni evasiones de grounding. Existe una sola reparación controlada con
+`library-teacher-answer-repair.v1`; un segundo fallo produce una respuesta segura
+de evidencia insuficiente. Qwen no completa silenciosamente la respuesta con
+conocimiento externo.
+
+La confianza describe la calidad de la evidencia, no una probabilidad
+calibrada. El score interno, acotado a `[0,1]`, es:
+
+```text
+0.18
++ diversidad de fuentes (0.12 una, 0.28 dos, 0.35 tres o más)
++ 0.22 × calidad media de extracción
++ 0.12 × confianza editorial media
++ 0.08 × proporción de teoría o glosario
++ 0.12 si existe KnowledgeUnit aprobada
+- 0.25 si toda la evidencia son soluciones
+- 0.12 × proporción de extracciones con calidad < 0.35
+- 0.20 si existe conflicto de conocimiento
+```
+
+Se etiqueta `sólida` desde 0.75 con dos fuentes independientes, `moderada`
+desde 0.50, `limitada` desde 0.28 e `insuficiente` por debajo. La ausencia de
+revisión limita `sólida` a `moderada`; conflicto o baja calidad limitan `sólida`
+y `moderada` a `limitada`, sin convertir evidencia insuficiente en evidencia
+positiva.
+
+La consulta, el plan validado, la respuesta interna, provenance, versiones de
+prompt, modelo, timings, warnings y relación conversacional se guardan en la
+SQLite reconstruible. Las continuaciones solo envían la pregunta y respuesta
+directa anteriores, vuelven a planificar y recuperan evidencia nueva. El DTO
+público omite planes, claims internos, chunk IDs, rutas y reglas de ranking. El
+contexto pedagógico lee perfil, preferencias y categorías recientes de error de
+la base principal, pero nunca escribe `StudentSkill`, `SkillEvidence` ni otro
+progreso.
+
 ## Operación
 
 ```bash
@@ -100,9 +150,13 @@ FastAPI inicia un polling incremental no bloqueante si
 segundos y se configura con
 `DEUTSCHOS_EDUCATIONAL_LIBRARY_SCAN_INTERVAL_SECONDS`. No instala un daemon.
 
-La sección web `/library` ofrece dashboard, inventario resumido, controles de
-trabajo, catálogo, versiones, chunks, búsqueda, revisión de unidades y
-generación con fuentes. El controlador macOS muestra disponibilidad, ruta y
+La sección web `/library` empieza por **Pregunta a tu biblioteca**: pregunta
+natural, progreso comprensible, explicación, ejemplos, confianza, continuaciones
+y un historial local. Las fuentes y detalles de evidencia están plegados. La
+búsqueda FTS5, inventario, catálogo y controles editoriales permanecen en
+**Herramientas avanzadas** y no dominan la experiencia. No hay selector de
+modelo, nivel o estrategia de recuperación en la consulta principal. El
+controlador macOS muestra disponibilidad, ruta y
 cantidad catalogada mediante campos aditivos de `deutschos-status-v1`.
 
 ## API
@@ -112,6 +166,8 @@ cantidad catalogada mediante campos aditivos de `deutschos-status-v1`.
 - `GET /api/library/jobs`, acciones `cancel`, `pause` y `retry`
 - `GET/PUT /api/library/sources`, versiones, chunks, excluir y reprocesar
 - `GET /api/library/search?query=...&mode=lexical|semantic|hybrid`
+- `POST /api/library/ask`, `GET /api/library/queries/{query_id}`
+- `GET/DELETE /api/library/conversations`, lectura de sus consultas
 - `GET/POST /api/library/knowledge`, revisión de unidades
 - `POST /api/library/grounded/generate`, `GET /api/library/grounded/{id}`
 
@@ -126,4 +182,7 @@ subtítulos internos de vídeo. No se descargan modelos de embeddings o Whisper.
 La detección de idioma, CEFR y temas es heurística y editable. Los conflictos
 semánticos se señalan de forma conservadora, pero todavía requieren revisión
 humana. El polling de proceso es suficiente para la aplicación abierta; no es un
-servicio del sistema operativo.
+servicio del sistema operativo. Las consultas requieren el Qwen local
+configurado; catálogo, búsqueda y lectura del historial siguen disponibles si
+el proveedor no responde. Consulta educativa y ejercicios rápidos son productos
+separados: esta experiencia no genera, puntúa ni registra ejercicios.

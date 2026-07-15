@@ -259,7 +259,8 @@ async def test_teacher_query_plans_multiple_searches_deduplicates_and_persists_h
     assert len(set(source_names)) <= teacher.limits.max_sources
     assert max(Counter(source_names).values()) <= teacher.limits.max_chunks_per_source
     assert not {"Artikel-Lehrbuch.md", "Artikel-Kopie.md"}.issubset(source_names)
-    assert not any("Lösungen" in source.source_name for source in first.sources[:2])
+    assert "Lösungen.md" in source_names
+    assert source_names.index("Lösungen.md") >= 2
     assert all("/" not in source.source_name for source in first.sources)
     assert provider.plan_payloads[0]["learner"]["level_hint"] == "A1"
     with teacher.database.connect() as connection:

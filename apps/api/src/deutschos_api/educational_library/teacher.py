@@ -413,7 +413,10 @@ class EducationalTeacherService:
                     mode="hybrid",
                     source_id=request.source_id,
                     limit=12,
-                    include_solutions=False,
+                    # Keep answer keys available as last-resort evidence. The
+                    # pedagogical ranker below penalises both their role and
+                    # filename instead of excluding them blindly.
+                    include_solutions=True,
                 )
             except ValueError:
                 continue

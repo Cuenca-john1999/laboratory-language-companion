@@ -13,6 +13,13 @@ memoria derivada con provenance. FastAPI compone esos servicios sin hacer que
 Ollama sea requisito para catálogo o búsqueda léxica. Consulta
 [Biblioteca educativa](educational-library.md).
 
+La consulta docente usa ese mismo catálogo e índice: un planificador Qwen
+validado produce varias búsquedas, el servicio selecciona un paquete de evidencia
+y otro prompt genera una explicación con citas comprobadas. Conversaciones y
+provenance viven en la SQLite reconstruible de biblioteca. El perfil normal se
+consulta solo para adaptar idioma y profundidad; la operación no proyecta
+resultados al Learning Engine.
+
 Las rutas SQLite relativas se anclan a la raíz calculada desde el código, por lo
 que FastAPI, Alembic y los scripts usan el mismo archivo aunque se invoquen
 desde otro directorio del SSD. La API activa claves foráneas en cada conexión.

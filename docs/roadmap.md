@@ -38,7 +38,10 @@ alcanzabilidad; ningún banco `draft` se ofrece en producción.
 ## Milestone 2 — Biblioteca y memoria pedagógica
 
 La fundación local ya incluye catálogo incremental, extractores, FTS5,
-KnowledgeUnits revisables, generación fundamentada y workspace visible. Siguen
+KnowledgeUnits revisables, consultas docentes fundamentadas y una experiencia
+**Pregunta a tu biblioteca** con continuaciones e historial. La consulta
+educativa y los futuros **Ejercicios rápidos** son experiencias separadas: los
+ejercicios no forman parte del pipeline docente ni escriben progreso. Siguen
 pendientes OCR controlado, transcripción local, un modelo real de embeddings y
 la experiencia final de lecciones. El perfeccionamiento diagnóstico queda
 congelado temporalmente después de `#006E4F1`.

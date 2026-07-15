@@ -424,3 +424,76 @@ export type GroundedDraft = {
   evidence_sufficient: boolean;
   created_at: string;
 };
+
+export type TeacherEvidenceConfidence =
+  | "solid"
+  | "moderate"
+  | "limited"
+  | "insufficient";
+
+export type TeacherExample = {
+  german: string;
+  spanish: string | null;
+  note: string | null;
+};
+
+export type TeacherPublicAnswer = {
+  direct_answer: string;
+  key_points: string[];
+  examples: TeacherExample[];
+  important_nuance: string | null;
+  ambiguity_note: string | null;
+  follow_up_question: string | null;
+};
+
+export type TeacherSource = {
+  citation: string;
+  source_id: string;
+  source_name: string;
+  page_start: number | null;
+  page_end: number | null;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  section: string | null;
+  snippet: string;
+  review_status: string;
+  rights: string;
+  extraction_quality: number;
+  content_role: string;
+  retrieval_score: number;
+};
+
+export type TeacherTimings = {
+  planning_ms: number;
+  retrieval_ms: number;
+  generation_ms: number;
+  validation_ms: number;
+  total_ms: number;
+};
+
+export type TeacherQuery = {
+  query_id: string;
+  conversation_id: string;
+  parent_query_id: string | null;
+  question: string;
+  status: "completed" | "insufficient";
+  answer: TeacherPublicAnswer;
+  confidence: TeacherEvidenceConfidence;
+  sources: TeacherSource[];
+  warnings: string[];
+  retrieval_mode: "lexical" | "semantic" | "hybrid";
+  semantic_search_available: boolean;
+  timings: TeacherTimings;
+  created_at: string;
+};
+
+export type TeacherConversationSummary = {
+  conversation_id: string;
+  latest_query_id: string;
+  question: string;
+  answer_excerpt: string;
+  confidence: TeacherEvidenceConfidence;
+  source_count: number;
+  turn_count: number;
+  updated_at: string;
+};

@@ -57,6 +57,14 @@ texto y miembros ZIP reducen consumo accidental; los errores públicos omiten
 trazas y texto completo. La búsqueda local excluye soluciones por defecto y la
 generación solo puede citar IDs recuperados.
 
+Las consultas docentes persisten localmente su pregunta, respuesta y provenance
+en la base reconstruible de biblioteca. Los DTO públicos no contienen rutas
+absolutas, prompts, claims privados, chunk IDs ni reglas de ranking. El contexto
+pedagógico enviado a Qwen se limita a idioma de explicación, nivel orientativo,
+preferencias, objetivos y categorías de error; no incluye respuestas ni textos
+personales completos. El servicio valida y repara citas una vez y responde con
+insuficiencia si no puede demostrar el soporte.
+
 ## Dependencias web auditadas
 
 La revisión en vivo del 12 de julio de 2026 encontró dos avisos moderados en la misma

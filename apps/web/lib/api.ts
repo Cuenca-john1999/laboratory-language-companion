@@ -19,6 +19,8 @@ import type {
   ModelsResponse,
   Profile,
   Session,
+  TeacherConversationSummary,
+  TeacherQuery,
 } from "@deutschos/shared";
 
 export const API_URL =
@@ -241,3 +243,44 @@ export const generateGroundedDraft = (payload: {
       max_sources: 5,
     }),
   });
+
+export const askLibrary = (
+  payload: {
+    question: string;
+    conversation_id?: string | null;
+    source_id?: string | null;
+    continuation_action?:
+      | "expand"
+      | "more_examples"
+      | "rephrase"
+      | "use_in_sentence"
+      | "follow_up"
+      | null;
+  },
+  signal?: AbortSignal,
+) =>
+  api<TeacherQuery>("/api/library/ask", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+export const getTeacherQuery = (queryId: string) =>
+  api<TeacherQuery>(`/api/library/queries/${encodeURIComponent(queryId)}`);
+
+export const getTeacherConversations = () =>
+  api<TeacherConversationSummary[]>("/api/library/conversations?limit=20");
+
+export const getTeacherConversation = (conversationId: string) =>
+  api<TeacherQuery[]>(
+    `/api/library/conversations/${encodeURIComponent(conversationId)}`,
+  );
+
+export async function deleteTeacherConversation(
+  conversationId: string,
+): Promise<void> {
+  await request(
+    `/api/library/conversations/${encodeURIComponent(conversationId)}`,
+    { method: "DELETE" },
+  );
+}
