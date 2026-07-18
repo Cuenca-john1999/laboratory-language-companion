@@ -9,6 +9,7 @@ import type {
   LearningReviewsResponse,
   LearningSkill,
   GroundedDraft,
+  EvidenceRegion,
   KnowledgeUnit,
   LibraryChunk,
   LibraryJob,
@@ -18,11 +19,18 @@ import type {
   LibrarySummary,
   LibraryModelRouting,
   EditorialSection,
+  MemoryAudit,
+  MemoryFeedbackVerdict,
+  MemoryReviewQueueItem,
   PageQuality,
+  PedagogicalConcept,
+  PedagogicalConceptSummary,
+  PedagogicalMemorySummary,
   Mistake,
   ModelsResponse,
   Profile,
   Session,
+  ScanLayout,
   TeacherConversationSummary,
   TeacherQuery,
   TeacherStreamEvent,
@@ -393,3 +401,87 @@ export async function deleteTeacherConversation(
     { method: "DELETE" },
   );
 }
+
+export const getPedagogicalMemorySummary = () =>
+  api<PedagogicalMemorySummary>("/api/library/memory/status");
+
+export const getPedagogicalConcepts = (query = "") =>
+  api<PedagogicalConceptSummary[]>(
+    `/api/library/memory/concepts?limit=100${query ? `&query=${encodeURIComponent(query)}` : ""}`,
+  );
+
+export const getPedagogicalConcept = (conceptId: string) =>
+  api<PedagogicalConcept>(
+    `/api/library/memory/concepts/${encodeURIComponent(conceptId)}`,
+  );
+
+export const getMemoryReviewQueue = () =>
+  api<MemoryReviewQueueItem[]>("/api/library/memory/review-queue?limit=30");
+
+export const getMemoryAudit = (targetType: string, targetId: string) =>
+  api<MemoryAudit[]>(
+    `/api/library/memory/audit?target_type=${encodeURIComponent(targetType)}&target_id=${encodeURIComponent(targetId)}&limit=30`,
+  );
+
+export const sendTeacherResponseFeedback = (
+  queryId: string,
+  verdict: MemoryFeedbackVerdict,
+) =>
+  api(`/api/library/queries/${encodeURIComponent(queryId)}/feedback`, {
+    method: "POST",
+    body: JSON.stringify({
+      verdict,
+      comment: null,
+      operation_id: crypto.randomUUID(),
+    }),
+  });
+
+export const sendTeacherLocationFeedback = (
+  queryId: string,
+  locationId: string,
+  payload: {
+    verdict: MemoryFeedbackVerdict;
+    comment?: string | null;
+    scan_layout?: ScanLayout | null;
+    region?: EvidenceRegion | null;
+    printed_left_label?: string | null;
+    printed_right_label?: string | null;
+    printed_full_label?: string | null;
+  },
+) =>
+  api(
+    `/api/library/queries/${encodeURIComponent(queryId)}/locations/${encodeURIComponent(locationId)}/feedback`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...payload,
+        operation_id: crypto.randomUUID(),
+      }),
+    },
+  );
+
+export const reviewPedagogicalMemory = (
+  targetType: "concept" | "location" | "relation",
+  targetId: string,
+  action: "confirm" | "reject" | "unknown" | "postpone",
+) =>
+  api(
+    `/api/library/memory/${targetType}/${encodeURIComponent(targetId)}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        comment: null,
+        operation_id: crypto.randomUUID(),
+      }),
+    },
+  );
+
+export const revertPedagogicalMemoryReview = (reviewId: string) =>
+  api(`/api/library/memory/reviews/${encodeURIComponent(reviewId)}/revert`, {
+    method: "POST",
+    body: JSON.stringify({
+      operation_id: crypto.randomUUID(),
+      comment: "Reversión solicitada desde Memoria verificada.",
+    }),
+  });

@@ -12,6 +12,12 @@ import type {
   LibrarySummary,
   LibraryModelRouting,
   PageQuality,
+  PedagogicalConcept,
+  PedagogicalConceptSummary,
+  PedagogicalMemorySummary,
+  MemoryAudit,
+  MemoryFeedbackVerdict,
+  MemoryReviewQueueItem,
   TeacherConversationSummary,
   TeacherEvidenceConfidence,
   TeacherQuery,
@@ -36,6 +42,11 @@ import {
   getLibrarySections,
   getLibraryPageQuality,
   getLibraryModelRoles,
+  getMemoryAudit,
+  getMemoryReviewQueue,
+  getPedagogicalConcept,
+  getPedagogicalConcepts,
+  getPedagogicalMemorySummary,
   getTeacherConversations,
   getTeacherQuery,
   pauseLibraryJob,
@@ -44,9 +55,13 @@ import {
   reprocessLibrarySource,
   retryLibraryJob,
   reviewKnowledge,
+  reviewPedagogicalMemory,
+  revertPedagogicalMemoryReview,
   scanLibrary,
   searchLibrary,
   streamLibraryAnswer,
+  sendTeacherLocationFeedback,
+  sendTeacherResponseFeedback,
 } from "../lib/api";
 
 const EXAMPLE_QUESTIONS = [
@@ -138,6 +153,24 @@ export function LibraryWorkspace() {
   const [pageQuality, setPageQuality] = useState<PageQuality[]>([]);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<TeacherQuery | null>(null);
+  const [memorySummary, setMemorySummary] =
+    useState<PedagogicalMemorySummary | null>(null);
+  const [concepts, setConcepts] = useState<PedagogicalConceptSummary[]>([]);
+  const [reviewQueue, setReviewQueue] = useState<MemoryReviewQueueItem[]>([]);
+  const [selectedMemoryConcept, setSelectedMemoryConcept] =
+    useState<PedagogicalConcept | null>(null);
+  const [memoryAudit, setMemoryAudit] = useState<MemoryAudit[]>([]);
+  const [memorySearch, setMemorySearch] = useState("");
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(
+    null,
+  );
+  const [locationDraft, setLocationDraft] = useState({
+    scan_layout: "unknown",
+    region: "unknown",
+    printed_left_label: "",
+    printed_right_label: "",
+    printed_full_label: "",
+  });
   const [rawQuery, setRawQuery] = useState("");
   const [mode, setMode] = useState<"lexical" | "semantic" | "hybrid">(
     "lexical",
@@ -158,6 +191,9 @@ export function LibraryWorkspace() {
       nextHistory,
       nextCore,
       nextRouting,
+      nextMemory,
+      nextConcepts,
+      nextQueue,
     ] = await Promise.all([
       getLibrarySummary(),
       getLibrarySources(),
@@ -166,6 +202,9 @@ export function LibraryWorkspace() {
       getTeacherConversations(),
       getLibraryCore(),
       getLibraryModelRoles(),
+      getPedagogicalMemorySummary(),
+      getPedagogicalConcepts(),
+      getMemoryReviewQueue(),
     ]);
     setSummary(nextSummary);
     setSources(nextSources);
@@ -174,6 +213,9 @@ export function LibraryWorkspace() {
     setHistory(nextHistory);
     setCore(nextCore);
     setModelRouting(nextRouting);
+    setMemorySummary(nextMemory);
+    setConcepts(nextConcepts);
+    setReviewQueue(nextQueue);
   }, []);
 
   useEffect(() => {
@@ -493,6 +535,148 @@ export function LibraryWorkspace() {
     }
   }
 
+  async function answerFeedback(verdict: MemoryFeedbackVerdict) {
+    if (!answer) return;
+    setBusy("answer-feedback");
+    setError("");
+    try {
+      await sendTeacherResponseFeedback(answer.query_id, verdict);
+      setAnswer(await getTeacherQuery(answer.query_id));
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo guardar tu valoración.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function locationFeedback(
+    locationId: string,
+    verdict: MemoryFeedbackVerdict,
+    withMapping = false,
+  ) {
+    if (!answer) return;
+    setBusy(`location-${locationId}`);
+    setError("");
+    try {
+      await sendTeacherLocationFeedback(answer.query_id, locationId, {
+        verdict,
+        ...(withMapping
+          ? {
+              scan_layout: locationDraft.scan_layout as
+                | "single_page"
+                | "double_page"
+                | "mixed"
+                | "unknown",
+              region: locationDraft.region as
+                | "full"
+                | "left"
+                | "right"
+                | "both"
+                | "unknown",
+              printed_left_label: locationDraft.printed_left_label || null,
+              printed_right_label: locationDraft.printed_right_label || null,
+              printed_full_label: locationDraft.printed_full_label || null,
+            }
+          : {}),
+      });
+      setAnswer(await getTeacherQuery(answer.query_id));
+      setEditingLocationId(null);
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo revisar la ubicación.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function searchMemory(event: FormEvent) {
+    event.preventDefault();
+    setBusy("memory-search");
+    try {
+      setConcepts(await getPedagogicalConcepts(memorySearch.trim()));
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo consultar la memoria.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function openMemoryConcept(conceptId: string) {
+    setBusy("memory-detail");
+    try {
+      const [concept, audit] = await Promise.all([
+        getPedagogicalConcept(conceptId),
+        getMemoryAudit("concept", conceptId),
+      ]);
+      setSelectedMemoryConcept(concept);
+      setMemoryAudit(audit);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo abrir el concepto.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function reviewMemoryItem(
+    item: MemoryReviewQueueItem,
+    action: "confirm" | "reject" | "unknown" | "postpone",
+  ) {
+    setBusy(`memory-${item.target_id}`);
+    try {
+      await reviewPedagogicalMemory(item.target_type, item.target_id, action);
+      await refresh();
+      if (item.target_type === "concept") {
+        await openMemoryConcept(item.target_id);
+      }
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo revisar la memoria.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function revertAudit(item: MemoryAudit) {
+    const reviewId =
+      typeof item.after.review_id === "string" ? item.after.review_id : null;
+    if (!reviewId) return;
+    setBusy("memory-revert");
+    try {
+      await revertPedagogicalMemoryReview(reviewId);
+      if (selectedMemoryConcept) {
+        await openMemoryConcept(selectedMemoryConcept.id);
+      }
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo deshacer el cambio.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
   return (
     <section className="library-shell">
       <div className="section-heading library-heading">
@@ -725,6 +909,36 @@ export function LibraryWorkspace() {
               ))}
             </ul>
           ) : null}
+          <section
+            className="memory-feedback"
+            aria-labelledby="answer-feedback-title"
+          >
+            <strong id="answer-feedback-title">
+              ¿La explicación te resultó correcta?
+            </strong>
+            <div role="group" aria-label="Valorar explicación">
+              {(
+                [
+                  ["correct", "Correcta"],
+                  ["incorrect", "Incorrecta"],
+                  ["unknown", "No lo sé"],
+                ] as const
+              ).map(([verdict, label]) => (
+                <button
+                  type="button"
+                  key={verdict}
+                  aria-pressed={answer.response_feedback === verdict}
+                  disabled={busy === "answer-feedback"}
+                  onClick={() => void answerFeedback(verdict)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <small>
+              Esta valoración no confirma automáticamente ninguna fuente.
+            </small>
+          </section>
           <div
             className="continuation-actions"
             aria-label="Continuar la explicación"
@@ -760,11 +974,156 @@ export function LibraryWorkspace() {
                         ? "Base Herder principal · "
                         : "Apoyo complementario · "}
                       {source.section ? `${source.section} · ` : ""}
-                      {source.page_start
-                        ? `p. ${source.page_start}`
-                        : "ubicación interna"}
+                      {source.public_location ??
+                        (source.page_start
+                          ? `PDF p. ${source.page_start}`
+                          : "ubicación interna")}
                     </span>
+                    {source.memory_status ? (
+                      <small className={`memory-state ${source.memory_status}`}>
+                        {source.memory_status === "user_confirmed"
+                          ? "Ubicación confirmada por ti"
+                          : source.memory_status === "system_verified"
+                            ? "Referencia verificada"
+                            : source.memory_status === "rejected"
+                              ? "Ubicación rechazada"
+                              : "Ubicación pendiente de revisión"}
+                      </small>
+                    ) : null}
                     <blockquote>{source.snippet}</blockquote>
+                    {source.location_id ? (
+                      <div className="source-memory-controls">
+                        <span>¿La ubicación es correcta?</span>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${source.location_id}`}
+                          onClick={() =>
+                            void locationFeedback(
+                              source.location_id!,
+                              "correct",
+                            )
+                          }
+                        >
+                          Correcta
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${source.location_id}`}
+                          onClick={() =>
+                            void locationFeedback(
+                              source.location_id!,
+                              "incorrect",
+                            )
+                          }
+                        >
+                          Incorrecta
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${source.location_id}`}
+                          onClick={() =>
+                            void locationFeedback(
+                              source.location_id!,
+                              "unknown",
+                            )
+                          }
+                        >
+                          No lo sé
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingLocationId(source.location_id);
+                            setLocationDraft({
+                              scan_layout: source.scan_layout,
+                              region: source.region,
+                              printed_left_label: "",
+                              printed_right_label: "",
+                              printed_full_label:
+                                source.printed_page_label ?? "",
+                            });
+                          }}
+                        >
+                          Corregir página
+                        </button>
+                        {editingLocationId === source.location_id ? (
+                          <form
+                            className="page-map-editor"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void locationFeedback(
+                                source.location_id!,
+                                "correct",
+                                true,
+                              );
+                            }}
+                          >
+                            <label>
+                              Escaneo
+                              <select
+                                value={locationDraft.scan_layout}
+                                onChange={(event) =>
+                                  setLocationDraft((current) => ({
+                                    ...current,
+                                    scan_layout: event.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="unknown">Sin comprobar</option>
+                                <option value="single_page">Una página</option>
+                                <option value="double_page">Dos páginas</option>
+                                <option value="mixed">Mixto</option>
+                              </select>
+                            </label>
+                            <label>
+                              Región
+                              <select
+                                value={locationDraft.region}
+                                onChange={(event) =>
+                                  setLocationDraft((current) => ({
+                                    ...current,
+                                    region: event.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="unknown">Sin comprobar</option>
+                                <option value="left">Mitad izquierda</option>
+                                <option value="right">Mitad derecha</option>
+                                <option value="both">Ambas mitades</option>
+                                <option value="full">Página completa</option>
+                              </select>
+                            </label>
+                            <label>
+                              Página impresa izquierda
+                              <input
+                                value={locationDraft.printed_left_label}
+                                onChange={(event) =>
+                                  setLocationDraft((current) => ({
+                                    ...current,
+                                    printed_left_label: event.target.value,
+                                  }))
+                                }
+                                placeholder="desconocida"
+                              />
+                            </label>
+                            <label>
+                              Página impresa derecha
+                              <input
+                                value={locationDraft.printed_right_label}
+                                onChange={(event) =>
+                                  setLocationDraft((current) => ({
+                                    ...current,
+                                    printed_right_label: event.target.value,
+                                  }))
+                                }
+                                placeholder="desconocida"
+                              />
+                            </label>
+                            <button type="submit">Guardar y confirmar</button>
+                          </form>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ol>
@@ -825,6 +1184,216 @@ export function LibraryWorkspace() {
           </details>
         </article>
       ) : null}
+
+      <section
+        className="verified-memory library-panel"
+        aria-labelledby="memory-title"
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">MEMORIA DOCUMENTAL CORREGIBLE</p>
+            <h2 id="memory-title">Memoria verificada</h2>
+          </div>
+          <span>{memorySummary?.concepts ?? 0} conceptos</span>
+        </div>
+        <p>
+          Conserva conceptos y ubicaciones en los originales. Las respuestas del
+          modelo solo pueden proponer candidatos.
+        </p>
+        <div className="memory-metrics" aria-label="Estados de memoria">
+          <span>
+            <strong>{memorySummary?.by_status.user_confirmed ?? 0}</strong>
+            confirmados
+          </span>
+          <span>
+            <strong>{memorySummary?.by_status.candidate ?? 0}</strong>
+            candidatos
+          </span>
+          <span>
+            <strong>{memorySummary?.by_status.rejected ?? 0}</strong>
+            rechazados
+          </span>
+          <span>
+            <strong>{memorySummary?.by_status.conflict ?? 0}</strong>
+            conflictos
+          </span>
+          <span>
+            <strong>{memorySummary?.by_status.stale ?? 0}</strong>
+            obsoletos
+          </span>
+        </div>
+        <form className="memory-search" onSubmit={searchMemory}>
+          <label htmlFor="memory-search">Buscar concepto o alias</label>
+          <div>
+            <input
+              id="memory-search"
+              value={memorySearch}
+              onChange={(event) => setMemorySearch(event.target.value)}
+              placeholder="Akkusativ, acusativo, Perfekt…"
+              maxLength={200}
+            />
+            <button disabled={busy === "memory-search"}>Buscar</button>
+          </div>
+        </form>
+        <div className="memory-layout">
+          <div className="concept-atlas" aria-label="Atlas de conceptos">
+            {concepts.length ? (
+              concepts.map((concept) => (
+                <button
+                  type="button"
+                  key={concept.id}
+                  className={
+                    selectedMemoryConcept?.id === concept.id ? "selected" : ""
+                  }
+                  onClick={() => void openMemoryConcept(concept.id)}
+                >
+                  <span>
+                    <strong>
+                      {concept.display_name_es ?? concept.canonical_name}
+                    </strong>
+                    {concept.display_name_de &&
+                    concept.display_name_de !== concept.display_name_es ? (
+                      <small lang="de">{concept.display_name_de}</small>
+                    ) : null}
+                  </span>
+                  <b className={`memory-state ${concept.status}`}>
+                    {concept.status}
+                  </b>
+                  <small>
+                    {concept.category} ·{" "}
+                    {Object.values(concept.location_counts).reduce(
+                      (total, count) => total + count,
+                      0,
+                    )}{" "}
+                    ubicaciones
+                  </small>
+                </button>
+              ))
+            ) : (
+              <p className="muted">Todavía no hay conceptos con ese nombre.</p>
+            )}
+          </div>
+          <article className="concept-memory-detail">
+            {selectedMemoryConcept ? (
+              <>
+                <header>
+                  <div>
+                    <p className="eyebrow">DETALLE DEL CONCEPTO</p>
+                    <h3>{selectedMemoryConcept.canonical_name}</h3>
+                  </div>
+                  <b className={`memory-state ${selectedMemoryConcept.status}`}>
+                    {selectedMemoryConcept.status}
+                  </b>
+                </header>
+                <p>
+                  {selectedMemoryConcept.description ??
+                    selectedMemoryConcept.category}
+                </p>
+                <dl>
+                  <div>
+                    <dt>Alias</dt>
+                    <dd>
+                      {selectedMemoryConcept.aliases
+                        .map((alias) => `${alias.text} (${alias.language})`)
+                        .join(" · ")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Relaciones</dt>
+                    <dd>
+                      {selectedMemoryConcept.relations
+                        .map(
+                          (relation) =>
+                            `${relation.relation_type}: ${relation.target_name}`,
+                        )
+                        .join(" · ") || "Sin relaciones confirmadas"}
+                    </dd>
+                  </div>
+                </dl>
+                <h4>Ubicaciones documentales</h4>
+                <ul className="memory-locations">
+                  {selectedMemoryConcept.locations.map((location) => (
+                    <li key={location.id}>
+                      <strong>{location.public_citation}</strong>
+                      <span className={`memory-state ${location.status}`}>
+                        {location.status}
+                      </span>
+                      <small>{location.heading ?? "Sin encabezado"}</small>
+                      <q>{location.evidence_snippet}</q>
+                    </li>
+                  ))}
+                </ul>
+                <details>
+                  <summary>
+                    Cambios y correcciones ({memoryAudit.length})
+                  </summary>
+                  <ol className="memory-audit">
+                    {memoryAudit.map((item) => (
+                      <li key={item.id}>
+                        <span>
+                          {item.action} ·{" "}
+                          {new Date(item.created_at).toLocaleString("es-ES")}
+                        </span>
+                        {item.comment ? <small>{item.comment}</small> : null}
+                        {typeof item.after.review_id === "string" ? (
+                          <button
+                            type="button"
+                            disabled={busy === "memory-revert"}
+                            onClick={() => void revertAudit(item)}
+                          >
+                            Deshacer
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              </>
+            ) : (
+              <div className="empty-inline">
+                <h3>Selecciona un concepto</h3>
+                <p>Verás alias, relaciones, evidencia y su historial.</p>
+              </div>
+            )}
+          </article>
+        </div>
+        <details className="memory-review-queue">
+          <summary>Cola de revisión ({reviewQueue.length})</summary>
+          <p>
+            “No lo sé” es neutral: registra la revisión sin confirmar ni
+            rechazar.
+          </p>
+          <div>
+            {reviewQueue.map((item) => (
+              <article key={`${item.target_type}-${item.target_id}`}>
+                <span>
+                  <strong>{item.title}</strong>
+                  <small>{item.subtitle ?? item.target_type}</small>
+                </span>
+                <div>
+                  {(
+                    [
+                      ["confirm", "Confirmar"],
+                      ["reject", "Rechazar"],
+                      ["unknown", "No lo sé"],
+                      ["postpone", "Después"],
+                    ] as const
+                  ).map(([action, label]) => (
+                    <button
+                      type="button"
+                      key={action}
+                      disabled={busy === `memory-${item.target_id}`}
+                      onClick={() => void reviewMemoryItem(item, action)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </details>
+      </section>
 
       <section className="teacher-history library-panel">
         <div className="panel-title">

@@ -250,6 +250,23 @@ class PedagogicalMemoryService:
             "SELECT * FROM pedagogical_concepts WHERE normalized_name=? AND language=?",
             (normalized, request.language),
         ).fetchone()
+        if not existing and request.language in {"de", "es"}:
+            existing = connection.execute(
+                "SELECT * FROM pedagogical_concepts WHERE normalized_name=? "
+                "AND language IN ('unknown','mixed') AND editorial_status='candidate' "
+                "AND NOT EXISTS (SELECT 1 FROM pedagogical_memory_reviews pmr "
+                "WHERE pmr.target_type='concept' AND pmr.target_id=pedagogical_concepts.id) "
+                "ORDER BY updated_at,id LIMIT 1",
+                (normalized,),
+            ).fetchone()
+        if not existing and request.language in {"unknown", "mixed"}:
+            concrete = connection.execute(
+                "SELECT * FROM pedagogical_concepts WHERE normalized_name=? "
+                "AND language IN ('de','es') ORDER BY id",
+                (normalized,),
+            ).fetchall()
+            if len(concrete) == 1:
+                existing = concrete[0]
         if existing:
             concept_id = str(existing["id"])
             status = str(existing["editorial_status"])
@@ -260,11 +277,15 @@ class PedagogicalMemoryService:
                 status = request.status.value
             now = utc_text()
             connection.execute(
-                "UPDATE pedagogical_concepts SET display_name_es=coalesce(?,display_name_es),"
+                "UPDATE pedagogical_concepts SET language=CASE WHEN language IN "
+                "('unknown','mixed') AND ? IN ('de','es') THEN ? ELSE language END,"
+                "display_name_es=coalesce(?,display_name_es),"
                 "display_name_de=coalesce(?,display_name_de),category=CASE WHEN category='other' "
                 "THEN ? ELSE category END,description=coalesce(?,description),editorial_status=?,"
                 "updated_at=? WHERE id=?",
                 (
+                    request.language,
+                    request.language,
                     request.display_name_es,
                     request.display_name_de,
                     request.category,
@@ -294,6 +315,9 @@ class PedagogicalMemoryService:
                             ),
                         ),
                     )
+            if request.language in {"de", "es"}:
+                self._merge_unresolved_concept_candidates(connection, concept_id, normalized)
+                self._consolidate_candidate_locations(connection, concept_id)
             return concept_id, False
         concept_id = stable_concept_id(request.language, request.canonical_name)
         now = utc_text()
@@ -350,6 +374,237 @@ class PedagogicalMemoryService:
                     ),
                 )
         return concept_id, True
+
+    def _merge_unresolved_concept_candidates(
+        self,
+        connection: sqlite3.Connection,
+        winner_id: str,
+        normalized_name: str,
+    ) -> None:
+        losers = connection.execute(
+            "SELECT * FROM pedagogical_concepts WHERE normalized_name=? AND id<>? "
+            "AND language IN ('unknown','mixed') AND editorial_status='candidate' "
+            "AND NOT EXISTS (SELECT 1 FROM pedagogical_memory_reviews pmr "
+            "WHERE pmr.target_type='concept' AND pmr.target_id=pedagogical_concepts.id) "
+            "ORDER BY id",
+            (normalized_name, winner_id),
+        ).fetchall()
+        for loser in losers:
+            loser_id = str(loser["id"])
+            aliases = connection.execute(
+                "SELECT * FROM pedagogical_concept_aliases WHERE concept_id=? ORDER BY id",
+                (loser_id,),
+            ).fetchall()
+            connection.execute(
+                "DELETE FROM pedagogical_concept_aliases WHERE concept_id=?", (loser_id,)
+            )
+            for alias in aliases:
+                connection.execute(
+                    "INSERT OR IGNORE INTO pedagogical_concept_aliases(concept_id,text,language,"
+                    "normalized_text,origin,status,confidence,user_confirmed,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        winner_id,
+                        alias["text"],
+                        alias["language"],
+                        alias["normalized_text"],
+                        alias["origin"],
+                        alias["status"],
+                        alias["confidence"],
+                        alias["user_confirmed"],
+                        alias["created_at"],
+                        alias["updated_at"],
+                    ),
+                )
+
+            relations = connection.execute(
+                "SELECT * FROM pedagogical_concept_relations WHERE source_concept_id=? "
+                "OR target_concept_id=? ORDER BY id",
+                (loser_id, loser_id),
+            ).fetchall()
+            connection.execute(
+                "DELETE FROM pedagogical_concept_relations WHERE source_concept_id=? "
+                "OR target_concept_id=?",
+                (loser_id, loser_id),
+            )
+            for relation in relations:
+                source_id = (
+                    winner_id
+                    if relation["source_concept_id"] == loser_id
+                    else relation["source_concept_id"]
+                )
+                target_id = (
+                    winner_id
+                    if relation["target_concept_id"] == loser_id
+                    else relation["target_concept_id"]
+                )
+                if source_id == target_id:
+                    continue
+                connection.execute(
+                    "INSERT OR IGNORE INTO pedagogical_concept_relations(source_concept_id,"
+                    "target_concept_id,relation_type,status,origin,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (
+                        source_id,
+                        target_id,
+                        relation["relation_type"],
+                        relation["status"],
+                        relation["origin"],
+                        relation["created_at"],
+                        relation["updated_at"],
+                    ),
+                )
+
+            query_links = connection.execute(
+                "SELECT * FROM teacher_query_concepts WHERE concept_id=?", (loser_id,)
+            ).fetchall()
+            for link in query_links:
+                connection.execute(
+                    "INSERT INTO teacher_query_concepts(query_id,concept_id,origin,is_primary,"
+                    "status,created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(query_id,concept_id) "
+                    "DO UPDATE SET is_primary=max(teacher_query_concepts.is_primary,"
+                    "excluded.is_primary)",
+                    (
+                        link["query_id"],
+                        winner_id,
+                        link["origin"],
+                        link["is_primary"],
+                        link["status"],
+                        link["created_at"],
+                    ),
+                )
+            connection.execute("DELETE FROM teacher_query_concepts WHERE concept_id=?", (loser_id,))
+
+            locations = connection.execute(
+                "SELECT * FROM pedagogical_evidence_locations WHERE concept_id=? ORDER BY id",
+                (loser_id,),
+            ).fetchall()
+            for location in locations:
+                duplicate = connection.execute(
+                    "SELECT * FROM pedagogical_evidence_locations WHERE concept_id=? "
+                    "AND source_version_id=? AND ifnull(chunk_id,-1)=ifnull(?,-1) "
+                    "AND ifnull(pdf_page_number,-1)=ifnull(?,-1) AND region_kind=? "
+                    "ORDER BY CASE status WHEN 'user_confirmed' THEN 0 "
+                    "WHEN 'system_verified' THEN 1 WHEN 'candidate' THEN 2 "
+                    "WHEN 'conflict' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END,id LIMIT 1",
+                    (
+                        winner_id,
+                        location["source_version_id"],
+                        location["chunk_id"],
+                        location["pdf_page_number"],
+                        location["region_kind"],
+                    ),
+                ).fetchone()
+                if not duplicate:
+                    connection.execute(
+                        "UPDATE pedagogical_evidence_locations SET concept_id=? WHERE id=?",
+                        (winner_id, location["id"]),
+                    )
+                    continue
+                if _STATUS_RANK[location["status"]] < _STATUS_RANK[duplicate["status"]]:
+                    self._move_location_usage(connection, duplicate["id"], location["id"])
+                    connection.execute(
+                        "DELETE FROM pedagogical_evidence_locations WHERE id=?",
+                        (duplicate["id"],),
+                    )
+                    connection.execute(
+                        "UPDATE pedagogical_evidence_locations SET concept_id=? WHERE id=?",
+                        (winner_id, location["id"]),
+                    )
+                    continue
+                self._move_location_usage(connection, location["id"], duplicate["id"])
+                connection.execute(
+                    "DELETE FROM pedagogical_evidence_locations WHERE id=?",
+                    (location["id"],),
+                )
+            self._audit(
+                connection,
+                f"system-merge-{loser_id}",
+                "system",
+                "equivalent_concept_merged",
+                "concept",
+                winner_id,
+                dict(loser),
+                {"merged_into": winner_id},
+                "Candidato de idioma indeterminado absorbido por el concepto equivalente.",
+            )
+            connection.execute("DELETE FROM pedagogical_concepts WHERE id=?", (loser_id,))
+
+    def _consolidate_candidate_locations(
+        self,
+        connection: sqlite3.Connection,
+        concept_id: str,
+    ) -> None:
+        rows = connection.execute(
+            "SELECT * FROM pedagogical_evidence_locations WHERE concept_id=? "
+            "ORDER BY source_version_id,ifnull(chunk_id,-1),ifnull(pdf_page_number,-1),"
+            "region_kind,CASE status WHEN 'user_confirmed' THEN 0 "
+            "WHEN 'system_verified' THEN 1 WHEN 'candidate' THEN 2 "
+            "WHEN 'conflict' THEN 3 WHEN 'rejected' THEN 4 ELSE 5 END,id",
+            (concept_id,),
+        ).fetchall()
+        winner_by_key: dict[tuple[object, ...], sqlite3.Row] = {}
+        for row in rows:
+            key = (
+                row["source_version_id"],
+                row["chunk_id"],
+                row["pdf_page_number"],
+                row["region_kind"],
+            )
+            winner = winner_by_key.get(key)
+            if winner is None:
+                winner_by_key[key] = row
+                continue
+            reviewed = connection.execute(
+                "SELECT 1 FROM pedagogical_memory_reviews WHERE target_type='location' "
+                "AND target_id=? LIMIT 1",
+                (row["id"],),
+            ).fetchone()
+            if row["status"] != PedagogicalMemoryStatus.CANDIDATE.value or reviewed:
+                continue
+            self._move_location_usage(connection, row["id"], winner["id"])
+            self._audit(
+                connection,
+                f"system-merge-{row['id']}",
+                "system",
+                "equivalent_location_merged",
+                "location",
+                winner["id"],
+                dict(row),
+                {"merged_into": winner["id"]},
+                "Ubicación candidata equivalente absorbida por la evidencia de mayor confianza.",
+            )
+            connection.execute(
+                "DELETE FROM pedagogical_evidence_locations WHERE id=?",
+                (row["id"],),
+            )
+
+    @staticmethod
+    def _move_location_usage(
+        connection: sqlite3.Connection,
+        source_location_id: str,
+        target_location_id: str,
+    ) -> None:
+        usages = connection.execute(
+            "SELECT * FROM teacher_query_location_usage WHERE location_id=?",
+            (source_location_id,),
+        ).fetchall()
+        for usage in usages:
+            already = connection.execute(
+                "SELECT 1 FROM teacher_query_location_usage WHERE query_id=? AND location_id=?",
+                (usage["query_id"], target_location_id),
+            ).fetchone()
+            if already:
+                connection.execute(
+                    "DELETE FROM teacher_query_location_usage WHERE query_id=? AND location_id=?",
+                    (usage["query_id"], source_location_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE teacher_query_location_usage SET location_id=? "
+                    "WHERE query_id=? AND location_id=?",
+                    (target_location_id, usage["query_id"], source_location_id),
+                )
 
     def add_alias(self, concept_id: str, request: ConceptAliasCreate) -> PedagogicalConceptRead:
         with self.database.transaction(immediate=True) as connection:

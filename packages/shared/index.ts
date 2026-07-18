@@ -575,6 +575,12 @@ export type TeacherSource = {
   pedagogical_role: LibrarySource["pedagogical_role"];
   evidence_origin: "core" | "supplementary";
   page_quality: string | null;
+  location_id: string | null;
+  public_location: string | null;
+  memory_status: PedagogicalMemoryStatus | null;
+  printed_page_label: string | null;
+  scan_layout: ScanLayout;
+  region: EvidenceRegion;
 };
 
 export type TeacherTimings = {
@@ -615,6 +621,8 @@ export type TeacherQuery = {
   models: Record<string, string>;
   cache_hit: boolean;
   answer_verified: boolean;
+  memory_used: boolean;
+  response_feedback: MemoryFeedbackVerdict | null;
 };
 
 export type LibraryModelRouting = {
@@ -659,4 +667,115 @@ export type TeacherConversationSummary = {
   source_count: number;
   turn_count: number;
   updated_at: string;
+};
+
+export type PedagogicalMemoryStatus =
+  | "candidate"
+  | "system_verified"
+  | "user_confirmed"
+  | "rejected"
+  | "conflict"
+  | "stale";
+
+export type MemoryFeedbackVerdict = "correct" | "incorrect" | "unknown";
+export type ScanLayout = "single_page" | "double_page" | "mixed" | "unknown";
+export type EvidenceRegion =
+  | "full"
+  | "left"
+  | "right"
+  | "both"
+  | "custom"
+  | "unknown";
+
+export type ConceptAlias = {
+  id: number;
+  text: string;
+  language: string;
+  normalized_text: string;
+  origin: string;
+  status: PedagogicalMemoryStatus;
+  confidence: "low" | "moderate" | "high";
+  user_confirmed: boolean;
+};
+
+export type EvidenceLocation = {
+  id: string;
+  concept_id: string;
+  concept_name: string;
+  source_id: string;
+  source_name: string;
+  source_version: number;
+  chunk_id: number | null;
+  pdf_page_number: number | null;
+  printed_page_label: string | null;
+  scan_layout: ScanLayout;
+  region: EvidenceRegion;
+  heading: string | null;
+  evidence_snippet: string;
+  extraction_quality: number;
+  status: PedagogicalMemoryStatus;
+  origin: string;
+  public_citation: string;
+  reviewed_at: string | null;
+};
+
+export type PedagogicalConceptSummary = {
+  id: string;
+  canonical_name: string;
+  language: string;
+  display_name_es: string | null;
+  display_name_de: string | null;
+  category: string;
+  description: string | null;
+  status: PedagogicalMemoryStatus;
+  aliases: ConceptAlias[];
+  location_counts: Record<string, number>;
+  updated_at: string;
+};
+
+export type PedagogicalConcept = PedagogicalConceptSummary & {
+  relations: {
+    id: number;
+    source_concept_id: string;
+    target_concept_id: string;
+    target_name: string;
+    relation_type: string;
+    status: PedagogicalMemoryStatus;
+    origin: string;
+  }[];
+  locations: EvidenceLocation[];
+  query_ids: string[];
+};
+
+export type PedagogicalMemorySummary = {
+  concepts: number;
+  aliases: number;
+  locations: number;
+  relations: number;
+  by_status: Record<string, number>;
+  pending_review: number;
+};
+
+export type MemoryReviewQueueItem = {
+  target_type: "concept" | "location" | "relation";
+  target_id: string;
+  title: string;
+  subtitle: string | null;
+  status: PedagogicalMemoryStatus;
+  priority: number;
+  used_by_queries: number;
+};
+
+export type MemoryAudit = {
+  id: number;
+  operation_id: string;
+  actor: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  query_id: string | null;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  comment: string | null;
+  created_at: string;
 };

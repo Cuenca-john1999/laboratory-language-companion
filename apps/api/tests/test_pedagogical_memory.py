@@ -251,6 +251,31 @@ def test_concepts_aliases_normalization_deduplication_relations_and_conflicts(
         PedagogicalConceptCreate(canonical_name="AKKUSATIV", category="other")
     )
     assert repeated.id == accusative.id
+    unresolved_repeat = memory.create_concept(
+        PedagogicalConceptCreate(canonical_name="Akkusativ", language="mixed", category="other")
+    )
+    assert unresolved_repeat.id == accusative.id
+    unresolved_first = memory.create_concept(
+        PedagogicalConceptCreate(canonical_name="Perfekt", language="unknown", category="other")
+    )
+    resolved = memory.create_concept(
+        PedagogicalConceptCreate(
+            canonical_name="Perfekt",
+            language="de",
+            category="verb_tense",
+            status="user_confirmed",
+        )
+    )
+    assert resolved.id == unresolved_first.id
+    assert resolved.language == "de"
+    assert resolved.status.value == "user_confirmed"
+    with memory_library.database.connect() as connection:
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM pedagogical_concepts WHERE normalized_name='perfekt'"
+            ).fetchone()[0]
+            == 1
+        )
     nominative = memory.create_concept(
         PedagogicalConceptCreate(canonical_name="Nominativ", category="grammatical_case")
     )
@@ -306,6 +331,29 @@ def test_page_mapping_regions_labels_and_public_citations(
     )
     assert right.printed_page_label == "175"
     assert right.public_citation == "Herder · PDF p. 89 · libro p. 175 · mitad derecha"
+    with memory_library.database.transaction(immediate=True) as connection:
+        connection.execute(
+            "INSERT INTO pedagogical_evidence_locations(id,concept_id,source_id,"
+            "source_version_id,chunk_id,editorial_section_id,page_mapping_id,pdf_page_index,"
+            "pdf_page_number,region_kind,custom_bbox_json,heading,evidence_snippet,evidence_hash,"
+            "extraction_quality,status,origin,reviewed_at,created_at,updated_at) "
+            "SELECT ?,concept_id,source_id,source_version_id,chunk_id,editorial_section_id,"
+            "page_mapping_id,pdf_page_index,pdf_page_number,region_kind,custom_bbox_json,heading,"
+            "'Candidato repetido con otro extracto.','duplicate-evidence-hash',"
+            "extraction_quality,'candidate','test',NULL,created_at,updated_at "
+            "FROM pedagogical_evidence_locations WHERE id=?",
+            (str(uuid4()), right.id),
+        )
+    resolved = memory.create_concept(
+        PedagogicalConceptCreate(canonical_name="Akkusativ", language="de")
+    )
+    with memory_library.database.connect() as connection:
+        exact_locations = connection.execute(
+            "SELECT status FROM pedagogical_evidence_locations WHERE concept_id=? "
+            "AND source_version_id=? AND chunk_id=? AND pdf_page_number=89 AND region_kind='right'",
+            (resolved.id, evidence["current_version_id"], evidence["chunk_id"]),
+        ).fetchall()
+    assert [row["status"] for row in exact_locations] == ["system_verified"]
     both = memory.create_location(
         EvidenceLocationCreate(
             concept_id=concept.id,
