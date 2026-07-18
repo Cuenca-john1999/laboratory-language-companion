@@ -482,6 +482,30 @@ footer {
     serif;
   margin: 8px 0 18px;
 }
+
+.core-sources {
+  margin: 1rem 0;
+}
+
+.core-source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.core-source-grid article {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border: 1px solid #d0c7b5;
+  border-radius: 0.9rem;
+  background: rgb(255 255 255 / 55%);
+}
+
+.core-source-grid article > span,
+.core-source-grid article > small {
+  color: #667068;
+}
 .panel-title,
 .library-panel article header {
   display: flex;
@@ -1098,6 +1122,9 @@ textarea {
   grid-column: 2/-1;
 }
 @media (max-width: 760px) {
+  .core-source-grid {
+    grid-template-columns: 1fr;
+  }
   .nav {
     height: auto;
     padding-block: 20px;

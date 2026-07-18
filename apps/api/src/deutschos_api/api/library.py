@@ -1,20 +1,34 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from deutschos_api.db.session import get_db
 from deutschos_api.educational_library.dependencies import (
+    get_document_intelligence,
+    get_library_editorial,
     get_library_knowledge,
+    get_library_model_router,
     get_library_search,
     get_library_service,
     get_library_teacher,
 )
+from deutschos_api.educational_library.document_intelligence import DocumentIntelligenceService
+from deutschos_api.educational_library.editorial import LibraryEditorialService
 from deutschos_api.educational_library.knowledge import EducationalKnowledgeService
+from deutschos_api.educational_library.routing import LibraryModelRouter
 from deutschos_api.educational_library.schemas import (
     ChunkRead,
+    CoreSourceAssignmentRequest,
+    CoreSourcePairRead,
+    EditorialSectionLinkRequest,
+    EditorialSectionRead,
+    EditorialSectionUpdate,
     GroundedGenerationRead,
     GroundedGenerationRequest,
     InventoryReport,
@@ -29,8 +43,15 @@ from deutschos_api.educational_library.schemas import (
     LibraryNotFoundError,
     LibraryProviderUnavailableError,
     LibrarySummary,
+    LibraryTeacherError,
+    ModelRoutingRead,
+    PageQualityRead,
+    PageReprocessRequest,
+    PageVariantRead,
+    PageVariantReviewRequest,
     ScanRequest,
     SearchResponse,
+    SemanticIndexRequest,
     SourceKind,
     SourceRead,
     SourceStatus,
@@ -38,9 +59,12 @@ from deutschos_api.educational_library.schemas import (
     SourceVersionRead,
     TeacherAskRequest,
     TeacherConversationSummary,
+    TeacherFailureReason,
     TeacherQueryRead,
+    TeacherStreamEvent,
 )
 from deutschos_api.educational_library.search import EducationalSearchService
+from deutschos_api.educational_library.semantic import SemanticIndexCoordinator
 from deutschos_api.educational_library.service import EducationalLibraryService
 from deutschos_api.educational_library.teacher import (
     EducationalTeacherService,
@@ -69,6 +93,16 @@ def _translate(exc: Exception) -> HTTPException:
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "La capacidad local solicitada no está disponible.",
         )
+    if isinstance(exc, LibraryTeacherError):
+        status_code = (
+            status.HTTP_504_GATEWAY_TIMEOUT
+            if exc.reason == TeacherFailureReason.TIMEOUT
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        return HTTPException(
+            status_code,
+            {"code": exc.reason.value, "message": str(exc)},
+        )
     return HTTPException(
         status.HTTP_503_SERVICE_UNAVAILABLE,
         "La biblioteca educativa local no está disponible.",
@@ -82,15 +116,33 @@ async def _ollama_available(provider: ModelProvider) -> bool:
         return False
 
 
+async def _installed_models(provider: ModelProvider) -> list[str]:
+    try:
+        return [model.name for model in await provider.list_models()]
+    except Exception:
+        return []
+
+
 @router.get("/status", response_model=LibrarySummary)
 async def library_status(
     service: EducationalLibraryService = Depends(get_library_service),
     provider: ModelProvider = Depends(get_model_provider),
 ) -> LibrarySummary:
     try:
-        return service.summary(ollama_available=await _ollama_available(provider))
+        installed = await _installed_models(provider)
+        return service.summary(
+            ollama_available=bool(installed) or await _ollama_available(provider),
+            installed_models=installed,
+        )
     except Exception as exc:
         raise _translate(exc) from exc
+
+
+@router.get("/models/roles", response_model=ModelRoutingRead)
+async def library_model_roles(
+    router_service: LibraryModelRouter = Depends(get_library_model_router),
+) -> ModelRoutingRead:
+    return await router_service.status()
 
 
 @router.get("/inventory", response_model=InventoryReport)
@@ -222,6 +274,147 @@ def source(
         raise _translate(exc) from exc
 
 
+@router.get("/core", response_model=CoreSourcePairRead)
+def core_sources(
+    editorial: LibraryEditorialService = Depends(get_library_editorial),
+) -> CoreSourcePairRead:
+    try:
+        return editorial.core_pair()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/sources/{source_id}/core", response_model=SourceRead)
+def assign_core_source(
+    source_id: str,
+    request: CoreSourceAssignmentRequest,
+    editorial: LibraryEditorialService = Depends(get_library_editorial),
+) -> SourceRead:
+    try:
+        return editorial.assign_core(source_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/sources/{source_id}/sections", response_model=list[EditorialSectionRead])
+def editorial_sections(
+    source_id: str,
+    editorial: LibraryEditorialService = Depends(get_library_editorial),
+) -> list[EditorialSectionRead]:
+    try:
+        return editorial.list_sections(source_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/sources/{source_id}/sections/build", response_model=list[EditorialSectionRead])
+def build_editorial_sections(
+    source_id: str,
+    editorial: LibraryEditorialService = Depends(get_library_editorial),
+) -> list[EditorialSectionRead]:
+    try:
+        return editorial.build_section_index(source_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.put("/sections/{section_id}", response_model=EditorialSectionRead)
+def update_editorial_section(
+    section_id: int,
+    request: EditorialSectionUpdate,
+    editorial: LibraryEditorialService = Depends(get_library_editorial),
+) -> EditorialSectionRead:
+    try:
+        return editorial.update_section(section_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/sections/{section_id}/links", response_model=EditorialSectionRead)
+def link_editorial_section(
+    section_id: int,
+    request: EditorialSectionLinkRequest,
+    editorial: LibraryEditorialService = Depends(get_library_editorial),
+) -> EditorialSectionRead:
+    try:
+        return editorial.link_section(section_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/sources/{source_id}/pages/quality", response_model=list[PageQualityRead])
+def page_quality(
+    source_id: str,
+    intelligence: DocumentIntelligenceService = Depends(get_document_intelligence),
+) -> list[PageQualityRead]:
+    try:
+        return intelligence.list_quality(source_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/sources/{source_id}/pages/analyze", response_model=list[PageQualityRead])
+def analyze_pages(
+    source_id: str,
+    intelligence: DocumentIntelligenceService = Depends(get_document_intelligence),
+) -> list[PageQualityRead]:
+    try:
+        return intelligence.analyze_source(source_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/sources/{source_id}/pages/{page_number}/variants",
+    response_model=list[PageVariantRead],
+)
+def page_variants(
+    source_id: str,
+    page_number: int,
+    intelligence: DocumentIntelligenceService = Depends(get_document_intelligence),
+) -> list[PageVariantRead]:
+    try:
+        return intelligence.list_variants(source_id, page_number)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/sources/{source_id}/pages/{page_number}/reprocess",
+    response_model=PageVariantRead,
+)
+async def reprocess_page(
+    source_id: str,
+    page_number: int,
+    request: PageReprocessRequest,
+    intelligence: DocumentIntelligenceService = Depends(get_document_intelligence),
+) -> PageVariantRead:
+    try:
+        if request.method == "pdftotext":
+            return intelligence.reprocess_pdftotext(source_id, page_number)
+        if request.method == "vision":
+            return await intelligence.reprocess_vision(source_id, page_number)
+        raise LibraryProviderUnavailableError("No hay un motor OCR local compatible instalado.")
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/sources/{source_id}/pages/{page_number}/review",
+    response_model=PageQualityRead,
+)
+def review_page_variant(
+    source_id: str,
+    page_number: int,
+    request: PageVariantReviewRequest,
+    intelligence: DocumentIntelligenceService = Depends(get_document_intelligence),
+) -> PageQualityRead:
+    try:
+        return intelligence.review_variant(source_id, page_number, request.variant_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
 @router.get("/sources/{source_id}/versions", response_model=list[SourceVersionRead])
 def source_versions(
     source_id: str, service: EducationalLibraryService = Depends(get_library_service)
@@ -300,6 +493,22 @@ async def search(
         raise _translate(exc) from exc
 
 
+@router.post("/semantic/index", response_model=JobRead, status_code=status.HTTP_202_ACCEPTED)
+def index_semantic_library(
+    request: SemanticIndexRequest,
+    background: BackgroundTasks,
+    service: EducationalLibraryService = Depends(get_library_service),
+    search_service: EducationalSearchService = Depends(get_library_search),
+) -> JobRead:
+    try:
+        coordinator = SemanticIndexCoordinator(service, search_service)
+        job = coordinator.create(request)
+        background.add_task(coordinator.run, job.id, request)
+        return job
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
 @router.post("/ask", response_model=TeacherQueryRead)
 async def ask_library(
     request: TeacherAskRequest,
@@ -310,6 +519,69 @@ async def ask_library(
         return await teacher.ask(request, learner=learner_context_from_db(db))
     except Exception as exc:
         raise _translate(exc) from exc
+
+
+def _sse(event: TeacherStreamEvent) -> str:
+    payload = json.dumps(event.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
+    return f"event: {event.event}\ndata: {payload}\n\n"
+
+
+@router.post("/ask/stream")
+async def ask_library_stream(
+    request: TeacherAskRequest,
+    teacher: EducationalTeacherService = Depends(get_library_teacher),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    learner = learner_context_from_db(db)
+
+    async def events():
+        yield _sse(TeacherStreamEvent(event="accepted", message="Consulta aceptada."))
+        yield _sse(
+            TeacherStreamEvent(
+                event="planning",
+                message="Preparando la búsqueda y verificando la biblioteca local.",
+            )
+        )
+        task = asyncio.create_task(teacher.ask(request, learner=learner))
+        try:
+            result = await task
+            yield _sse(
+                TeacherStreamEvent(
+                    event="verified",
+                    message="Respuesta verificada contra las fuentes recuperadas.",
+                    query=result,
+                )
+            )
+        except asyncio.CancelledError:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            teacher.persist_cancelled(request)
+            raise
+        except LibraryTeacherError as exc:
+            yield _sse(
+                TeacherStreamEvent(
+                    event="error",
+                    message=str(exc),
+                    failure_reason=exc.reason,
+                )
+            )
+        except Exception:
+            yield _sse(
+                TeacherStreamEvent(
+                    event="error",
+                    message="La consulta local no pudo completarse de forma segura.",
+                    failure_reason=TeacherFailureReason.GENERATION_FAILURE,
+                )
+            )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/queries/{query_id}", response_model=TeacherQueryRead)

@@ -57,6 +57,12 @@ texto y miembros ZIP reducen consumo accidental; los errores públicos omiten
 trazas y texto completo. La búsqueda local excluye soluciones por defecto y la
 generación solo puede citar IDs recuperados.
 
+La reextracción visual es selectiva: renderiza una sola página con resolución y
+tiempo limitados, envía únicamente esa imagen al modelo local, elimina el temporal
+y conserva la salida como variante con provenance. Nunca sobrescribe el PDF ni la
+extracción anterior. Si OCR o visión no están disponibles, la API responde con un
+fallo de capacidad saneado y no intenta descargar herramientas o modelos.
+
 Las consultas docentes persisten localmente su pregunta, respuesta y provenance
 en la base reconstruible de biblioteca. Los DTO públicos no contienen rutas
 absolutas, prompts, claims privados, chunk IDs ni reglas de ranking. El contexto

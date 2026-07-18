@@ -38,13 +38,18 @@ alcanzabilidad; ningún banco `draft` se ofrece en producción.
 ## Milestone 2 — Biblioteca y memoria pedagógica
 
 La fundación local ya incluye catálogo incremental, extractores, FTS5,
-KnowledgeUnits revisables, consultas docentes fundamentadas y una experiencia
-**Pregunta a tu biblioteca** con continuaciones e historial. La consulta
-educativa y los futuros **Ejercicios rápidos** son experiencias separadas: los
-ejercicios no forman parte del pipeline docente ni escriben progreso. Siguen
-pendientes OCR controlado, transcripción local, un modelo real de embeddings y
-la experiencia final de lecciones. El perfeccionamiento diagnóstico queda
-congelado temporalmente después de `#006E4F1`.
+KnowledgeUnits revisables, roles core Herder, embeddings multilingües reales,
+recuperación híbrida, consultas docentes fundamentadas, enrutamiento de modelos
+y una experiencia **Pregunta a tu biblioteca** con progreso, continuaciones e
+historial. También existen calidad y variantes por página, reextracción selectiva
+y revisión visual local; no se ejecuta OCR visual masivo.
+
+La consulta educativa y los futuros **Ejercicios rápidos** son experiencias
+separadas: los ejercicios no forman parte del pipeline docente ni escriben
+progreso. Quedan pendientes OCR convencional cuando exista una herramienta local,
+transcripción local, revisión editorial de las secciones detectadas, streaming de
+tokens validados y la experiencia final de lecciones. El perfeccionamiento
+diagnóstico queda congelado temporalmente después de `#006E4F1`.
 
 ## Milestone 3 — Escucha y voz
 

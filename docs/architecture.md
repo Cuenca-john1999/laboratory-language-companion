@@ -8,17 +8,20 @@ Los errores de proveedor son visibles como disponibilidad falsa o HTTP 503. La g
 
 La biblioteca educativa usa una segunda SQLite reconstruible y versionada,
 separada deliberadamente de la base de progreso. `educational_library` contiene
-el escáner incremental, extractores, chunker, FTS5, embeddings opcionales y la
-memoria derivada con provenance. FastAPI compone esos servicios sin hacer que
-Ollama sea requisito para catálogo o búsqueda léxica. Consulta
+el escáner incremental, extractores, chunker, FTS5, embeddings locales con
+provenance, roles editoriales, calidad por página y variantes revisables. FastAPI
+compone esos servicios sin hacer que Ollama sea requisito para catálogo o
+búsqueda léxica. Consulta
 [Biblioteca educativa](educational-library.md).
 
-La consulta docente usa ese mismo catálogo e índice: un planificador Qwen
-validado produce varias búsquedas, el servicio selecciona un paquete de evidencia
-y otro prompt genera una explicación con citas comprobadas. Conversaciones y
-provenance viven en la SQLite reconstruible de biblioteca. El perfil normal se
-consulta solo para adaptar idioma y profundidad; la operación no proyecta
-resultados al Learning Engine.
+La consulta docente usa ese mismo catálogo e índice: reglas deterministas o un
+planificador pequeño producen búsquedas, FTS5 y coseno se fusionan con RRF, y el
+servicio selecciona evidencia core y complementaria. Un router asigna modelos por
+función y un prompt genera una explicación con citas comprobadas. Conversaciones,
+caché y provenance viven en la SQLite reconstruible de biblioteca. El perfil
+normal se consulta solo para adaptar idioma y profundidad; la operación no
+proyecta resultados al Learning Engine. Consulta el
+[ADR 0009](adr/0009-herder-core-semantic-library.md).
 
 Las rutas SQLite relativas se anclan a la raíz calculada desde el código, por lo
 que FastAPI, Alembic y los scripts usan el mismo archivo aunque se invoquen

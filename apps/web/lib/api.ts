@@ -1,5 +1,6 @@
 import type {
   CurriculumResponse,
+  CoreSourcePair,
   DailyPlan,
   DailyPlanRequest,
   Dashboard,
@@ -15,12 +16,16 @@ import type {
   LibrarySource,
   LibrarySourceVersion,
   LibrarySummary,
+  LibraryModelRouting,
+  EditorialSection,
+  PageQuality,
   Mistake,
   ModelsResponse,
   Profile,
   Session,
   TeacherConversationSummary,
   TeacherQuery,
+  TeacherStreamEvent,
 } from "@deutschos/shared";
 
 export const API_URL =
@@ -145,6 +150,35 @@ export async function* streamNdjson<T>(
   }
 }
 
+export async function* streamSse<T>(
+  path: string,
+  init?: RequestInit,
+): AsyncGenerator<T> {
+  const response = await request(path, init);
+  if (!response.body) {
+    throw new Error("La API no devolvió un flujo de respuesta.");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
+    for (const event of events) {
+      const data = event
+        .split("\n")
+        .find((line) => line.startsWith("data: "))
+        ?.slice(6);
+      if (data) {
+        yield parseNdjsonLine<T>(data);
+      }
+    }
+    if (done) break;
+  }
+}
+
 export const getDashboard = () => api<Dashboard>("/api/dashboard");
 export const getModels = () => api<ModelsResponse>("/api/models");
 export const getProfile = () => api<Profile>("/api/profile");
@@ -176,6 +210,71 @@ export const getLibraryJobs = () =>
   api<LibraryJob[]>("/api/library/jobs?limit=20");
 export const getLibraryKnowledge = () =>
   api<KnowledgeUnit[]>("/api/library/knowledge?limit=50");
+export const getLibraryCore = () => api<CoreSourcePair>("/api/library/core");
+export const assignLibraryCore = (
+  sourceId: string,
+  payload: {
+    operation_id: string;
+    pedagogical_role: "core_theory" | "core_workbook" | "core_answer_key";
+    display_alias?: string | null;
+    canonical_title?: string | null;
+    related_source_id?: string | null;
+    editorial_notes?: string | null;
+  },
+) =>
+  api<LibrarySource>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/core`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+export const getLibrarySections = (sourceId: string) =>
+  api<EditorialSection[]>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/sections`,
+  );
+export const buildLibrarySections = (sourceId: string) =>
+  api<EditorialSection[]>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/sections/build`,
+    { method: "POST" },
+  );
+export const updateLibrarySection = (
+  sectionId: number,
+  payload: Partial<
+    Pick<
+      EditorialSection,
+      | "title"
+      | "page_start"
+      | "page_end"
+      | "cefr_min"
+      | "cefr_max"
+      | "topic"
+      | "content_role"
+      | "editorial_status"
+      | "notes"
+    >
+  >,
+) =>
+  api<EditorialSection>(`/api/library/sections/${sectionId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+export const getLibraryPageQuality = (sourceId: string) =>
+  api<PageQuality[]>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/pages/quality`,
+  );
+export const analyzeLibraryPages = (sourceId: string) =>
+  api<PageQuality[]>(
+    `/api/library/sources/${encodeURIComponent(sourceId)}/pages/analyze`,
+    { method: "POST" },
+  );
+export const getLibraryModelRoles = () =>
+  api<LibraryModelRouting>("/api/library/models/roles");
+export const indexLibrarySemantic = () =>
+  api<LibraryJob>("/api/library/semantic/index", {
+    method: "POST",
+    body: JSON.stringify({ batch_size: 16, core_first: true }),
+  });
 export const getLibrarySourceChunks = (sourceId: string) =>
   api<LibraryChunk[]>(
     `/api/library/sources/${encodeURIComponent(sourceId)}/chunks?limit=50`,
@@ -260,6 +359,16 @@ export const askLibrary = (
   signal?: AbortSignal,
 ) =>
   api<TeacherQuery>("/api/library/ask", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+export const streamLibraryAnswer = (
+  payload: Parameters<typeof askLibrary>[0],
+  signal?: AbortSignal,
+) =>
+  streamSse<TeacherStreamEvent>("/api/library/ask/stream", {
     method: "POST",
     body: JSON.stringify(payload),
     signal,

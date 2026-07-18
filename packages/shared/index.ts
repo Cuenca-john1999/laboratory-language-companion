@@ -220,6 +220,24 @@ export type LibraryCapabilities = {
   embedding_provider: string | null;
   embedding_model: string | null;
   ollama_available: boolean;
+  pdftoppm: boolean;
+  tesseract: boolean;
+  ocrmypdf: boolean;
+  tesseract_languages: string[];
+  vision_available: boolean;
+  installed_models: string[];
+};
+
+export type SemanticIndexSummary = {
+  model: string | null;
+  model_digest: string | null;
+  indexed: number;
+  pending: number;
+  failed: number;
+  stale: number;
+  excluded: number;
+  dimension: number | null;
+  normalization_version: string;
 };
 
 export type InventoryExtension = {
@@ -278,6 +296,7 @@ export type LibrarySummary = {
   knowledge_by_status: Record<string, number>;
   jobs_by_status: Record<string, number>;
   capabilities: LibraryCapabilities;
+  semantic_index: SemanticIndexSummary;
   latest_inventory: InventoryReport | null;
 };
 
@@ -303,6 +322,90 @@ export type LibrarySource = {
   first_seen_at: string;
   last_seen_at: string;
   current_version: number;
+  canonical_title: string | null;
+  display_alias: string | null;
+  author: string | null;
+  publisher: string | null;
+  edition: string | null;
+  cefr_min: string | null;
+  cefr_max: string | null;
+  pedagogical_role:
+    | "core_theory"
+    | "core_workbook"
+    | "core_answer_key"
+    | "supplementary"
+    | "reference"
+    | "glossary"
+    | "answer_key"
+    | "unknown";
+  source_priority: number;
+  editorial_status:
+    | "unreviewed"
+    | "user_confirmed"
+    | "system_suggested"
+    | "rejected";
+  user_selected_core: boolean;
+  metadata_origin: string;
+  metadata_confidence: number;
+  editorial_notes: string | null;
+  related_source_id: string | null;
+  semantic_indexed_chunks: number;
+  semantic_failed_chunks: number;
+};
+
+export type CoreSourceCandidate = {
+  source: LibrarySource;
+  suggested_role: LibrarySource["pedagogical_role"] | null;
+  confidence: number;
+  evidence: string[];
+  unambiguous: boolean;
+};
+
+export type CoreSourcePair = {
+  theory: LibrarySource | null;
+  workbook: LibrarySource | null;
+  answer_key: LibrarySource | null;
+  candidates: CoreSourceCandidate[];
+  ready: boolean;
+};
+
+export type EditorialSection = {
+  id: number;
+  source_version_id: number;
+  stable_key: string;
+  title: string;
+  page_start: number;
+  page_end: number;
+  cefr_min: string | null;
+  cefr_max: string | null;
+  topic: string | null;
+  content_role: string;
+  derivation_method: string;
+  provenance_confidence: number;
+  editorial_status: string;
+  notes: string | null;
+  related_sections: number[];
+};
+
+export type PageQuality = {
+  id: number;
+  source_version_id: number;
+  page_number: number;
+  extraction_method: string;
+  character_count: number;
+  detected_language: string | null;
+  text_density: number;
+  replacement_ratio: number;
+  weird_character_ratio: number;
+  repeated_line_ratio: number;
+  ordering_warning: boolean;
+  columns_warning: boolean;
+  tables_warning: boolean;
+  damaged_german_ratio: number;
+  quality: "good" | "acceptable" | "poor" | "unusable";
+  warnings: string[];
+  review_status: string;
+  reviewed_variant_id: number | null;
 };
 
 export type LibrarySourceVersion = {
@@ -344,6 +447,11 @@ export type LibrarySearchResult = Omit<LibraryChunk, "text"> & {
   semantic_score: number | null;
   combined_score: number;
   snippet: string;
+  pedagogical_role: LibrarySource["pedagogical_role"];
+  source_priority: number;
+  extraction_quality: number;
+  page_quality: string | null;
+  retrieval_origins: string[];
 };
 
 export type LibrarySearchResponse = {
@@ -353,6 +461,9 @@ export type LibrarySearchResponse = {
   semantic_available: boolean;
   results: LibrarySearchResult[];
   warning: string | null;
+  core_results: number;
+  supplementary_results: number;
+  query_embedding_cache_hit: boolean;
 };
 
 export type LibraryJob = {
@@ -461,6 +572,9 @@ export type TeacherSource = {
   extraction_quality: number;
   content_role: string;
   retrieval_score: number;
+  pedagogical_role: LibrarySource["pedagogical_role"];
+  evidence_origin: "core" | "supplementary";
+  page_quality: string | null;
 };
 
 export type TeacherTimings = {
@@ -469,6 +583,8 @@ export type TeacherTimings = {
   generation_ms: number;
   validation_ms: number;
   total_ms: number;
+  embedding_ms: number;
+  model_selection_ms: number;
 };
 
 export type TeacherQuery = {
@@ -476,7 +592,7 @@ export type TeacherQuery = {
   conversation_id: string;
   parent_query_id: string | null;
   question: string;
-  status: "completed" | "insufficient";
+  status: "completed" | "insufficient" | "failed" | "cancelled" | "timed_out";
   answer: TeacherPublicAnswer;
   confidence: TeacherEvidenceConfidence;
   sources: TeacherSource[];
@@ -485,6 +601,53 @@ export type TeacherQuery = {
   semantic_search_available: boolean;
   timings: TeacherTimings;
   created_at: string;
+  failure_reason:
+    | "no_evidence"
+    | "weak_evidence"
+    | "retrieval_failure"
+    | "model_unavailable"
+    | "generation_failure"
+    | "citation_validation_failure"
+    | "repair_failure"
+    | "cancelled"
+    | "timeout"
+    | null;
+  models: Record<string, string>;
+  cache_hit: boolean;
+  answer_verified: boolean;
+};
+
+export type LibraryModelRouting = {
+  ollama_available: boolean;
+  installed_models: string[];
+  roles: {
+    role:
+      | "planner"
+      | "embedding"
+      | "teacher"
+      | "fallback"
+      | "vision"
+      | "repair";
+    configured_model: string;
+    available: boolean;
+    selected_model: string | null;
+    fallback_models: string[];
+  }[];
+  policy_version: string;
+};
+
+export type TeacherStreamEvent = {
+  event:
+    | "accepted"
+    | "planning"
+    | "retrieving"
+    | "generating"
+    | "provisional"
+    | "verified"
+    | "error";
+  message: string;
+  query: TeacherQuery | null;
+  failure_reason: TeacherQuery["failure_reason"];
 };
 
 export type TeacherConversationSummary = {

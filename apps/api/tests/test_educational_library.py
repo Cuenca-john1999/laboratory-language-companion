@@ -51,6 +51,7 @@ def library_settings(tmp_path: Path) -> Settings:
         educational_materials_dir=materials,
         educational_library_runtime_dir=tmp_path / "runtime",
         educational_library_scan_on_startup=False,
+        educational_library_embedding_model="",
         ollama_model="test-qwen",
     )
 
@@ -483,7 +484,11 @@ async def test_fts_semantic_hybrid_filters_and_fallback(
 
     semantic_service = EducationalSearchService(library.database, FakeEmbeddingProvider())
     indexed = await semantic_service.index_embeddings()
-    assert indexed == library.summary().chunks
+    # Solution chunks remain searchable only when explicitly requested and are
+    # deliberately excluded from the semantic index.
+    assert indexed == 2
+    with library.database.connect() as connection:
+        assert connection.execute("SELECT count(*) FROM embeddings").fetchone()[0] == 2
     semantic = await semantic_service.search("Artikel", mode="semantic")
     hybrid = await semantic_service.search("Artikel", mode="hybrid")
     assert semantic.effective_mode == "semantic"
@@ -682,7 +687,7 @@ def test_library_database_integrity_and_no_main_schema_migration(
     assert quick == "ok"
     assert foreign == []
     with library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 2
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE name='chunk_fts'").fetchone()
 
 

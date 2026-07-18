@@ -1,6 +1,8 @@
 "use client";
 
 import type {
+  CoreSourcePair,
+  EditorialSection,
   KnowledgeUnit,
   LibraryChunk,
   LibraryJob,
@@ -8,6 +10,8 @@ import type {
   LibrarySource,
   LibrarySourceVersion,
   LibrarySummary,
+  LibraryModelRouting,
+  PageQuality,
   TeacherConversationSummary,
   TeacherEvidenceConfidence,
   TeacherQuery,
@@ -17,23 +21,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   askLibrary,
+  analyzeLibraryPages,
+  assignLibraryCore,
+  buildLibrarySections,
   deleteTeacherConversation,
   excludeLibrarySource,
   getLibraryJobs,
+  getLibraryCore,
   getLibraryKnowledge,
   getLibrarySourceChunks,
   getLibrarySourceVersions,
   getLibrarySources,
   getLibrarySummary,
+  getLibrarySections,
+  getLibraryPageQuality,
+  getLibraryModelRoles,
   getTeacherConversations,
   getTeacherQuery,
   pauseLibraryJob,
+  indexLibrarySemantic,
   processLibraryPending,
   reprocessLibrarySource,
   retryLibraryJob,
   reviewKnowledge,
   scanLibrary,
   searchLibrary,
+  streamLibraryAnswer,
 } from "../lib/api";
 
 const EXAMPLE_QUESTIONS = [
@@ -112,11 +125,17 @@ export function LibraryWorkspace() {
   const [jobs, setJobs] = useState<LibraryJob[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeUnit[]>([]);
   const [history, setHistory] = useState<TeacherConversationSummary[]>([]);
+  const [core, setCore] = useState<CoreSourcePair | null>(null);
+  const [modelRouting, setModelRouting] = useState<LibraryModelRouting | null>(
+    null,
+  );
   const [selectedSource, setSelectedSource] = useState<LibrarySource | null>(
     null,
   );
   const [chunks, setChunks] = useState<LibraryChunk[]>([]);
   const [versions, setVersions] = useState<LibrarySourceVersion[]>([]);
+  const [sections, setSections] = useState<EditorialSection[]>([]);
+  const [pageQuality, setPageQuality] = useState<PageQuality[]>([]);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<TeacherQuery | null>(null);
   const [rawQuery, setRawQuery] = useState("");
@@ -131,19 +150,30 @@ export function LibraryWorkspace() {
   const abortRef = useRef<AbortController | null>(null);
 
   const refresh = useCallback(async () => {
-    const [nextSummary, nextSources, nextJobs, nextKnowledge, nextHistory] =
-      await Promise.all([
-        getLibrarySummary(),
-        getLibrarySources(),
-        getLibraryJobs(),
-        getLibraryKnowledge(),
-        getTeacherConversations(),
-      ]);
+    const [
+      nextSummary,
+      nextSources,
+      nextJobs,
+      nextKnowledge,
+      nextHistory,
+      nextCore,
+      nextRouting,
+    ] = await Promise.all([
+      getLibrarySummary(),
+      getLibrarySources(),
+      getLibraryJobs(),
+      getLibraryKnowledge(),
+      getTeacherConversations(),
+      getLibraryCore(),
+      getLibraryModelRoles(),
+    ]);
     setSummary(nextSummary);
     setSources(nextSources);
     setJobs(nextJobs);
     setKnowledge(nextKnowledge);
     setHistory(nextHistory);
+    setCore(nextCore);
+    setModelRouting(nextRouting);
   }, []);
 
   useEffect(() => {
@@ -201,21 +231,37 @@ export function LibraryWorkspace() {
     setProgressStep(0);
     setError("");
     try {
-      const next = await askLibrary(
-        {
-          question: nextQuestion.trim(),
-          conversation_id: continuation ? answer?.conversation_id : null,
-          continuation_action: continuation ?? null,
-        },
+      const payload = {
+        question: nextQuestion.trim(),
+        conversation_id: continuation ? answer?.conversation_id : null,
+        continuation_action: continuation ?? null,
+      };
+      let next: TeacherQuery | null = null;
+      for await (const event of streamLibraryAnswer(
+        payload,
         controller.signal,
-      );
+      )) {
+        if (event.event === "planning") setProgressStep(1);
+        if (event.event === "retrieving") setProgressStep(2);
+        if (event.event === "generating" || event.event === "provisional") {
+          setProgressStep(3);
+        }
+        if (event.event === "error") {
+          throw new Error(event.message);
+        }
+        if (event.query) next = event.query;
+      }
+      if (!next) {
+        // Compatibility fallback for an older local API during rolling updates.
+        next = await askLibrary(payload, controller.signal);
+      }
       setAnswer(next);
       setQuestion("");
       setHistory(await getTeacherConversations());
     } catch (cause) {
       if (controller.signal.aborted) {
         setError(
-          "Consulta cancelada en esta pantalla. El proceso local puede terminar en segundo plano.",
+          "Consulta cancelada y registrada sin una respuesta no verificada.",
         );
       } else {
         setError(
@@ -286,17 +332,107 @@ export function LibraryWorkspace() {
     }
   }
 
+  async function assignCoreCandidate(
+    source: LibrarySource,
+    role: "core_theory" | "core_workbook" | "core_answer_key",
+  ) {
+    setBusy("core");
+    setError("");
+    const related = core?.candidates.find(
+      (candidate) =>
+        candidate.source.id !== source.id &&
+        ((role === "core_theory" &&
+          candidate.suggested_role === "core_workbook") ||
+          (role === "core_workbook" &&
+            candidate.suggested_role === "core_theory")),
+    )?.source.id;
+    try {
+      await assignLibraryCore(source.id, {
+        operation_id: crypto.randomUUID(),
+        pedagogical_role: role,
+        display_alias: source.name
+          .replace(/^\d+_CORE_/, "")
+          .replaceAll("_", " ")
+          .replace(/\.[^.]+$/, ""),
+        related_source_id: related ?? null,
+        editorial_notes: "Selección confirmada desde la biblioteca local.",
+      });
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo confirmar la fuente nuclear.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function prepareSections() {
+    if (!selectedSource) return;
+    setBusy("sections");
+    try {
+      setSections(await buildLibrarySections(selectedSource.id));
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo preparar el índice.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function analyzePages() {
+    if (!selectedSource) return;
+    setBusy("pages");
+    try {
+      setPageQuality(await analyzeLibraryPages(selectedSource.id));
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo analizar la extracción.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function buildSemanticIndex() {
+    setBusy("semantic");
+    try {
+      await indexLibrarySemantic();
+      await refresh();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo iniciar el índice semántico.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function selectSource(source: LibrarySource) {
     setSelectedSource(source);
     setBusy("source");
     setError("");
     try {
-      const [nextChunks, nextVersions] = await Promise.all([
-        getLibrarySourceChunks(source.id),
-        getLibrarySourceVersions(source.id),
-      ]);
+      const [nextChunks, nextVersions, nextSections, nextQuality] =
+        await Promise.all([
+          getLibrarySourceChunks(source.id),
+          getLibrarySourceVersions(source.id),
+          getLibrarySections(source.id),
+          getLibraryPageQuality(source.id),
+        ]);
       setChunks(nextChunks);
       setVersions(nextVersions);
+      setSections(nextSections);
+      setPageQuality(nextQuality);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -398,6 +534,82 @@ export function LibraryWorkspace() {
         </article>
       </div>
 
+      <section
+        className="library-panel core-sources"
+        aria-labelledby="core-title"
+      >
+        <div className="panel-title">
+          <div>
+            <p className="eyebrow">BASE PEDAGÓGICA PRINCIPAL</p>
+            <h2 id="core-title">Colección Herder</h2>
+          </div>
+          <span>{core?.ready ? "confirmada" : "por confirmar"}</span>
+        </div>
+        {core?.ready ? (
+          <div className="core-source-grid">
+            {[core.theory, core.workbook].map((source) =>
+              source ? (
+                <article key={source.id}>
+                  <small>
+                    {source.pedagogical_role === "core_theory"
+                      ? "Teoría principal"
+                      : "Práctica principal"}
+                  </small>
+                  <strong>{source.display_alias ?? source.name}</strong>
+                  <span>
+                    Extracción {source.processing_state} · índice semántico{" "}
+                    {source.semantic_indexed_chunks > 0
+                      ? `${source.semantic_indexed_chunks} vectores`
+                      : source.semantic_failed_chunks > 0
+                        ? "con errores"
+                        : "sin vectores"}
+                  </span>
+                  <button onClick={() => void openSourceDetail(source.id)}>
+                    Revisar fuente
+                  </button>
+                </article>
+              ) : null,
+            )}
+          </div>
+        ) : (
+          <div>
+            <p>
+              Confirma qué libro contiene la teoría y cuál contiene la práctica.
+              Los archivos originales no se renombran.
+            </p>
+            <div className="core-source-grid">
+              {core?.candidates.map((candidate) => (
+                <article key={candidate.source.id}>
+                  <strong>{candidate.source.name}</strong>
+                  <span>{candidate.evidence.join(" ")}</span>
+                  {candidate.suggested_role ? (
+                    <button
+                      disabled={busy === "core"}
+                      onClick={() =>
+                        void assignCoreCandidate(
+                          candidate.source,
+                          candidate.suggested_role as
+                            | "core_theory"
+                            | "core_workbook"
+                            | "core_answer_key",
+                        )
+                      }
+                    >
+                      Confirmar como{" "}
+                      {candidate.suggested_role === "core_theory"
+                        ? "teoría"
+                        : candidate.suggested_role === "core_workbook"
+                          ? "práctica"
+                          : "solucionario"}
+                    </button>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
       <section className="teacher-ask" aria-labelledby="teacher-title">
         <p className="eyebrow">CONSULTA FUNDAMENTADA</p>
         <h2 id="teacher-title">¿Qué quieres entender o consultar?</h2>
@@ -462,6 +674,15 @@ export function LibraryWorkspace() {
             </span>
           </header>
           <p className="direct-answer">{answer.answer.direct_answer}</p>
+          {answer.failure_reason ? (
+            <aside className="warning">
+              <strong>La respuesta no pudo completarse normalmente</strong>
+              <p>
+                Motivo: {answer.failure_reason}. Puedes reintentar sin perder el
+                historial de esta consulta.
+              </p>
+            </aside>
+          ) : null}
           {answer.answer.key_points.length ? (
             <ul className="answer-points">
               {answer.answer.key_points.map((point) => (
@@ -535,6 +756,9 @@ export function LibraryWorkspace() {
                       {source.citation} · {source.source_name}
                     </button>
                     <span>
+                      {source.evidence_origin === "core"
+                        ? "Base Herder principal · "
+                        : "Apoyo complementario · "}
                       {source.section ? `${source.section} · ` : ""}
                       {source.page_start
                         ? `p. ${source.page_start}`
@@ -571,6 +795,20 @@ export function LibraryWorkspace() {
                 <dt>Estado</dt>
                 <dd>{answer.status}</dd>
               </div>
+              <div>
+                <dt>Modelos</dt>
+                <dd>
+                  {Object.entries(answer.models)
+                    .map(([role, model]) => `${role}: ${model}`)
+                    .join(" · ") || "sin generación"}
+                </dd>
+              </div>
+              <div>
+                <dt>Caché</dt>
+                <dd>
+                  {answer.cache_hit ? "plan reutilizado" : "consulta nueva"}
+                </dd>
+              </div>
             </dl>
             {answer.sources.length ? (
               <ul className="technical-evidence">
@@ -579,7 +817,7 @@ export function LibraryWorkspace() {
                     {source.citation}: score {source.retrieval_score.toFixed(3)}{" "}
                     · calidad de extracción{" "}
                     {(source.extraction_quality * 100).toFixed(0)} % · rol{" "}
-                    {source.content_role}
+                    {source.content_role} · {source.evidence_origin}
                   </li>
                 ))}
               </ul>
@@ -700,8 +938,8 @@ export function LibraryWorkspace() {
             <small>fragmentos</small>
           </article>
           <article>
-            <span>{summary?.knowledge_units ?? "—"}</span>
-            <small>unidades</small>
+            <span>{summary?.semantic_index.indexed ?? "—"}</span>
+            <small>vectores</small>
           </article>
           <article>
             <span>{summary?.pending ?? "—"}</span>
@@ -718,6 +956,10 @@ export function LibraryWorkspace() {
             ? "disponible"
             : "no configurada (fallback léxico)"}
         </p>
+        <p className="capability-line">
+          Modelos locales:{" "}
+          {modelRouting?.installed_models.join(", ") || "no disponibles"}
+        </p>
         <div className="library-actions">
           <button
             className="primary"
@@ -731,6 +973,12 @@ export function LibraryWorkspace() {
             onClick={() => processLibraryPending().then(refresh)}
           >
             Procesar pendientes
+          </button>
+          <button
+            disabled={Boolean(activeJob) || busy === "semantic"}
+            onClick={() => void buildSemanticIndex()}
+          >
+            Actualizar índice semántico
           </button>
           {activeJob ? (
             <div className="job-progress">
@@ -830,9 +1078,9 @@ export function LibraryWorkspace() {
                     onClick={() => void selectSource(source)}
                   >
                     <span>
-                      <strong>{source.name}</strong>
+                      <strong>{source.display_alias ?? source.name}</strong>
                       <small>
-                        {source.kind} · {source.format} ·{" "}
+                        {source.pedagogical_role} · {source.format} ·{" "}
                         {humanBytes(source.size_bytes)}
                       </small>
                     </span>
@@ -855,7 +1103,7 @@ export function LibraryWorkspace() {
             <p className="eyebrow">DETALLE Y PROVENANCE</p>
             {selectedSource ? (
               <>
-                <h2>{selectedSource.name}</h2>
+                <h2>{selectedSource.display_alias ?? selectedSource.name}</h2>
                 <dl className="source-facts">
                   <div>
                     <dt>Ruta</dt>
@@ -873,6 +1121,14 @@ export function LibraryWorkspace() {
                     <dt>Nivel estimado</dt>
                     <dd>{selectedSource.cefr_level ?? "pendiente"}</dd>
                   </div>
+                  <div>
+                    <dt>Rol pedagógico</dt>
+                    <dd>{selectedSource.pedagogical_role}</dd>
+                  </div>
+                  <div>
+                    <dt>Estado editorial</dt>
+                    <dd>{selectedSource.editorial_status}</dd>
+                  </div>
                 </dl>
                 <div className="library-actions">
                   <button
@@ -883,6 +1139,18 @@ export function LibraryWorkspace() {
                     }
                   >
                     Reprocesar
+                  </button>
+                  <button
+                    disabled={busy === "sections"}
+                    onClick={() => void prepareSections()}
+                  >
+                    Preparar índice de secciones
+                  </button>
+                  <button
+                    disabled={busy === "pages"}
+                    onClick={() => void analyzePages()}
+                  >
+                    Analizar páginas
                   </button>
                   <button
                     onClick={() =>
@@ -907,6 +1175,45 @@ export function LibraryWorkspace() {
                       </li>
                     ))}
                   </ol>
+                </details>
+                <details>
+                  <summary>Índice editorial ({sections.length})</summary>
+                  {sections.length ? (
+                    <ol>
+                      {sections.map((section) => (
+                        <li key={section.id}>
+                          {section.title} · p. {section.page_start}–
+                          {section.page_end} · {section.editorial_status}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="muted">
+                      Todavía no hay secciones editoriales.
+                    </p>
+                  )}
+                </details>
+                <details>
+                  <summary>Calidad por página ({pageQuality.length})</summary>
+                  {pageQuality.length ? (
+                    <ul>
+                      {pageQuality
+                        .filter((page) => page.quality !== "good")
+                        .slice(0, 30)
+                        .map((page) => (
+                          <li key={page.id}>
+                            p. {page.page_number} · {page.quality}
+                            {page.warnings.length
+                              ? ` · ${page.warnings.join(" ")}`
+                              : ""}
+                          </li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p className="muted">
+                      Ejecuta el análisis por página cuando lo necesites.
+                    </p>
+                  )}
                 </details>
                 <div className="chunk-list">
                   {chunks.map((chunk) => (

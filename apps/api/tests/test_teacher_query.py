@@ -12,7 +12,11 @@ import pytest
 from pydantic import BaseModel
 
 from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import _MIGRATION_0001, LibraryDatabase
+from deutschos_api.educational_library.database import (
+    _MIGRATION_0001,
+    _MIGRATION_0002,
+    LibraryDatabase,
+)
 from deutschos_api.educational_library.dependencies import get_library_teacher
 from deutschos_api.educational_library.schemas import (
     QueryAmbiguity,
@@ -144,6 +148,7 @@ def teacher_library(tmp_path: Path) -> EducationalLibraryService:
         educational_materials_dir=materials,
         educational_library_runtime_dir=tmp_path / "runtime",
         educational_library_scan_on_startup=False,
+        educational_library_embedding_model="",
         ollama_model="teacher-test",
     )
     (materials / "Artikel-Lehrbuch.md").write_text(
@@ -421,7 +426,7 @@ async def test_teacher_answer_repairs_once_and_second_failure_is_safe(
     assert broken_provider.answer_calls == 2
 
 
-def test_library_schema_upgrades_v1_to_v2_without_main_migration(tmp_path: Path):
+def test_library_schema_upgrades_v1_to_v3_without_main_migration(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     connection = sqlite3.connect(path, isolation_level=None)
     try:
@@ -433,12 +438,34 @@ def test_library_schema_upgrades_v1_to_v2_without_main_migration(tmp_path: Path)
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 2
+    assert database.migrate() == 3
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 2
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE name='teacher_queries'"
         ).fetchone()
+    assert database.integrity() == ("ok", [])
+
+
+def test_library_schema_upgrades_v2_to_v3_without_rebuilding_data(tmp_path: Path):
+    path = tmp_path / "library-v2.sqlite3"
+    connection = sqlite3.connect(path, isolation_level=None)
+    try:
+        connection.executescript("BEGIN IMMEDIATE;\n" + _MIGRATION_0001)
+        connection.execute(
+            "INSERT INTO library_schema(version,applied_at) VALUES (1,datetime('now'))"
+        )
+        connection.executescript(_MIGRATION_0002)
+        connection.execute(
+            "INSERT INTO library_schema(version,applied_at) VALUES (2,datetime('now'))"
+        )
+    finally:
+        connection.close()
+    database = LibraryDatabase(path)
+    assert database.migrate() == 3
+    with database.connect() as migrated:
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
+        assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name='page_quality'").fetchone()
     assert database.integrity() == ("ok", [])
 
 
@@ -511,5 +538,43 @@ async def test_teacher_provider_unavailable_is_sanitized(
         assert response.status_code == 503
         assert "local" in response.json()["detail"].casefold()
         assert "offline" not in response.text
+    finally:
+        app.dependency_overrides.pop(get_library_teacher, None)
+
+
+@pytest.mark.anyio
+async def test_teacher_stream_orders_progress_verifies_and_persists_cancellation(
+    client: httpx.AsyncClient,
+    teacher_library: EducationalLibraryService,
+):
+    teacher = make_teacher(teacher_library)
+    app.dependency_overrides[get_library_teacher] = lambda: teacher
+    try:
+        response = await client.post(
+            "/api/library/ask/stream",
+            json={"question": "¿Qué significa die?"},
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = response.text
+        assert body.index("event: accepted") < body.index("event: planning")
+        assert body.index("event: planning") < body.index("event: verified")
+        assert "chunk_id" not in body
+        assert "plan_json" not in body
+        assert "answer_verified" in body
+
+        cancelled = teacher.persist_cancelled(
+            TeacherAskRequest(question="Explica el artículo definido")
+        )
+        assert cancelled.status.value == "cancelled"
+        assert cancelled.failure_reason.value == "cancelled"
+        with teacher.database.connect() as connection:
+            assert (
+                connection.execute(
+                    "SELECT stream_status FROM teacher_queries WHERE id=?",
+                    (cancelled.query_id,),
+                ).fetchone()[0]
+                == "cancelled"
+            )
     finally:
         app.dependency_overrides.pop(get_library_teacher, None)
