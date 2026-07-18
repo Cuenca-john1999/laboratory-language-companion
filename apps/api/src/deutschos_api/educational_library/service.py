@@ -551,11 +551,22 @@ class EducationalLibraryService:
     def _mark_knowledge_stale(self, version_id: int | None) -> None:
         if version_id is None:
             return
+        now = utc_text()
         with self.database.transaction(immediate=True) as connection:
             connection.execute(
                 "UPDATE knowledge_units SET stale=1,status='stale',updated_at=? WHERE id IN ("
                 "SELECT knowledge_unit_id FROM knowledge_unit_sources WHERE source_version_id=?)",
-                (utc_text(), version_id),
+                (now, version_id),
+            )
+            connection.execute(
+                "UPDATE pedagogical_evidence_locations SET status='stale',updated_at=? "
+                "WHERE source_version_id=? AND status!='rejected'",
+                (now, version_id),
+            )
+            connection.execute(
+                "UPDATE document_page_mappings SET mapping_status='stale',updated_at=? "
+                "WHERE source_version_id=? AND mapping_status!='rejected'",
+                (now, version_id),
             )
 
     def _process_version(

@@ -13,6 +13,7 @@ from deutschos_api.educational_library.dependencies import (
     get_document_intelligence,
     get_library_editorial,
     get_library_knowledge,
+    get_library_memory,
     get_library_model_router,
     get_library_search,
     get_library_service,
@@ -21,14 +22,19 @@ from deutschos_api.educational_library.dependencies import (
 from deutschos_api.educational_library.document_intelligence import DocumentIntelligenceService
 from deutschos_api.educational_library.editorial import LibraryEditorialService
 from deutschos_api.educational_library.knowledge import EducationalKnowledgeService
+from deutschos_api.educational_library.memory import PedagogicalMemoryService
 from deutschos_api.educational_library.routing import LibraryModelRouter
 from deutschos_api.educational_library.schemas import (
     ChunkRead,
+    ConceptAliasCreate,
+    ConceptRelationCreate,
     CoreSourceAssignmentRequest,
     CoreSourcePairRead,
     EditorialSectionLinkRequest,
     EditorialSectionRead,
     EditorialSectionUpdate,
+    EvidenceLocationCreate,
+    EvidenceLocationRead,
     GroundedGenerationRead,
     GroundedGenerationRequest,
     InventoryReport,
@@ -44,11 +50,28 @@ from deutschos_api.educational_library.schemas import (
     LibraryProviderUnavailableError,
     LibrarySummary,
     LibraryTeacherError,
+    LocationFeedbackRequest,
+    MemoryAuditRead,
+    MemoryFeedbackRead,
+    MemoryFeedbackRequest,
+    MemoryRevertRequest,
+    MemoryReviewQueueItem,
+    MemoryReviewRequest,
     ModelRoutingRead,
+    PageMappingRead,
+    PageMappingUpdate,
     PageQualityRead,
     PageReprocessRequest,
     PageVariantRead,
     PageVariantReviewRequest,
+    PedagogicalConceptCreate,
+    PedagogicalConceptRead,
+    PedagogicalConceptSummary,
+    PedagogicalMemoryImportRead,
+    PedagogicalMemoryImportRequest,
+    PedagogicalMemoryStatus,
+    PedagogicalMemorySummary,
+    QueryMemoryRead,
     ScanRequest,
     SearchResponse,
     SemanticIndexRequest,
@@ -625,6 +648,266 @@ def delete_teacher_conversation(
     try:
         teacher.delete_conversation(conversation_id)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/status", response_model=PedagogicalMemorySummary)
+def pedagogical_memory_status(
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PedagogicalMemorySummary:
+    try:
+        return memory.summary()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/concepts", response_model=list[PedagogicalConceptSummary])
+def pedagogical_concepts(
+    query: str | None = Query(default=None, max_length=200),
+    memory_status: PedagogicalMemoryStatus | None = Query(default=None, alias="status"),
+    category: str | None = Query(default=None, max_length=80),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> list[PedagogicalConceptSummary]:
+    try:
+        return memory.list_concepts(
+            query=query,
+            status=memory_status,
+            category=category,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/memory/concepts",
+    response_model=PedagogicalConceptRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_pedagogical_concept(
+    request: PedagogicalConceptCreate,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PedagogicalConceptRead:
+    try:
+        return memory.create_concept(request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/concepts/{concept_id}", response_model=PedagogicalConceptRead)
+def pedagogical_concept(
+    concept_id: str,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PedagogicalConceptRead:
+    try:
+        return memory.get_concept(concept_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/memory/concepts/{concept_id}/aliases", response_model=PedagogicalConceptRead)
+def add_pedagogical_alias(
+    concept_id: str,
+    request: ConceptAliasCreate,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PedagogicalConceptRead:
+    try:
+        return memory.add_alias(concept_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/memory/concepts/{concept_id}/relations", response_model=PedagogicalConceptRead)
+def add_pedagogical_relation(
+    concept_id: str,
+    request: ConceptRelationCreate,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PedagogicalConceptRead:
+    try:
+        return memory.add_relation(concept_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/locations", response_model=list[EvidenceLocationRead])
+def pedagogical_locations(
+    concept_id: str | None = Query(default=None, max_length=100),
+    memory_status: PedagogicalMemoryStatus | None = Query(default=None, alias="status"),
+    source_id: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> list[EvidenceLocationRead]:
+    try:
+        return memory.list_locations(
+            concept_id=concept_id,
+            status=memory_status,
+            source_id=source_id,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/memory/locations",
+    response_model=EvidenceLocationRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_pedagogical_location(
+    request: EvidenceLocationCreate,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> EvidenceLocationRead:
+    try:
+        return memory.create_location(request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/locations/{location_id}", response_model=EvidenceLocationRead)
+def pedagogical_location(
+    location_id: str,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> EvidenceLocationRead:
+    try:
+        return memory.get_location(location_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.put(
+    "/memory/source-versions/{source_version_id}/pages/{pdf_page_number}",
+    response_model=PageMappingRead,
+)
+def update_page_mapping(
+    source_version_id: int,
+    pdf_page_number: int,
+    request: PageMappingUpdate,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PageMappingRead:
+    try:
+        if request.pdf_page_number != pdf_page_number:
+            raise LibraryContractError("La página del cuerpo no coincide con la ruta.")
+        return memory.upsert_page_mapping(source_version_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/memory/source-versions/{source_version_id}/pages/{pdf_page_number}",
+    response_model=PageMappingRead,
+)
+def page_mapping(
+    source_version_id: int,
+    pdf_page_number: int,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PageMappingRead:
+    try:
+        return memory.get_page_mapping(source_version_id, pdf_page_number)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/queries/{query_id}/feedback", response_model=MemoryFeedbackRead)
+def teacher_response_feedback(
+    query_id: str,
+    request: MemoryFeedbackRequest,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> MemoryFeedbackRead:
+    try:
+        return memory.feedback_response(query_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/queries/{query_id}/locations/{location_id}/feedback",
+    response_model=MemoryFeedbackRead,
+)
+def teacher_location_feedback(
+    query_id: str,
+    location_id: str,
+    request: LocationFeedbackRequest,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> MemoryFeedbackRead:
+    try:
+        return memory.feedback_location(query_id, location_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/queries/{query_id}/memory", response_model=QueryMemoryRead)
+def teacher_query_memory(
+    query_id: str,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> QueryMemoryRead:
+    try:
+        return memory.query_memory(query_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/review-queue", response_model=list[MemoryReviewQueueItem])
+def pedagogical_memory_review_queue(
+    limit: int = Query(default=30, ge=1, le=100),
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> list[MemoryReviewQueueItem]:
+    try:
+        return memory.review_queue(limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/memory/{target_type}/{target_id}/review", response_model=MemoryFeedbackRead)
+def review_pedagogical_memory(
+    target_type: Literal["concept", "location", "relation"],
+    target_id: str,
+    request: MemoryReviewRequest,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> MemoryFeedbackRead:
+    try:
+        return memory.review_target(target_type, target_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/memory/reviews/{review_id}/revert", response_model=MemoryFeedbackRead)
+def revert_pedagogical_review(
+    review_id: str,
+    request: MemoryRevertRequest,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> MemoryFeedbackRead:
+    try:
+        return memory.revert(review_id, request.operation_id, request.comment)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/memory/audit", response_model=list[MemoryAuditRead])
+def pedagogical_memory_audit(
+    target_type: str | None = Query(default=None, max_length=50),
+    target_id: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=100, ge=1, le=200),
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> list[MemoryAuditRead]:
+    try:
+        return memory.audit(target_type=target_type, target_id=target_id, limit=limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/memory/import", response_model=PedagogicalMemoryImportRead)
+def import_pedagogical_memory(
+    request: PedagogicalMemoryImportRequest,
+    memory: PedagogicalMemoryService = Depends(get_library_memory),
+) -> PedagogicalMemoryImportRead:
+    try:
+        return memory.import_existing(request)
     except Exception as exc:
         raise _translate(exc) from exc
 

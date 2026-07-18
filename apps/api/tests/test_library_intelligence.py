@@ -492,11 +492,11 @@ async def test_model_router_uses_installed_capabilities_and_bounded_fallback():
     assert not EducationalTeacherService._requires_deep_model(ordinary)
 
 
-def test_schema_v3_contains_documental_tables_without_main_alembic(
+def test_schema_v4_contains_documental_and_memory_tables_without_main_alembic(
     intelligence_library: EducationalLibraryService,
 ):
     with intelligence_library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 4
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -507,6 +507,10 @@ def test_schema_v3_contains_documental_tables_without_main_alembic(
         "page_quality",
         "page_extraction_variants",
         "library_cache",
+        "pedagogical_concepts",
+        "document_page_mappings",
+        "pedagogical_evidence_locations",
+        "pedagogical_memory_audit",
     } <= names
     assert intelligence_library.database_integrity() == ("ok", [])
 

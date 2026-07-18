@@ -22,11 +22,14 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 3 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 4 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
 calidad y variantes por página, provenance de embeddings y caché invalidable.
+La versión 4 añade memoria pedagógica verificable: conceptos, alias, ubicaciones
+versionadas, mapas PDF/impreso/región, feedback separado y auditoría. El contrato
+completo se documenta en [pedagogical-memory.md](pedagogical-memory.md) y ADR 0010.
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 

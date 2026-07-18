@@ -18,6 +18,9 @@ from deutschos_api.educational_library.knowledge import (  # noqa: E402
 from deutschos_api.educational_library.document_intelligence import (  # noqa: E402
     DocumentIntelligenceService,
 )
+from deutschos_api.educational_library.memory import (  # noqa: E402
+    PedagogicalMemoryService,
+)
 from deutschos_api.educational_library.editorial import (  # noqa: E402
     LibraryEditorialService,
 )
@@ -25,6 +28,7 @@ from deutschos_api.educational_library.schemas import CoreSourceAssignmentReques
 from deutschos_api.educational_library.schemas import (  # noqa: E402
     GroundedGenerationRequest,
     KnowledgeGenerationRequest,
+    PedagogicalMemoryImportRequest,
     TeacherAskRequest,
 )
 from deutschos_api.educational_library.search import (  # noqa: E402
@@ -100,6 +104,10 @@ def parser() -> argparse.ArgumentParser:
     embeddings.add_argument("--batch-size", type=int, default=16)
     embeddings.add_argument("--limit", type=int)
     embeddings.add_argument("--supplementary-first", action="store_true")
+    sub.add_parser("memory-status")
+    memory_import = sub.add_parser("memory-import")
+    memory_import.add_argument("--operation-id", default="verified-memory-import-v1")
+    memory_import.add_argument("--confirm-herder-akkusativ-pdf-89", action="store_true")
     return command
 
 
@@ -274,6 +282,21 @@ async def run(args: argparse.Namespace) -> object:
             "indexed_now": count,
             "summary": await runtime_summary(service),
         }
+    if args.command == "memory-status":
+        return (
+            PedagogicalMemoryService(service.database).summary().model_dump(mode="json")
+        )
+    if args.command == "memory-import":
+        return (
+            PedagogicalMemoryService(service.database)
+            .import_existing(
+                PedagogicalMemoryImportRequest(
+                    operation_id=args.operation_id,
+                    confirm_herder_akkusativ_pdf_89=args.confirm_herder_akkusativ_pdf_89,
+                )
+            )
+            .model_dump(mode="json")
+        )
     raise AssertionError(args.command)
 
 

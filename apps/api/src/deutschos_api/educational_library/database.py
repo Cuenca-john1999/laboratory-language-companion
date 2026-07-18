@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 3
+LIBRARY_SCHEMA_VERSION = 4
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -444,6 +446,174 @@ CREATE INDEX ix_embeddings_validity
 CREATE INDEX ix_library_cache_expiry ON library_cache(namespace, expires_at);
 """
 
+_MIGRATION_0004 = """
+CREATE TABLE pedagogical_concepts (
+    id TEXT PRIMARY KEY,
+    canonical_name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    language TEXT NOT NULL,
+    display_name_es TEXT,
+    display_name_de TEXT,
+    category TEXT NOT NULL,
+    description TEXT,
+    editorial_status TEXT NOT NULL DEFAULT 'candidate',
+    source_version_id INTEGER REFERENCES source_versions(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(normalized_name, language)
+);
+
+CREATE TABLE pedagogical_concept_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    concept_id TEXT NOT NULL REFERENCES pedagogical_concepts(id) ON DELETE CASCADE,
+    text TEXT NOT NULL,
+    language TEXT NOT NULL,
+    normalized_text TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'candidate',
+    confidence TEXT NOT NULL DEFAULT 'moderate',
+    user_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(user_confirmed IN (0, 1)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(concept_id, normalized_text, language)
+);
+
+CREATE TABLE pedagogical_concept_relations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_concept_id TEXT NOT NULL REFERENCES pedagogical_concepts(id) ON DELETE CASCADE,
+    target_concept_id TEXT NOT NULL REFERENCES pedagogical_concepts(id) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'candidate',
+    origin TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source_concept_id, target_concept_id, relation_type),
+    CHECK(source_concept_id != target_concept_id)
+);
+
+CREATE TABLE document_page_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    pdf_page_index INTEGER NOT NULL CHECK(pdf_page_index >= 0),
+    pdf_page_number INTEGER NOT NULL CHECK(pdf_page_number > 0),
+    scan_layout TEXT NOT NULL DEFAULT 'unknown',
+    printed_left_label TEXT,
+    printed_right_label TEXT,
+    printed_full_label TEXT,
+    rotation INTEGER NOT NULL DEFAULT 0 CHECK(rotation IN (0, 90, 180, 270)),
+    mapping_status TEXT NOT NULL DEFAULT 'candidate',
+    mapping_origin TEXT NOT NULL,
+    mapping_version INTEGER NOT NULL DEFAULT 1 CHECK(mapping_version > 0),
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source_version_id, pdf_page_number),
+    CHECK(pdf_page_index = pdf_page_number - 1)
+);
+
+CREATE TABLE pedagogical_evidence_locations (
+    id TEXT PRIMARY KEY,
+    concept_id TEXT NOT NULL REFERENCES pedagogical_concepts(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
+    editorial_section_id INTEGER REFERENCES editorial_sections(id) ON DELETE SET NULL,
+    page_mapping_id INTEGER REFERENCES document_page_mappings(id) ON DELETE SET NULL,
+    pdf_page_index INTEGER CHECK(pdf_page_index >= 0),
+    pdf_page_number INTEGER CHECK(pdf_page_number > 0),
+    region_kind TEXT NOT NULL DEFAULT 'full',
+    custom_bbox_json TEXT,
+    heading TEXT,
+    evidence_snippet TEXT NOT NULL,
+    evidence_hash TEXT NOT NULL,
+    extraction_quality REAL NOT NULL DEFAULT 0 CHECK(extraction_quality BETWEEN 0 AND 1),
+    status TEXT NOT NULL DEFAULT 'candidate',
+    origin TEXT NOT NULL,
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK(pdf_page_number IS NULL OR pdf_page_index = pdf_page_number - 1)
+);
+
+CREATE UNIQUE INDEX ux_pedagogical_location_exact
+    ON pedagogical_evidence_locations(
+        concept_id, source_version_id, ifnull(chunk_id, -1),
+        ifnull(pdf_page_number, -1), region_kind, evidence_hash
+    );
+
+CREATE TABLE teacher_query_concepts (
+    query_id TEXT NOT NULL REFERENCES teacher_queries(id) ON DELETE CASCADE,
+    concept_id TEXT NOT NULL REFERENCES pedagogical_concepts(id) ON DELETE CASCADE,
+    origin TEXT NOT NULL,
+    is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0, 1)),
+    status TEXT NOT NULL DEFAULT 'candidate',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(query_id, concept_id)
+);
+
+CREATE TABLE teacher_query_location_usage (
+    query_id TEXT NOT NULL REFERENCES teacher_queries(id) ON DELETE CASCADE,
+    location_id TEXT NOT NULL REFERENCES pedagogical_evidence_locations(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL CHECK(sequence >= 0),
+    evidence_role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(query_id, location_id),
+    UNIQUE(query_id, sequence)
+);
+
+CREATE TABLE teacher_response_feedback (
+    query_id TEXT PRIMARY KEY REFERENCES teacher_queries(id) ON DELETE CASCADE,
+    verdict TEXT NOT NULL,
+    comment TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE pedagogical_memory_reviews (
+    id TEXT PRIMARY KEY,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    query_id TEXT REFERENCES teacher_queries(id) ON DELETE SET NULL,
+    verdict TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    comment TEXT,
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT NOT NULL DEFAULT '{}',
+    reverts_review_id TEXT REFERENCES pedagogical_memory_reviews(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE pedagogical_memory_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_id TEXT NOT NULL UNIQUE,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    query_id TEXT REFERENCES teacher_queries(id) ON DELETE SET NULL,
+    before_json TEXT NOT NULL DEFAULT '{}',
+    after_json TEXT NOT NULL DEFAULT '{}',
+    comment TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX ix_pedagogical_concepts_status
+    ON pedagogical_concepts(editorial_status, category, normalized_name);
+CREATE INDEX ix_pedagogical_alias_lookup
+    ON pedagogical_concept_aliases(normalized_text, status, concept_id);
+CREATE INDEX ix_pedagogical_relations_source
+    ON pedagogical_concept_relations(source_concept_id, status);
+CREATE INDEX ix_page_mappings_source
+    ON document_page_mappings(source_version_id, pdf_page_number, mapping_status);
+CREATE INDEX ix_pedagogical_locations_concept
+    ON pedagogical_evidence_locations(concept_id, status, source_version_id);
+CREATE INDEX ix_pedagogical_locations_source
+    ON pedagogical_evidence_locations(source_id, source_version_id, pdf_page_number);
+CREATE INDEX ix_memory_reviews_target
+    ON pedagogical_memory_reviews(target_type, target_id, created_at DESC);
+CREATE INDEX ix_memory_audit_target
+    ON pedagogical_memory_audit(target_type, target_id, created_at DESC);
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -473,7 +643,34 @@ class LibraryDatabase:
                 current = 2
             if current < 3:
                 self._apply_migration(connection, 3, _MIGRATION_0003)
+                current = 3
+            if current < 4:
+                if current == 3:
+                    self._backup_before_v4(connection)
+                self._apply_migration(connection, 4, _MIGRATION_0004)
             return self._current_version(connection)
+
+    def _backup_before_v4(self, connection: sqlite3.Connection) -> Path | None:
+        if not self.path.exists() or self.path.stat().st_size == 0:
+            return None
+        required = self.path.stat().st_size * 2 + 10 * 1024 * 1024
+        if shutil.disk_usage(self.path.parent).free < required:
+            raise RuntimeError("insufficient space for library schema 3 backup")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        backup_directory = self.path.parent / "backups"
+        backup_directory.mkdir(parents=True, exist_ok=True)
+        target = backup_directory / f"{self.path.name}.schema3-{stamp}.bak"
+        partial = target.with_suffix(f"{target.suffix}.partial")
+        try:
+            with sqlite3.connect(partial) as backup:
+                connection.backup(backup)
+                if backup.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                    raise RuntimeError("library schema 3 backup failed SQLite quick_check")
+            partial.replace(target)
+        except Exception:
+            partial.unlink(missing_ok=True)
+            raise
+        return target
 
     @staticmethod
     def _apply_migration(connection: sqlite3.Connection, version: int, sql: str) -> None:

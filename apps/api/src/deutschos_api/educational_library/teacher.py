@@ -22,6 +22,7 @@ from deutschos_api.providers.base import (
 
 from .cache import LibraryCache, stable_cache_key
 from .database import LibraryDatabase
+from .memory import PedagogicalMemoryService
 from .routing import LibraryModelRouter, ModelRole, ModelRoutingError
 from .schemas import (
     EvidenceConfidence,
@@ -219,6 +220,7 @@ class EducationalTeacherService:
         limits: TeacherLimits | None = None,
         model_router: LibraryModelRouter | None = None,
         cache: LibraryCache | None = None,
+        memory: PedagogicalMemoryService | None = None,
     ):
         self.database = database
         self.search = search
@@ -227,6 +229,7 @@ class EducationalTeacherService:
         self.limits = limits or TeacherLimits()
         self.model_router = model_router
         self.cache = cache or LibraryCache(database)
+        self.memory = memory or PedagogicalMemoryService(database)
 
     async def ask(
         self,
@@ -330,6 +333,7 @@ class EducationalTeacherService:
             models={"planner": planner_model, "teacher": answer_model},
             cache_hit=plan_cache_hit,
         )
+        self.memory.remember_teacher_query(query_id)
         return self.get_query(query_id)
 
     def persist_cancelled(self, request: TeacherAskRequest) -> TeacherQueryRead:
@@ -622,6 +626,9 @@ class EducationalTeacherService:
         modes: set[str] = set()
         semantic_available = False
         phase_timings = {"fts_ms": 0, "embedding_ms": 0, "vector_ms": 0, "ranking_ms": 0}
+        memory_context = self.memory.memory_matches(
+            " ".join([request.question, plan.target_expression or "", *plan.search_queries])
+        )
 
         async def collect(role_scope: str) -> set[str]:
             nonlocal semantic_available
@@ -665,6 +672,20 @@ class EducationalTeacherService:
                 len(scores) < self.limits.max_chunks or len(core_sources) < 2
             ):
                 await collect("supplementary")
+
+        allowed_memory_chunks = {
+            location.chunk_id
+            for location in memory_context["locations"]
+            if location.chunk_id is not None
+            and (request.source_id is None or location.source_id == request.source_id)
+        }
+        for chunk_id, boost in memory_context["boosts"].items():
+            if chunk_id in allowed_memory_chunks:
+                scores[chunk_id] = scores.get(chunk_id, 0.0) + boost
+                matched.setdefault(chunk_id, set()).add(f"memory:{boost:.2f}")
+        for chunk_id in memory_context["rejected_chunks"]:
+            scores.pop(chunk_id, None)
+            matched.pop(chunk_id, None)
 
         knowledge = (
             []
@@ -1229,7 +1250,9 @@ class EducationalTeacherService:
             if not exists:
                 raise LibraryNotFoundError("La conversación educativa no existe.")
             row = connection.execute(
-                "SELECT id,question,answer_json FROM teacher_queries WHERE conversation_id=? "
+                "SELECT tq.id,tq.question,tq.answer_json,trf.verdict response_feedback "
+                "FROM teacher_queries tq LEFT JOIN teacher_response_feedback trf "
+                "ON trf.query_id=tq.id WHERE tq.conversation_id=? "
                 "ORDER BY created_at DESC,id DESC LIMIT 1",
                 (conversation_id,),
             ).fetchone()
@@ -1237,7 +1260,7 @@ class EducationalTeacherService:
 
     @staticmethod
     def _parent_prompt(parent: dict[str, object] | None) -> dict[str, object] | None:
-        if not parent:
+        if not parent or parent.get("response_feedback") == "incorrect":
             return None
         answer = TeacherAnswerDraft.model_validate_json(str(parent["answer_json"]))
         return {
@@ -1350,6 +1373,25 @@ class EducationalTeacherService:
         # a newer output guard cannot leak internal retrieval identifiers.
         draft = self._sanitise_draft(TeacherAnswerDraft.model_validate_json(row["answer_json"]))
         timings_raw = json_load(row["timings_json"], {})
+        memory_state = self.memory.query_memory(query_id)
+        memory_by_chunk = {}
+        memory_rank = {
+            "user_confirmed": 0,
+            "system_verified": 1,
+            "candidate": 2,
+            "conflict": 3,
+            "rejected": 4,
+            "stale": 5,
+        }
+        for location in memory_state.locations:
+            if location.chunk_id is None:
+                continue
+            current = memory_by_chunk.get(location.chunk_id)
+            if (
+                current is None
+                or memory_rank[location.status.value] < memory_rank[current.status.value]
+            ):
+                memory_by_chunk[location.chunk_id] = location
         return TeacherQueryRead(
             query_id=row["id"],
             conversation_id=row["conversation_id"],
@@ -1388,6 +1430,36 @@ class EducationalTeacherService:
                         else "supplementary"
                     ),
                     page_quality=item["page_quality"],
+                    location_id=(
+                        memory_by_chunk[item["chunk_id"]].id
+                        if item["chunk_id"] in memory_by_chunk
+                        else None
+                    ),
+                    public_location=(
+                        memory_by_chunk[item["chunk_id"]].public_citation
+                        if item["chunk_id"] in memory_by_chunk
+                        else None
+                    ),
+                    memory_status=(
+                        memory_by_chunk[item["chunk_id"]].status
+                        if item["chunk_id"] in memory_by_chunk
+                        else None
+                    ),
+                    printed_page_label=(
+                        memory_by_chunk[item["chunk_id"]].printed_page_label
+                        if item["chunk_id"] in memory_by_chunk
+                        else None
+                    ),
+                    scan_layout=(
+                        memory_by_chunk[item["chunk_id"]].scan_layout
+                        if item["chunk_id"] in memory_by_chunk
+                        else "unknown"
+                    ),
+                    region=(
+                        memory_by_chunk[item["chunk_id"]].region
+                        if item["chunk_id"] in memory_by_chunk
+                        else "unknown"
+                    ),
                 )
                 for index, item in enumerate(source_rows)
             ],
@@ -1408,6 +1480,8 @@ class EducationalTeacherService:
             models=json_load(row["models_json"], {}),
             cache_hit=bool(row["cache_hit"]),
             answer_verified=True,
+            memory_used=memory_state.memory_used,
+            response_feedback=memory_state.response_feedback,
         )
 
     def list_conversations(self, *, limit: int = 20) -> list[TeacherConversationSummary]:

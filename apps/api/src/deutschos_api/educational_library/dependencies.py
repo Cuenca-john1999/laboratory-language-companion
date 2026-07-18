@@ -8,6 +8,7 @@ from .cache import LibraryCache
 from .document_intelligence import DocumentIntelligenceService
 from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
+from .memory import PedagogicalMemoryService
 from .routing import LibraryModelRouter, ModelRoutingPolicy
 from .search import EducationalSearchService, OllamaEmbeddingProvider
 from .service import EducationalLibraryService
@@ -64,6 +65,12 @@ def get_library_editorial(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> LibraryEditorialService:
     return LibraryEditorialService(service.database)
+
+
+def get_library_memory(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> PedagogicalMemoryService:
+    return PedagogicalMemoryService(service.database)
 
 
 def get_document_intelligence(

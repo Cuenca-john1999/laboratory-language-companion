@@ -150,6 +150,63 @@ class TeacherFailureReason(StrEnum):
     TIMEOUT = "timeout"
 
 
+class PedagogicalMemoryStatus(StrEnum):
+    CANDIDATE = "candidate"
+    SYSTEM_VERIFIED = "system_verified"
+    USER_CONFIRMED = "user_confirmed"
+    REJECTED = "rejected"
+    CONFLICT = "conflict"
+    STALE = "stale"
+
+
+class MemoryFeedbackVerdict(StrEnum):
+    CORRECT = "correct"
+    INCORRECT = "incorrect"
+    UNKNOWN = "unknown"
+
+
+class MemoryReviewAction(StrEnum):
+    CONFIRM = "confirm"
+    REJECT = "reject"
+    UNKNOWN = "unknown"
+    POSTPONE = "postpone"
+
+
+class ScanLayout(StrEnum):
+    SINGLE_PAGE = "single_page"
+    DOUBLE_PAGE = "double_page"
+    MIXED = "mixed"
+    UNKNOWN = "unknown"
+
+
+class EvidenceRegion(StrEnum):
+    FULL = "full"
+    LEFT = "left"
+    RIGHT = "right"
+    BOTH = "both"
+    CUSTOM = "custom"
+    UNKNOWN = "unknown"
+
+
+class ConceptRelationType(StrEnum):
+    BROADER_THAN = "broader_than"
+    NARROWER_THAN = "narrower_than"
+    RELATED_TO = "related_to"
+    CONTRASTS_WITH = "contrasts_with"
+    PREREQUISITE_OF = "prerequisite_of"
+    EXAMPLE_OF = "example_of"
+    USED_IN = "used_in"
+    COMMONLY_CONFUSED_WITH = "commonly_confused_with"
+
+
+class ConceptAliasOrigin(StrEnum):
+    IMPORTED_SECTION = "imported_section"
+    SYSTEM_SUGGESTED = "system_suggested"
+    QUERY_DETECTED = "query_detected"
+    USER_CREATED = "user_created"
+    USER_CONFIRMED = "user_confirmed"
+
+
 class ExtractedSection(APIModel):
     sequence: int = Field(ge=0)
     kind: str = Field(min_length=1, max_length=50)
@@ -605,6 +662,12 @@ class TeacherSourceRead(APIModel):
     pedagogical_role: PedagogicalRole = PedagogicalRole.UNKNOWN
     evidence_origin: Literal["core", "supplementary"] = "supplementary"
     page_quality: str | None = None
+    location_id: str | None = None
+    public_location: str | None = None
+    memory_status: PedagogicalMemoryStatus | None = None
+    printed_page_label: str | None = None
+    scan_layout: ScanLayout = ScanLayout.UNKNOWN
+    region: EvidenceRegion = EvidenceRegion.UNKNOWN
 
 
 class TeacherTimings(APIModel):
@@ -655,6 +718,8 @@ class TeacherQueryRead(APIModel):
     models: dict[str, str] = Field(default_factory=dict)
     cache_hit: bool = False
     answer_verified: bool = True
+    memory_used: bool = False
+    response_feedback: MemoryFeedbackVerdict | None = None
 
 
 class TeacherStreamEvent(APIModel):
@@ -866,3 +931,256 @@ class ModelRoutingRead(APIModel):
     installed_models: list[str]
     roles: list[ModelRoleRead]
     policy_version: str
+
+
+class NormalizedBBox(APIModel):
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+
+    @model_validator(mode="after")
+    def inside_page(self):
+        if self.x + self.width > 1 or self.y + self.height > 1:
+            raise ValueError("custom region must fit inside the page")
+        return self
+
+
+class ConceptAliasRead(APIModel):
+    id: int
+    text: str
+    language: str
+    normalized_text: str
+    origin: ConceptAliasOrigin
+    status: PedagogicalMemoryStatus
+    confidence: Literal["low", "moderate", "high"]
+    user_confirmed: bool
+
+
+class ConceptRelationRead(APIModel):
+    id: int
+    source_concept_id: str
+    target_concept_id: str
+    target_name: str
+    relation_type: ConceptRelationType
+    status: PedagogicalMemoryStatus
+    origin: str
+
+
+class PageMappingRead(APIModel):
+    id: int
+    source_version_id: int
+    pdf_page_index: int = Field(ge=0)
+    pdf_page_number: int = Field(ge=1)
+    scan_layout: ScanLayout
+    printed_left_label: str | None
+    printed_right_label: str | None
+    printed_full_label: str | None
+    rotation: Literal[0, 90, 180, 270]
+    status: PedagogicalMemoryStatus
+    origin: str
+    mapping_version: int = Field(ge=1)
+    reviewed_at: datetime | None
+
+
+class EvidenceLocationRead(APIModel):
+    id: str
+    concept_id: str
+    concept_name: str
+    source_id: str
+    source_name: str
+    source_version: int = Field(ge=1)
+    chunk_id: int | None
+    pdf_page_number: int | None = Field(default=None, ge=1)
+    printed_page_label: str | None
+    scan_layout: ScanLayout
+    region: EvidenceRegion
+    custom_bbox: NormalizedBBox | None = None
+    heading: str | None
+    evidence_snippet: str = Field(max_length=600)
+    extraction_quality: float = Field(ge=0, le=1)
+    status: PedagogicalMemoryStatus
+    origin: str
+    public_citation: str
+    reviewed_at: datetime | None
+
+
+class PedagogicalConceptSummary(APIModel):
+    id: str
+    canonical_name: str
+    language: str
+    display_name_es: str | None
+    display_name_de: str | None
+    category: str
+    description: str | None
+    status: PedagogicalMemoryStatus
+    aliases: list[ConceptAliasRead] = Field(default_factory=list)
+    location_counts: dict[str, int] = Field(default_factory=dict)
+    updated_at: datetime
+
+
+class PedagogicalConceptRead(PedagogicalConceptSummary):
+    relations: list[ConceptRelationRead] = Field(default_factory=list)
+    locations: list[EvidenceLocationRead] = Field(default_factory=list)
+    query_ids: list[str] = Field(default_factory=list)
+
+
+class PedagogicalMemorySummary(APIModel):
+    concepts: int = Field(ge=0)
+    aliases: int = Field(ge=0)
+    locations: int = Field(ge=0)
+    relations: int = Field(ge=0)
+    by_status: dict[str, int]
+    pending_review: int = Field(ge=0)
+
+
+class PedagogicalConceptCreate(APIModel):
+    canonical_name: str = Field(min_length=1, max_length=200)
+    language: str = Field(default="de", min_length=2, max_length=20)
+    display_name_es: str | None = Field(default=None, max_length=200)
+    display_name_de: str | None = Field(default=None, max_length=200)
+    category: str = Field(default="other", min_length=2, max_length=80)
+    description: str | None = Field(default=None, max_length=1_000)
+    status: PedagogicalMemoryStatus = PedagogicalMemoryStatus.CANDIDATE
+    origin: ConceptAliasOrigin = ConceptAliasOrigin.USER_CREATED
+
+
+class ConceptAliasCreate(APIModel):
+    text: str = Field(min_length=1, max_length=200)
+    language: str = Field(min_length=2, max_length=20)
+    origin: ConceptAliasOrigin = ConceptAliasOrigin.USER_CREATED
+    status: PedagogicalMemoryStatus = PedagogicalMemoryStatus.CANDIDATE
+    confidence: Literal["low", "moderate", "high"] = "moderate"
+
+
+class ConceptRelationCreate(APIModel):
+    target_concept_id: str = Field(min_length=8, max_length=100)
+    relation_type: ConceptRelationType
+    origin: str = Field(default="user_created", min_length=2, max_length=80)
+    status: PedagogicalMemoryStatus = PedagogicalMemoryStatus.CANDIDATE
+
+
+class PageMappingUpdate(APIModel):
+    pdf_page_number: int = Field(ge=1)
+    scan_layout: ScanLayout
+    printed_left_label: str | None = Field(default=None, max_length=50)
+    printed_right_label: str | None = Field(default=None, max_length=50)
+    printed_full_label: str | None = Field(default=None, max_length=50)
+    rotation: Literal[0, 90, 180, 270] = 0
+    status: PedagogicalMemoryStatus = PedagogicalMemoryStatus.CANDIDATE
+    origin: str = Field(default="user", min_length=2, max_length=80)
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+    @model_validator(mode="after")
+    def labels_fit_layout(self):
+        if self.scan_layout == ScanLayout.SINGLE_PAGE and (
+            self.printed_left_label or self.printed_right_label
+        ):
+            raise ValueError("single-page scans use printed_full_label")
+        return self
+
+
+class EvidenceLocationCreate(APIModel):
+    concept_id: str = Field(min_length=8, max_length=100)
+    source_version_id: int = Field(ge=1)
+    chunk_id: int | None = Field(default=None, ge=1)
+    editorial_section_id: int | None = Field(default=None, ge=1)
+    pdf_page_number: int | None = Field(default=None, ge=1)
+    region: EvidenceRegion = EvidenceRegion.UNKNOWN
+    custom_bbox: NormalizedBBox | None = None
+    heading: str | None = Field(default=None, max_length=500)
+    evidence_snippet: str = Field(default="", max_length=600)
+    extraction_quality: float = Field(default=0, ge=0, le=1)
+    status: PedagogicalMemoryStatus = PedagogicalMemoryStatus.CANDIDATE
+    origin: str = Field(min_length=2, max_length=80)
+
+    @model_validator(mode="after")
+    def custom_region_has_bbox(self):
+        if (self.region == EvidenceRegion.CUSTOM) != (self.custom_bbox is not None):
+            raise ValueError("custom regions require exactly one normalized bounding box")
+        return self
+
+
+class MemoryFeedbackRequest(APIModel):
+    verdict: MemoryFeedbackVerdict
+    comment: str | None = Field(default=None, max_length=2_000)
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class LocationFeedbackRequest(MemoryFeedbackRequest):
+    region: EvidenceRegion | None = None
+    printed_left_label: str | None = Field(default=None, max_length=50)
+    printed_right_label: str | None = Field(default=None, max_length=50)
+    printed_full_label: str | None = Field(default=None, max_length=50)
+    scan_layout: ScanLayout | None = None
+    suggested_concept_name: str | None = Field(default=None, max_length=200)
+
+
+class MemoryFeedbackRead(APIModel):
+    review_id: str
+    target_type: Literal["response", "location", "concept", "relation", "page_mapping"]
+    target_id: str
+    verdict: str
+    resulting_status: PedagogicalMemoryStatus | None
+    created_at: datetime
+
+
+class MemoryReviewRequest(APIModel):
+    action: MemoryReviewAction
+    comment: str | None = Field(default=None, max_length=2_000)
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class MemoryRevertRequest(APIModel):
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class MemoryAuditRead(APIModel):
+    id: int
+    operation_id: str
+    actor: str
+    action: str
+    target_type: str
+    target_id: str
+    query_id: str | None
+    before: dict[str, JsonValue]
+    after: dict[str, JsonValue]
+    comment: str | None
+    created_at: datetime
+
+
+class MemoryReviewQueueItem(APIModel):
+    target_type: Literal["concept", "location", "relation"]
+    target_id: str
+    title: str
+    subtitle: str | None
+    status: PedagogicalMemoryStatus
+    priority: int
+    used_by_queries: int = Field(ge=0)
+
+
+class PedagogicalMemoryImportRequest(APIModel):
+    include_sections: bool = True
+    include_knowledge: bool = True
+    include_teacher_history: bool = True
+    confirm_herder_akkusativ_pdf_89: bool = False
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class PedagogicalMemoryImportRead(APIModel):
+    concepts_created: int = Field(ge=0)
+    aliases_created: int = Field(ge=0)
+    locations_created: int = Field(ge=0)
+    query_links_created: int = Field(ge=0)
+    mappings_created: int = Field(ge=0)
+    skipped: int = Field(ge=0)
+    idempotent_replay: bool = False
+
+
+class QueryMemoryRead(APIModel):
+    query_id: str
+    concepts: list[PedagogicalConceptSummary]
+    locations: list[EvidenceLocationRead]
+    response_feedback: MemoryFeedbackVerdict | None
+    memory_used: bool

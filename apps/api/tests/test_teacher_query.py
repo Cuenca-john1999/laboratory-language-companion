@@ -18,7 +18,9 @@ from deutschos_api.educational_library.database import (
     LibraryDatabase,
 )
 from deutschos_api.educational_library.dependencies import get_library_teacher
+from deutschos_api.educational_library.memory import PedagogicalMemoryService
 from deutschos_api.educational_library.schemas import (
+    MemoryFeedbackRequest,
     QueryAmbiguity,
     TeacherAnswerDraft,
     TeacherAskRequest,
@@ -302,6 +304,49 @@ async def test_teacher_query_plans_multiple_searches_deduplicates_and_persists_h
 
 
 @pytest.mark.anyio
+async def test_teacher_creates_evidence_candidates_and_rejected_answer_is_not_reused(
+    teacher_library: EducationalLibraryService,
+):
+    provider = TeacherFakeProvider()
+    teacher = make_teacher(teacher_library, provider)
+    first = await teacher.ask(TeacherAskRequest(question="¿Qué significa die?"))
+    memory = PedagogicalMemoryService(teacher_library.database)
+    remembered = memory.query_memory(first.query_id)
+    assert remembered.concepts
+    assert remembered.locations
+    assert all(location.status.value == "candidate" for location in remembered.locations)
+    memory.feedback_response(
+        first.query_id,
+        MemoryFeedbackRequest(
+            verdict="incorrect",
+            operation_id="reject-teacher-answer-1",
+            comment="La explicación no resolvió la duda.",
+        ),
+    )
+    continuation = await teacher.ask(
+        TeacherAskRequest(
+            question="Explícalo de nuevo.",
+            conversation_id=first.conversation_id,
+            continuation_action="rephrase",
+        )
+    )
+    assert continuation.parent_query_id == first.query_id
+    assert provider.plan_payloads[-1]["previous_turn"] is None
+
+
+@pytest.mark.anyio
+async def test_failed_or_insufficient_teacher_query_creates_no_positive_memory(
+    teacher_library: EducationalLibraryService,
+):
+    teacher = make_teacher(teacher_library)
+    result = await teacher.ask(TeacherAskRequest(question="¿Qué son los verbos marcianos?"))
+    assert result.status.value == "insufficient"
+    memory = PedagogicalMemoryService(teacher_library.database).query_memory(result.query_id)
+    assert memory.concepts == []
+    assert memory.locations == []
+
+
+@pytest.mark.anyio
 async def test_teacher_uses_candidate_knowledge_with_warning_and_approved_without_it(
     teacher_library: EducationalLibraryService,
 ):
@@ -426,7 +471,7 @@ async def test_teacher_answer_repairs_once_and_second_failure_is_safe(
     assert broken_provider.answer_calls == 2
 
 
-def test_library_schema_upgrades_v1_to_v3_without_main_migration(tmp_path: Path):
+def test_library_schema_upgrades_v1_to_v4_without_main_migration(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     connection = sqlite3.connect(path, isolation_level=None)
     try:
@@ -438,16 +483,16 @@ def test_library_schema_upgrades_v1_to_v3_without_main_migration(tmp_path: Path)
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 3
+    assert database.migrate() == 4
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 4
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE name='teacher_queries'"
         ).fetchone()
     assert database.integrity() == ("ok", [])
 
 
-def test_library_schema_upgrades_v2_to_v3_without_rebuilding_data(tmp_path: Path):
+def test_library_schema_upgrades_v2_to_v4_without_rebuilding_data(tmp_path: Path):
     path = tmp_path / "library-v2.sqlite3"
     connection = sqlite3.connect(path, isolation_level=None)
     try:
@@ -462,9 +507,9 @@ def test_library_schema_upgrades_v2_to_v3_without_rebuilding_data(tmp_path: Path
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 3
+    assert database.migrate() == 4
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 4
         assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name='page_quality'").fetchone()
     assert database.integrity() == ("ok", [])
 
