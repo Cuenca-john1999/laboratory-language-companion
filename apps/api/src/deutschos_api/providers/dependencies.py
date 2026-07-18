@@ -7,4 +7,7 @@ from deutschos_api.providers.ollama import OllamaProvider
 
 def get_model_provider(settings: Settings = Depends(get_settings)) -> ModelProvider:
     """The only composition point that knows which concrete provider is configured."""
-    return OllamaProvider(settings.ollama_base_url)
+    return OllamaProvider(
+        settings.ollama_base_url,
+        keep_alive=settings.educational_library_model_keep_alive,
+    )

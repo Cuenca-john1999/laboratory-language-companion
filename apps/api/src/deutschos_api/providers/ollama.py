@@ -73,10 +73,31 @@ class OllamaProvider(ModelProvider):
         base_url: str,
         timeout: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        keep_alive: str = "5m",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.transport = transport
+        self.keep_alive = keep_alive
+        self.last_request_metrics: dict[str, int | str] = {}
+
+    def _capture_metrics(self, model: str, payload: object) -> None:
+        if not isinstance(payload, dict):
+            self.last_request_metrics = {"model": model}
+            return
+        metrics: dict[str, int | str] = {"model": model}
+        for key in (
+            "total_duration",
+            "load_duration",
+            "prompt_eval_count",
+            "prompt_eval_duration",
+            "eval_count",
+            "eval_duration",
+        ):
+            value = payload.get(key)
+            if isinstance(value, int):
+                metrics[key] = value
+        self.last_request_metrics = metrics
 
     def client(self, timeout: float) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=timeout, transport=self.transport)
@@ -109,7 +130,13 @@ class OllamaProvider(ModelProvider):
             async with self.client(timeout=self.timeout) as client:
                 response = await client.post(
                     f"{self.base_url}/api/chat",
-                    json={"model": model, "messages": messages, "stream": False},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "stream": False,
+                        "think": False,
+                        "keep_alive": self.keep_alive,
+                    },
                 )
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -123,7 +150,9 @@ class OllamaProvider(ModelProvider):
                 "Ollama no respondió. Inícialo y confirma que el modelo seleccionado está descargado."
             ) from exc
         try:
-            payload = OllamaChatResponse.model_validate(response.json())
+            raw_payload = response.json()
+            self._capture_metrics(model, raw_payload)
+            payload = OllamaChatResponse.model_validate(raw_payload)
         except (ValueError, ValidationError) as exc:
             raise ProviderResponseError("Ollama devolvió una respuesta inválida.") from exc
         if not payload.message.content:
@@ -136,7 +165,13 @@ class OllamaProvider(ModelProvider):
                 async with client.stream(
                     "POST",
                     f"{self.base_url}/api/chat",
-                    json={"model": model, "messages": messages, "stream": True},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "stream": True,
+                        "think": False,
+                        "keep_alive": self.keep_alive,
+                    },
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -208,12 +243,16 @@ class OllamaProvider(ModelProvider):
                         "model": model,
                         "messages": messages,
                         "stream": False,
+                        "think": False,
                         "format": schema,
-                        "options": {"temperature": 0},
+                        "options": {"temperature": 0, "num_predict": 2_048},
+                        "keep_alive": self.keep_alive,
                     },
                 )
                 response.raise_for_status()
-                payload = OllamaChatResponse.model_validate(response.json())
+                raw_payload = response.json()
+                self._capture_metrics(model, raw_payload)
+                payload = OllamaChatResponse.model_validate(raw_payload)
                 return payload.message.content
         except httpx.HTTPError as exc:
             raise ProviderUnavailableError("Falló la generación estructurada local.") from exc

@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from enum import StrEnum
+from typing import TypeVar
+
+from deutschos_api.providers.base import (
+    MalformedStructuredOutputError,
+    ModelNotFoundError,
+    ModelProvider,
+    ProviderResponseError,
+    ProviderUnavailableError,
+    StructuredModel,
+)
+
+from .schemas import ModelRoleRead, ModelRoutingRead, TeacherFailureReason
+
+ROUTING_POLICY_VERSION = "library-model-routing.v1"
+_LARGE_MODEL_LOCK = asyncio.Lock()
+_T = TypeVar("_T", bound=StructuredModel)
+
+
+class ModelRole(StrEnum):
+    PLANNER = "planner"
+    EMBEDDING = "embedding"
+    TEACHER = "teacher"
+    FALLBACK = "fallback"
+    VISION = "vision"
+    REPAIR = "repair"
+
+
+@dataclass(frozen=True)
+class ModelRoutingPolicy:
+    planner: str
+    embedding: str
+    teacher: str
+    fallback: str
+    vision: str
+    repair: str
+    planner_timeout: float = 45
+    teacher_timeout: float = 180
+
+    def configured(self, role: ModelRole) -> str:
+        return str(getattr(self, role.value))
+
+
+class ModelRoutingError(RuntimeError):
+    def __init__(self, reason: TeacherFailureReason, message: str):
+        super().__init__(message)
+        self.reason = reason
+
+
+class LibraryModelRouter:
+    """Capability-aware local routing with bounded, deterministic fallback."""
+
+    def __init__(self, provider: ModelProvider, policy: ModelRoutingPolicy):
+        self.provider = provider
+        self.policy = policy
+        self._installed: tuple[str, ...] | None = None
+
+    async def installed_models(self, *, refresh: bool = False) -> tuple[str, ...]:
+        if self._installed is not None and not refresh:
+            return self._installed
+        try:
+            models = await asyncio.wait_for(self.provider.list_models(), timeout=5)
+        except (TimeoutError, ProviderUnavailableError, ProviderResponseError) as exc:
+            raise ModelRoutingError(
+                TeacherFailureReason.MODEL_UNAVAILABLE,
+                "No se pudo consultar la capacidad de los modelos locales.",
+            ) from exc
+        self._installed = tuple(sorted({model.name for model in models}))
+        return self._installed
+
+    def candidates(self, role: ModelRole) -> tuple[str, ...]:
+        configured = self.policy.configured(role)
+        if role == ModelRole.TEACHER:
+            values = (configured, self.policy.fallback, self.policy.planner)
+        elif role == ModelRole.FALLBACK:
+            values = (configured, self.policy.teacher, self.policy.planner)
+        elif role in {ModelRole.PLANNER, ModelRole.REPAIR}:
+            values = (configured, self.policy.fallback)
+        elif role == ModelRole.VISION:
+            values = (configured,)
+        elif role == ModelRole.EMBEDDING:
+            values = (configured,)
+        else:
+            values = (configured, self.policy.planner)
+        return tuple(dict.fromkeys(value for value in values if value))
+
+    async def select(self, role: ModelRole) -> str:
+        installed = set(await self.installed_models())
+        selected = next((model for model in self.candidates(role) if model in installed), "")
+        if not selected:
+            raise ModelRoutingError(
+                TeacherFailureReason.MODEL_UNAVAILABLE,
+                f"No hay un modelo local disponible para el rol {role.value}.",
+            )
+        return selected
+
+    async def status(self) -> ModelRoutingRead:
+        try:
+            installed = list(await self.installed_models())
+            available = True
+        except ModelRoutingError:
+            installed = []
+            available = False
+        installed_set = set(installed)
+        roles = []
+        for role in ModelRole:
+            candidates = self.candidates(role)
+            selected = next((model for model in candidates if model in installed_set), None)
+            roles.append(
+                ModelRoleRead(
+                    role=role.value,
+                    configured_model=self.policy.configured(role),
+                    available=selected is not None,
+                    selected_model=selected,
+                    fallback_models=list(candidates[1:]),
+                )
+            )
+        return ModelRoutingRead(
+            ollama_available=available,
+            installed_models=installed,
+            roles=roles,
+            policy_version=ROUTING_POLICY_VERSION,
+        )
+
+    async def structured_generate(
+        self,
+        role: ModelRole,
+        messages: list[dict[str, str]],
+        schema: type[_T],
+    ) -> tuple[_T, str, bool]:
+        installed = set(await self.installed_models())
+        candidates = [model for model in self.candidates(role) if model in installed]
+        if not candidates:
+            raise ModelRoutingError(
+                TeacherFailureReason.MODEL_UNAVAILABLE,
+                f"No hay un modelo local disponible para el rol {role.value}.",
+            )
+        timeout = (
+            self.policy.planner_timeout
+            if role in {ModelRole.PLANNER, ModelRole.REPAIR}
+            else self.policy.teacher_timeout
+        )
+        last_error: BaseException | None = None
+        for index, model in enumerate(candidates):
+            try:
+                call = self.provider.structured_generate(model, messages, schema)
+                if role in {ModelRole.TEACHER, ModelRole.FALLBACK} and self._is_large(model):
+                    async with _LARGE_MODEL_LOCK:
+                        result = await asyncio.wait_for(call, timeout=timeout)
+                else:
+                    result = await asyncio.wait_for(call, timeout=timeout)
+                return result, model, index > 0
+            except TimeoutError as exc:
+                last_error = exc
+            except (
+                ModelNotFoundError,
+                ProviderUnavailableError,
+                ProviderResponseError,
+                MalformedStructuredOutputError,
+            ) as exc:
+                last_error = exc
+        reason = (
+            TeacherFailureReason.TIMEOUT
+            if isinstance(last_error, TimeoutError)
+            else TeacherFailureReason.MODEL_UNAVAILABLE
+        )
+        message = (
+            "Los modelos locales agotaron el tiempo disponible."
+            if reason == TeacherFailureReason.TIMEOUT
+            else "Los modelos locales configurados no están disponibles."
+        )
+        raise ModelRoutingError(reason, message) from last_error
+
+    @staticmethod
+    def _is_large(model: str) -> bool:
+        return any(marker in model.casefold() for marker in ("14b", "27b", "32b", "70b"))

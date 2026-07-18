@@ -179,7 +179,8 @@ async def test_structured_generation_sends_ollama_compatible_schema():
     assert result.text == "ok"
     assert "maxLength" not in json.dumps(captured["format"])
     assert "maxItems" not in json.dumps(captured["format"])
-    assert captured["options"] == {"temperature": 0}
+    assert captured["options"] == {"temperature": 0, "num_predict": 2_048}
+    assert captured["think"] is False
 
 
 async def test_structured_generation_repairs_once_then_fails():

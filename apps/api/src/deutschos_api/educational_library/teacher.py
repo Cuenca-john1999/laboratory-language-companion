@@ -20,15 +20,20 @@ from deutschos_api.providers.base import (
     ProviderUnavailableError,
 )
 
+from .cache import LibraryCache, stable_cache_key
 from .database import LibraryDatabase
+from .routing import LibraryModelRouter, ModelRole, ModelRoutingError
 from .schemas import (
     EvidenceConfidence,
     LibraryNotFoundError,
     LibraryProviderUnavailableError,
+    LibraryTeacherError,
     QueryAmbiguity,
     TeacherAnswerDraft,
     TeacherAskRequest,
     TeacherConversationSummary,
+    TeacherFailureReason,
+    TeacherIntent,
     TeacherPublicAnswer,
     TeacherQueryPlan,
     TeacherQueryRead,
@@ -104,6 +109,8 @@ class _Evidence:
     extraction_quality: float
     editorial_confidence: float
     source_priority: int
+    pedagogical_role: str
+    page_quality: str | None
     duplicate_group: str
     content_hash: str
     score: float
@@ -210,12 +217,16 @@ class EducationalTeacherService:
         *,
         default_model: str,
         limits: TeacherLimits | None = None,
+        model_router: LibraryModelRouter | None = None,
+        cache: LibraryCache | None = None,
     ):
         self.database = database
         self.search = search
         self.model_provider = model_provider
         self.default_model = default_model
         self.limits = limits or TeacherLimits()
+        self.model_router = model_router
+        self.cache = cache or LibraryCache(database)
 
     async def ask(
         self,
@@ -226,28 +237,41 @@ class EducationalTeacherService:
         started = perf_counter()
         learner = learner or LearnerContext()
         model = self.default_model
-        if not model:
+        if not model and self.model_router is None:
             raise LibraryProviderUnavailableError("No hay un modelo docente local configurado.")
 
         conversation_id, parent = self._resolve_conversation(request.conversation_id)
         planning_started = perf_counter()
-        plan = await self._plan(request, learner, parent, model)
+        plan, planner_model, plan_cache_hit = await self._plan(request, learner, parent, model)
         planning_ms = self._elapsed_ms(planning_started)
 
         retrieval_started = perf_counter()
-        evidence, knowledge, retrieval_mode, semantic_available = await self._retrieve(
-            request, plan
-        )
+        (
+            evidence,
+            knowledge,
+            retrieval_mode,
+            semantic_available,
+            retrieval_phases,
+        ) = await self._retrieve(request, plan)
         retrieval_ms = self._elapsed_ms(retrieval_started)
         confidence, confidence_score, confidence_warnings = self._confidence(evidence, knowledge)
 
         generation_started = perf_counter()
         validation_ms = 0
+        repair_ms = 0
+        answer_model = planner_model
+        generation_failure: TeacherFailureReason | None = None
         if not evidence or confidence == EvidenceConfidence.INSUFFICIENT:
             draft = self._insufficient_answer(plan)
             status = TeacherQueryStatus.INSUFFICIENT
         else:
-            draft, validation_ms = await self._generate(
+            (
+                draft,
+                validation_ms,
+                repair_ms,
+                answer_model,
+                generation_failure,
+            ) = await self._generate(
                 request,
                 plan,
                 learner,
@@ -262,6 +286,12 @@ class EducationalTeacherService:
                 draft = self._insufficient_answer(plan)
                 confidence = EvidenceConfidence.INSUFFICIENT
                 status = TeacherQueryStatus.INSUFFICIENT
+        if not evidence:
+            failure_reason = TeacherFailureReason.NO_EVIDENCE
+        elif confidence == EvidenceConfidence.INSUFFICIENT:
+            failure_reason = generation_failure or TeacherFailureReason.WEAK_EVIDENCE
+        else:
+            failure_reason = generation_failure
         generation_ms = self._elapsed_ms(generation_started)
 
         warnings = list(dict.fromkeys([*confidence_warnings, *draft.warnings]))
@@ -272,9 +302,14 @@ class EducationalTeacherService:
         timings = TeacherTimings(
             planning_ms=planning_ms,
             retrieval_ms=retrieval_ms,
-            generation_ms=max(0, generation_ms - validation_ms),
+            generation_ms=max(0, generation_ms - validation_ms - repair_ms),
             validation_ms=validation_ms,
             total_ms=self._elapsed_ms(started),
+            embedding_ms=retrieval_phases["embedding_ms"],
+            fts_ms=retrieval_phases["fts_ms"],
+            vector_ms=retrieval_phases["vector_ms"],
+            ranking_ms=retrieval_phases["ranking_ms"],
+            repair_ms=repair_ms,
         )
         query_id = self._persist(
             request=request,
@@ -283,7 +318,7 @@ class EducationalTeacherService:
             plan=plan,
             answer=draft,
             evidence=evidence,
-            model=model,
+            model=answer_model if evidence else planner_model,
             status=status,
             confidence=confidence,
             retrieval_mode=retrieval_mode,
@@ -291,7 +326,54 @@ class EducationalTeacherService:
             warnings=warnings,
             timings=timings,
             confidence_score=confidence_score,
+            failure_reason=failure_reason,
+            models={"planner": planner_model, "teacher": answer_model},
+            cache_hit=plan_cache_hit,
         )
+        return self.get_query(query_id)
+
+    def persist_cancelled(self, request: TeacherAskRequest) -> TeacherQueryRead:
+        conversation_id, parent = self._resolve_conversation(request.conversation_id)
+        plan = TeacherQueryPlan(
+            intent=TeacherIntent.UNKNOWN,
+            language="unknown",
+            target_expression=None,
+            user_language="es",
+            ambiguity=QueryAmbiguity.HIGH,
+            possible_interpretations=[],
+            search_queries=[request.question[:160]],
+            required_evidence=[],
+        )
+        timings = TeacherTimings(
+            planning_ms=0,
+            retrieval_ms=0,
+            generation_ms=0,
+            validation_ms=0,
+            total_ms=0,
+        )
+        query_id = self._persist(
+            request=request,
+            conversation_id=conversation_id,
+            parent_query_id=parent["id"] if parent else None,
+            plan=plan,
+            answer=self._insufficient_answer(plan),
+            evidence=[],
+            model="none",
+            status=TeacherQueryStatus.CANCELLED,
+            confidence=EvidenceConfidence.INSUFFICIENT,
+            retrieval_mode="lexical",
+            semantic_available=False,
+            warnings=["La consulta se canceló antes de completar una respuesta verificada."],
+            timings=timings,
+            confidence_score=0,
+            failure_reason=TeacherFailureReason.CANCELLED,
+            models={},
+            cache_hit=False,
+        )
+        with self.database.transaction(immediate=True) as connection:
+            connection.execute(
+                "UPDATE teacher_queries SET stream_status='cancelled' WHERE id=?", (query_id,)
+            )
         return self.get_query(query_id)
 
     async def _plan(
@@ -300,7 +382,10 @@ class EducationalTeacherService:
         learner: LearnerContext,
         parent: dict[str, object] | None,
         model: str,
-    ) -> TeacherQueryPlan:
+    ) -> tuple[TeacherQueryPlan, str, bool]:
+        deterministic = self._deterministic_plan(request) if self.model_router else None
+        if deterministic is not None:
+            return self._validated_plan(deterministic, request), "deterministic", False
         system = (PROMPT_ROOT / "library_query_plan_v1.md").read_text(encoding="utf-8")
         payload = {
             "question": request.question,
@@ -308,15 +393,37 @@ class EducationalTeacherService:
             "learner": learner.prompt_payload(),
             "previous_turn": self._parent_prompt(parent),
         }
-        try:
-            plan = await self.model_provider.structured_generate(
-                model,
-                [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": json_dump(payload)},
-                ],
-                TeacherQueryPlan,
+        source_fingerprint = self.search.source_fingerprint()
+        config_hash = stable_cache_key(QUERY_PLAN_VERSION, learner.prompt_payload())
+        cache_key = stable_cache_key(payload, QUERY_PLAN_VERSION)
+        cached = self.cache.get(
+            "teacher_plan",
+            cache_key,
+            source_fingerprint=source_fingerprint,
+            config_hash=config_hash,
+        )
+        if isinstance(cached, dict):
+            return (
+                self._validated_plan(TeacherQueryPlan.model_validate(cached), request),
+                "cache",
+                True,
             )
+        try:
+            messages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": json_dump(payload)},
+            ]
+            if self.model_router:
+                plan, selected_model, _ = await self.model_router.structured_generate(
+                    ModelRole.PLANNER, messages, TeacherQueryPlan
+                )
+            else:
+                plan = await self.model_provider.structured_generate(
+                    model, messages, TeacherQueryPlan
+                )
+                selected_model = model
+        except ModelRoutingError as exc:
+            raise LibraryTeacherError(exc.reason, str(exc)) from exc
         except (
             ProviderUnavailableError,
             ProviderResponseError,
@@ -326,7 +433,109 @@ class EducationalTeacherService:
             raise LibraryProviderUnavailableError(
                 "El profesor local no pudo interpretar la pregunta."
             ) from exc
-        return self._validated_plan(plan, request)
+        validated = self._validated_plan(plan, request)
+        self.cache.put(
+            "teacher_plan",
+            cache_key,
+            validated.model_dump(mode="json"),
+            source_fingerprint=source_fingerprint,
+            config_hash=config_hash,
+            model=selected_model,
+            prompt_version=QUERY_PLAN_VERSION,
+        )
+        return validated, selected_model, False
+
+    @staticmethod
+    def _deterministic_plan(request: TeacherAskRequest) -> TeacherQueryPlan | None:
+        question = request.question.casefold()
+        rules: list[tuple[tuple[str, ...], str, TeacherIntent, list[str], QueryAmbiguity]] = [
+            (
+                ("kein", "nicht"),
+                "kein nicht",
+                TeacherIntent.DIFFERENCE,
+                ["kein nicht", "Negation kein", "Negation nicht"],
+                QueryAmbiguity.LOW,
+            ),
+            (
+                ("den hund",),
+                "den Hund",
+                TeacherIntent.GRAMMAR_EXPLANATION,
+                ["den Hund Akkusativ", "Akkusativ bestimmter Artikel", "der den"],
+                QueryAmbiguity.LOW,
+            ),
+            (
+                ("ich hätte gerne", "ich haette gerne"),
+                "Ich hätte gerne",
+                TeacherIntent.USAGE,
+                ["Ich hätte gerne", "Konjunktiv II höfliche Bitte"],
+                QueryAmbiguity.LOW,
+            ),
+            (
+                ("konjunktiv ii", "konjunktiv 2"),
+                "Konjunktiv II",
+                TeacherIntent.GRAMMAR_EXPLANATION,
+                ["Konjunktiv II", "würde hätte wäre"],
+                QueryAmbiguity.MODERATE,
+            ),
+            (
+                ("declinación", "declinacion"),
+                "Adjektivdeklination",
+                TeacherIntent.GRAMMAR_EXPLANATION,
+                ["Adjektivdeklination", "Deklination der Adjektive"],
+                QueryAmbiguity.MODERATE,
+            ),
+            (
+                ("pronombre", "pronombres"),
+                "Personalpronomen",
+                TeacherIntent.OVERVIEW,
+                ["Personalpronomen", "ich du er sie es wir ihr Sie"],
+                QueryAmbiguity.LOW,
+            ),
+            (
+                ("acusativo", "akkusativ"),
+                "Akkusativ",
+                TeacherIntent.SOURCE_LOOKUP
+                if "herder" in question or "fuente" in question
+                else TeacherIntent.GRAMMAR_EXPLANATION,
+                ["Akkusativ", "acusativo", "den einen keinen"],
+                QueryAmbiguity.LOW,
+            ),
+            (
+                ("der die das",),
+                "der die das",
+                TeacherIntent.GRAMMAR_EXPLANATION,
+                ["der die das", "bestimmter Artikel Genus"],
+                QueryAmbiguity.MODERATE,
+            ),
+        ]
+        for markers, target, intent, queries, ambiguity in rules:
+            if any(marker in question for marker in markers):
+                return TeacherQueryPlan(
+                    intent=intent,
+                    language="mixed",
+                    target_expression=target,
+                    user_language="es",
+                    ambiguity=ambiguity,
+                    possible_interpretations=[],
+                    search_queries=queries,
+                    required_evidence=["explicación", "ejemplo"],
+                )
+        die_only = re.search(r"(?:significa|uso|usos|explica)\s+[\"“”']?die\b", question)
+        if die_only:
+            return TeacherQueryPlan(
+                intent=TeacherIntent.DEFINITION,
+                language="de",
+                target_expression="die",
+                user_language="es",
+                ambiguity=QueryAmbiguity.HIGH,
+                possible_interpretations=[
+                    "artículo definido femenino singular",
+                    "artículo definido plural",
+                ],
+                search_queries=["die", "bestimmter Artikel", "Artikel Plural", "Artikel feminin"],
+                required_evidence=["usos del artículo"],
+            )
+        return None
 
     def _validated_plan(
         self, plan: TeacherQueryPlan, request: TeacherAskRequest
@@ -401,32 +610,67 @@ class EducationalTeacherService:
         self,
         request: TeacherAskRequest,
         plan: TeacherQueryPlan,
-    ) -> tuple[list[_Evidence], list[dict[str, object]], str, bool]:
+    ) -> tuple[
+        list[_Evidence],
+        list[dict[str, object]],
+        str,
+        bool,
+        dict[str, int],
+    ]:
         scores: dict[int, float] = {}
         matched: dict[int, set[str]] = {}
         modes: set[str] = set()
         semantic_available = False
-        for query in plan.search_queries[: self.limits.max_search_queries]:
-            try:
-                response = await self.search.search(
-                    query,
-                    mode="hybrid",
-                    source_id=request.source_id,
-                    limit=12,
-                    # Keep answer keys available as last-resort evidence. The
-                    # pedagogical ranker below penalises both their role and
-                    # filename instead of excluding them blindly.
-                    include_solutions=True,
-                )
-            except ValueError:
-                continue
-            modes.add(response.effective_mode)
-            semantic_available = semantic_available or response.semantic_available
-            for rank, result in enumerate(response.results, start=1):
-                scores[result.id] = scores.get(result.id, 0.0) + 1 / rank
-                matched.setdefault(result.id, set()).add(query)
+        phase_timings = {"fts_ms": 0, "embedding_ms": 0, "vector_ms": 0, "ranking_ms": 0}
 
-        knowledge = self._knowledge_for_plan(plan, request.question)
+        async def collect(role_scope: str) -> set[str]:
+            nonlocal semantic_available
+            source_ids: set[str] = set()
+            for query in plan.search_queries[: self.limits.max_search_queries]:
+                try:
+                    response = await self.search.search(
+                        query,
+                        mode="hybrid",
+                        source_id=request.source_id,
+                        limit=12,
+                        include_solutions=True,
+                        role_scope=role_scope,
+                    )
+                except ValueError:
+                    continue
+                except Exception as exc:
+                    logger.warning("teacher retrieval failed: %s", type(exc).__name__)
+                    raise LibraryTeacherError(
+                        TeacherFailureReason.RETRIEVAL_FAILURE,
+                        "La recuperación local no pudo completarse.",
+                    ) from exc
+                modes.add(response.effective_mode)
+                semantic_available = semantic_available or response.semantic_available
+                phase_timings["fts_ms"] += response.timings.fts_ms
+                phase_timings["embedding_ms"] += response.timings.query_embedding_ms
+                phase_timings["vector_ms"] += response.timings.vector_ms
+                phase_timings["ranking_ms"] += response.timings.ranking_ms
+                for rank, result in enumerate(response.results, start=1):
+                    scores[result.id] = scores.get(result.id, 0.0) + 1 / rank
+                    matched.setdefault(result.id, set()).add(query)
+                    source_ids.add(result.source_id)
+            return source_ids
+
+        if request.source_id:
+            await collect("all")
+        else:
+            core_sources = await collect("core")
+            core_source_lookup = plan.intent == TeacherIntent.SOURCE_LOOKUP and bool(scores)
+            if not core_source_lookup and (
+                len(scores) < self.limits.max_chunks or len(core_sources) < 2
+            ):
+                await collect("supplementary")
+
+        knowledge = (
+            []
+            if plan.intent == TeacherIntent.SOURCE_LOOKUP and not request.source_id
+            else self._knowledge_for_plan(plan, request.question)
+        )
         for unit in knowledge:
             boost = 0.9 if unit["status"] == "approved" else 0.55
             for chunk_id in unit["chunk_ids"]:
@@ -436,7 +680,7 @@ class EducationalTeacherService:
         evidence = self._load_and_rank(scores, matched, plan, knowledge)
         selected = self._deduplicate_and_select(evidence)
         mode = "hybrid" if "hybrid" in modes else "semantic" if "semantic" in modes else "lexical"
-        return selected, knowledge, mode, semantic_available
+        return selected, knowledge, mode, semantic_available, phase_timings
 
     def _knowledge_for_plan(self, plan: TeacherQueryPlan, question: str) -> list[dict[str, object]]:
         query_tokens = _tokens(
@@ -490,13 +734,17 @@ class EducationalTeacherService:
         placeholders = ",".join("?" for _ in scores)
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT c.*,sv.version_number,s.id source_id,s.name source_name,s.rights,"
+                "SELECT c.*,sv.version_number,s.id source_id,"
+                "coalesce(s.display_alias,s.name) source_name,s.rights,"
                 "s.review_status source_review,s.priority,s.editorial_confidence,"
+                "s.pedagogical_role,pq.quality page_quality,"
                 "coalesce(s.duplicate_of_source_id,s.id) duplicate_group,"
                 "coalesce(d.extraction_quality,0) extraction_quality "
                 "FROM chunks c JOIN source_versions sv ON sv.id=c.source_version_id "
                 "JOIN sources s ON s.id=sv.source_id LEFT JOIN documents d "
-                "ON d.source_version_id=sv.id WHERE c.id IN (" + placeholders + ") "
+                "ON d.source_version_id=sv.id LEFT JOIN page_quality pq "
+                "ON pq.source_version_id=sv.id AND pq.page_number=c.page_start "
+                "WHERE c.id IN (" + placeholders + ") "
                 "AND s.status='present' AND s.excluded=0 AND sv.id=s.current_version_id",
                 list(scores),
             ).fetchall()
@@ -516,6 +764,17 @@ class EducationalTeacherService:
                 "solution": -0.35,
                 "index": -0.12,
             }.get(row["content_role"], 0.0)
+            role_bonus += {
+                "core_theory": 0.35,
+                "core_workbook": 0.20,
+                "core_answer_key": -0.15,
+                "glossary": 0.10,
+                "answer_key": -0.20,
+            }.get(row["pedagogical_role"], 0.0)
+            page_penalty = {
+                "poor": -0.20,
+                "unusable": -1.0,
+            }.get(row["page_quality"], 0.0)
             name_folded = row["source_name"].casefold()
             solution_penalty = (
                 -0.25 if any(value in name_folded for value in _SOLUTION_NAMES) else 0
@@ -543,6 +802,7 @@ class EducationalTeacherService:
                 + phrase_bonus
                 + editorial_bonus
                 + knowledge_bonus
+                + page_penalty
                 + float(row["extraction_quality"]) * 0.15
                 + max(-100, min(100, int(row["priority"]))) * 0.002,
             )
@@ -565,6 +825,8 @@ class EducationalTeacherService:
                     extraction_quality=float(row["extraction_quality"]),
                     editorial_confidence=float(row["editorial_confidence"]),
                     source_priority=int(row["priority"]),
+                    pedagogical_role=row["pedagogical_role"],
+                    page_quality=row["page_quality"],
                     duplicate_group=row["duplicate_group"],
                     content_hash=row["content_hash"],
                     score=score,
@@ -673,7 +935,7 @@ class EducationalTeacherService:
         evidence: list[_Evidence],
         knowledge: list[dict[str, object]],
         model: str,
-    ) -> tuple[TeacherAnswerDraft, int]:
+    ) -> tuple[TeacherAnswerDraft, int, int, str, TeacherFailureReason | None]:
         package = self._evidence_package(evidence)
         prompt_payload = {
             "question": request.question,
@@ -694,9 +956,24 @@ class EducationalTeacherService:
             },
             {"role": "user", "content": json_dump(prompt_payload)},
         ]
+        selected_model = model
         try:
-            draft = await self.model_provider.structured_generate(
-                model, messages, TeacherAnswerDraft
+            if self.model_router:
+                role = ModelRole.FALLBACK if self._requires_deep_model(plan) else ModelRole.TEACHER
+                draft, selected_model, _ = await self.model_router.structured_generate(
+                    role, messages, TeacherAnswerDraft
+                )
+            else:
+                draft = await self.model_provider.structured_generate(
+                    model, messages, TeacherAnswerDraft
+                )
+        except ModelRoutingError as exc:
+            return (
+                self._insufficient_answer(plan),
+                0,
+                0,
+                selected_model,
+                exc.reason,
             )
         except ProviderUnavailableError as exc:
             raise LibraryProviderUnavailableError(
@@ -704,9 +981,16 @@ class EducationalTeacherService:
             ) from exc
         except (ProviderResponseError, MalformedStructuredOutputError) as exc:
             logger.warning("teacher answer generation failed safely: %s", type(exc).__name__)
-            return self._insufficient_answer(plan), 0
+            return (
+                self._insufficient_answer(plan),
+                0,
+                0,
+                selected_model,
+                TeacherFailureReason.GENERATION_FAILURE,
+            )
         draft = self._sanitise_draft(draft)
         validation_started = perf_counter()
+        repair_ms = 0
         violations = self._answer_violations(draft, evidence, plan)
         if violations:
             repair = (PROMPT_ROOT / "library_teacher_answer_repair_v1.md").read_text(
@@ -720,16 +1004,40 @@ class EducationalTeacherService:
                     "content": repair + "\n\nERRORES DETECTADOS:\n- " + "\n- ".join(violations),
                 },
             ]
+            repair_started = perf_counter()
             try:
-                draft = await self.model_provider.structured_generate(
-                    model, repair_messages, TeacherAnswerDraft
+                if self.model_router:
+                    draft, repair_model, _ = await self.model_router.structured_generate(
+                        ModelRole.REPAIR, repair_messages, TeacherAnswerDraft
+                    )
+                    selected_model = f"{selected_model}+repair:{repair_model}"
+                else:
+                    draft = await self.model_provider.structured_generate(
+                        model, repair_messages, TeacherAnswerDraft
+                    )
+            except ModelRoutingError:
+                repair_ms = self._elapsed_ms(repair_started)
+                return (
+                    self._insufficient_answer(plan),
+                    max(0, self._elapsed_ms(validation_started) - repair_ms),
+                    repair_ms,
+                    selected_model,
+                    TeacherFailureReason.REPAIR_FAILURE,
                 )
             except (
                 ProviderUnavailableError,
                 ProviderResponseError,
                 MalformedStructuredOutputError,
             ):
-                return self._insufficient_answer(plan), self._elapsed_ms(validation_started)
+                repair_ms = self._elapsed_ms(repair_started)
+                return (
+                    self._insufficient_answer(plan),
+                    max(0, self._elapsed_ms(validation_started) - repair_ms),
+                    repair_ms,
+                    selected_model,
+                    TeacherFailureReason.REPAIR_FAILURE,
+                )
+            repair_ms = self._elapsed_ms(repair_started)
             draft = self._sanitise_draft(draft)
             remaining_violations = self._answer_violations(draft, evidence, plan)
             if remaining_violations:
@@ -737,8 +1045,20 @@ class EducationalTeacherService:
                     "teacher answer validation failed after repair: %s",
                     "; ".join(remaining_violations),
                 )
-                return self._insufficient_answer(plan), self._elapsed_ms(validation_started)
-        return draft, self._elapsed_ms(validation_started)
+                return (
+                    self._insufficient_answer(plan),
+                    max(0, self._elapsed_ms(validation_started) - repair_ms),
+                    repair_ms,
+                    selected_model,
+                    TeacherFailureReason.CITATION_VALIDATION_FAILURE,
+                )
+        return (
+            draft,
+            max(0, self._elapsed_ms(validation_started) - repair_ms),
+            repair_ms,
+            selected_model,
+            None,
+        )
 
     @staticmethod
     def _sanitise_draft(draft: TeacherAnswerDraft) -> TeacherAnswerDraft:
@@ -860,7 +1180,19 @@ class EducationalTeacherService:
             violations.append("La respuesta copia un pasaje excesivamente largo.")
         if len(draft.claims) < len(draft.key_points):
             violations.append("No todos los puntos esenciales tienen una afirmación citada.")
+        for start, end in re.findall(
+            r"p(?:á|a)ginas?\s+(\d+)\s+(?:a|[-–])\s+(\d+)",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            if int(end) < int(start):
+                violations.append("La respuesta contiene un rango de páginas invertido.")
         return list(dict.fromkeys(violations))
+
+    @staticmethod
+    def _requires_deep_model(plan: TeacherQueryPlan) -> bool:
+        target = (plan.target_expression or "").casefold()
+        return any(marker in target for marker in ("konjunktiv ii", "adjektivdeklination"))
 
     @staticmethod
     def _insufficient_answer(plan: TeacherQueryPlan) -> TeacherAnswerDraft:
@@ -931,6 +1263,9 @@ class EducationalTeacherService:
         warnings: list[str],
         timings: TeacherTimings,
         confidence_score: float,
+        failure_reason: TeacherFailureReason | None,
+        models: dict[str, str],
+        cache_hit: bool,
     ) -> str:
         query_id = str(uuid4())
         now = utc_text()
@@ -944,7 +1279,8 @@ class EducationalTeacherService:
                 "INSERT INTO teacher_queries(id,conversation_id,parent_query_id,question,plan_json,"
                 "answer_json,status,confidence,model,plan_prompt_version,answer_prompt_version,"
                 "repair_prompt_version,retrieval_mode,semantic_available,warnings_json,timings_json,"
-                "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "created_at,failure_reason,models_json,cache_hit,stream_status) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     query_id,
                     conversation_id,
@@ -963,6 +1299,10 @@ class EducationalTeacherService:
                     json_dump(warnings),
                     json_dump(timing_payload),
                     now,
+                    failure_reason.value if failure_reason else None,
+                    json_dump(models),
+                    int(cache_hit),
+                    "complete",
                 ),
             )
             for sequence, item in enumerate(evidence):
@@ -994,12 +1334,16 @@ class EducationalTeacherService:
                 raise LibraryNotFoundError("La consulta educativa no existe.")
             source_rows = connection.execute(
                 "SELECT tqs.*,c.title,c.page_start,c.page_end,c.start_seconds,c.end_seconds,"
-                "c.content_role,sv.version_number,s.id source_id,s.name source_name,s.rights,"
-                "s.review_status,coalesce(d.extraction_quality,0) extraction_quality "
+                "c.content_role,sv.version_number,s.id source_id,"
+                "coalesce(s.display_alias,s.name) source_name,s.rights,"
+                "s.review_status,s.pedagogical_role,pq.quality page_quality,"
+                "coalesce(d.extraction_quality,0) extraction_quality "
                 "FROM teacher_query_sources tqs JOIN chunks c ON c.id=tqs.chunk_id "
                 "JOIN source_versions sv ON sv.id=tqs.source_version_id "
                 "JOIN sources s ON s.id=sv.source_id LEFT JOIN documents d "
-                "ON d.source_version_id=sv.id WHERE tqs.query_id=? ORDER BY tqs.sequence",
+                "ON d.source_version_id=sv.id LEFT JOIN page_quality pq "
+                "ON pq.source_version_id=sv.id AND pq.page_number=c.page_start "
+                "WHERE tqs.query_id=? ORDER BY tqs.sequence",
                 (query_id,),
             ).fetchall()
         # Public projection is sanitised again so historical rows created before
@@ -1037,6 +1381,13 @@ class EducationalTeacherService:
                     extraction_quality=item["extraction_quality"],
                     content_role=item["content_role"],
                     retrieval_score=max(0, item["retrieval_score"]),
+                    pedagogical_role=item["pedagogical_role"],
+                    evidence_origin=(
+                        "core"
+                        if str(item["pedagogical_role"]).startswith("core_")
+                        else "supplementary"
+                    ),
+                    page_quality=item["page_quality"],
                 )
                 for index, item in enumerate(source_rows)
             ],
@@ -1049,8 +1400,14 @@ class EducationalTeacherService:
                 generation_ms=int(timings_raw.get("generation_ms", 0)),
                 validation_ms=int(timings_raw.get("validation_ms", 0)),
                 total_ms=int(timings_raw.get("total_ms", 0)),
+                embedding_ms=int(timings_raw.get("embedding_ms", 0)),
+                model_selection_ms=int(timings_raw.get("model_selection_ms", 0)),
             ),
             created_at=row["created_at"],
+            failure_reason=row["failure_reason"],
+            models=json_load(row["models_json"], {}),
+            cache_hit=bool(row["cache_hit"]),
+            answer_verified=True,
         )
 
     def list_conversations(self, *, limit: int = 20) -> list[TeacherConversationSummary]:
