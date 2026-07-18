@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import sqlite3
+import subprocess
 import zipfile
 from collections import Counter
 from datetime import UTC, datetime
@@ -29,6 +30,7 @@ from .schemas import (
     LibrarySummary,
     ProcessingState,
     ScanSummary,
+    SemanticIndexSummary,
     SourceRead,
     SourceStatus,
     SourceUpdateRequest,
@@ -794,21 +796,64 @@ class EducationalLibraryService:
         temporary.write_text(payload + "\n", encoding="utf-8")
         temporary.replace(destination)
 
-    def capabilities(self, *, ollama_available: bool = False) -> LibraryCapabilities:
+    @staticmethod
+    def _tesseract_languages() -> list[str]:
+        executable = shutil.which("tesseract")
+        if not executable:
+            return []
+        try:
+            result = subprocess.run(
+                [executable, "--list-langs"],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return sorted(
+            line.strip()
+            for line in result.stdout.splitlines()[1:]
+            if line.strip() and len(line.strip()) <= 20
+        )
+
+    def capabilities(
+        self,
+        *,
+        ollama_available: bool = False,
+        installed_models: list[str] | None = None,
+    ) -> LibraryCapabilities:
         embedding_model = self.settings.educational_library_embedding_model.strip() or None
+        installed_models = sorted(set(installed_models or []))
+        vision_model = self.settings.educational_library_vision_model.strip()
         return LibraryCapabilities(
             fts5=True,
             pdftotext=shutil.which("pdftotext") is not None,
             ffprobe=shutil.which("ffprobe") is not None,
             transcription_backend=None,
             transcription_model=None,
-            semantic_available=bool(embedding_model and ollama_available),
+            semantic_available=bool(
+                embedding_model and ollama_available and embedding_model in installed_models
+            ),
             embedding_provider="ollama" if embedding_model else None,
             embedding_model=embedding_model,
             ollama_available=ollama_available,
+            pdftoppm=shutil.which("pdftoppm") is not None,
+            tesseract=shutil.which("tesseract") is not None,
+            ocrmypdf=shutil.which("ocrmypdf") is not None,
+            tesseract_languages=self._tesseract_languages(),
+            vision_available=bool(
+                ollama_available and vision_model and vision_model in installed_models
+            ),
+            installed_models=installed_models,
         )
 
-    def summary(self, *, ollama_available: bool = False) -> LibrarySummary:
+    def summary(
+        self,
+        *,
+        ollama_available: bool = False,
+        installed_models: list[str] | None = None,
+    ) -> LibrarySummary:
         with self.database.connect() as connection:
             source = connection.execute(
                 "SELECT count(*) total,coalesce(sum(size_bytes),0) bytes,"
@@ -833,6 +878,35 @@ class EducationalLibraryService:
             inventory_row = connection.execute(
                 "SELECT report_json FROM inventory_reports ORDER BY generated_at DESC LIMIT 1"
             ).fetchone()
+            embedding_model = self.settings.educational_library_embedding_model.strip()
+            semantic = connection.execute(
+                "SELECT count(DISTINCT CASE WHEN e.status='indexed' "
+                "AND e.source_version_id=c.source_version_id "
+                "AND e.normalization_version='embedding-text.v1' THEN c.id END) indexed_count,"
+                "count(DISTINCT CASE WHEN e.status='failed' THEN c.id END) failed_count,"
+                "count(DISTINCT CASE WHEN e.chunk_id IS NOT NULL AND (e.status='stale' "
+                "OR coalesce(e.source_version_id,-1)!=c.source_version_id "
+                "OR e.normalization_version!='embedding-text.v1') THEN c.id END) stale_count,"
+                "max(CASE WHEN e.status='indexed' THEN e.dimension END) dimension,"
+                "max(CASE WHEN e.status='indexed' THEN e.model_digest END) model_digest "
+                "FROM chunks c JOIN source_versions sv ON sv.id=c.source_version_id "
+                "JOIN sources s ON s.id=sv.source_id LEFT JOIN embeddings e ON e.chunk_id=c.id "
+                "AND e.provider='ollama' AND e.model=? WHERE sv.id=s.current_version_id "
+                "AND s.status='present' AND s.excluded=0",
+                (embedding_model,),
+            ).fetchone()
+            eligible = connection.execute(
+                "SELECT count(*) FROM chunks c JOIN source_versions sv ON sv.id=c.source_version_id "
+                "JOIN sources s ON s.id=sv.source_id WHERE sv.id=s.current_version_id "
+                "AND s.status='present' AND s.excluded=0 AND length(trim(c.text))>=20 "
+                "AND c.content_role NOT IN ('solution','index')"
+            ).fetchone()[0]
+            excluded = connection.execute(
+                "SELECT count(*) FROM chunks c JOIN source_versions sv ON sv.id=c.source_version_id "
+                "JOIN sources s ON s.id=sv.source_id WHERE sv.id=s.current_version_id "
+                "AND s.status='present' AND s.excluded=0 AND (length(trim(c.text))<20 "
+                "OR c.content_role IN ('solution','index'))"
+            ).fetchone()[0]
         return LibrarySummary(
             materials_root=str(self.root),
             runtime_root=str(self.runtime),
@@ -852,7 +926,20 @@ class EducationalLibraryService:
             knowledge_units=knowledge,
             knowledge_by_status={row["status"]: row["total"] for row in knowledge_rows},
             jobs_by_status={row["state"]: row["total"] for row in job_rows},
-            capabilities=self.capabilities(ollama_available=ollama_available),
+            capabilities=self.capabilities(
+                ollama_available=ollama_available, installed_models=installed_models
+            ),
+            semantic_index=SemanticIndexSummary(
+                model=embedding_model or None,
+                model_digest=semantic["model_digest"],
+                indexed=int(semantic["indexed_count"] or 0),
+                pending=max(0, int(eligible or 0) - int(semantic["indexed_count"] or 0)),
+                failed=int(semantic["failed_count"] or 0),
+                stale=int(semantic["stale_count"] or 0),
+                excluded=int(excluded or 0),
+                dimension=semantic["dimension"],
+                normalization_version="embedding-text.v1",
+            ),
             latest_inventory=InventoryReport.model_validate_json(inventory_row["report_json"])
             if inventory_row
             else None,
@@ -880,23 +967,37 @@ class EducationalLibraryService:
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             parameters.extend([f"%{escaped}%", f"%{escaped}%"])
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
-        parameters.extend([limit, offset])
+        embedding_model = self.settings.educational_library_embedding_model.strip()
+        query_parameters = [embedding_model, embedding_model, *parameters, limit, offset]
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT s.*,coalesce(sv.version_number,0) current_version FROM sources s "
+                "SELECT s.*,coalesce(sv.version_number,0) current_version,"
+                "(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id=c.id "
+                "WHERE c.source_version_id=s.current_version_id AND e.model=? "
+                "AND e.status='indexed') semantic_indexed_chunks,"
+                "(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id=c.id "
+                "WHERE c.source_version_id=s.current_version_id AND e.model=? "
+                "AND e.status='failed') semantic_failed_chunks FROM sources s "
                 "LEFT JOIN source_versions sv ON sv.id=s.current_version_id"
                 + where
                 + " ORDER BY s.priority DESC,s.name COLLATE NOCASE LIMIT ? OFFSET ?",
-                parameters,
+                query_parameters,
             ).fetchall()
         return [self._source_read(row) for row in rows]
 
     def get_source(self, source_id: str) -> SourceRead:
+        embedding_model = self.settings.educational_library_embedding_model.strip()
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT s.*,coalesce(sv.version_number,0) current_version FROM sources s "
+                "SELECT s.*,coalesce(sv.version_number,0) current_version,"
+                "(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id=c.id "
+                "WHERE c.source_version_id=s.current_version_id AND e.model=? "
+                "AND e.status='indexed') semantic_indexed_chunks,"
+                "(SELECT count(*) FROM chunks c JOIN embeddings e ON e.chunk_id=c.id "
+                "WHERE c.source_version_id=s.current_version_id AND e.model=? "
+                "AND e.status='failed') semantic_failed_chunks FROM sources s "
                 "LEFT JOIN source_versions sv ON sv.id=s.current_version_id WHERE s.id=?",
-                (source_id,),
+                (embedding_model, embedding_model, source_id),
             ).fetchone()
         if not row:
             raise LibraryNotFoundError("La fuente no existe.")
@@ -976,6 +1077,19 @@ class EducationalLibraryService:
             "language": lambda value: value,
             "cefr_level": lambda value: value,
             "topics": json_dump,
+            "canonical_title": lambda value: value,
+            "display_alias": lambda value: value,
+            "author": lambda value: value,
+            "publisher": lambda value: value,
+            "edition": lambda value: value,
+            "cefr_min": lambda value: value,
+            "cefr_max": lambda value: value,
+            "pedagogical_role": lambda value: value.value,
+            "editorial_status": lambda value: value.value,
+            "metadata_origin": lambda value: value.value,
+            "metadata_confidence": lambda value: value,
+            "editorial_notes": lambda value: value,
+            "related_source_id": lambda value: value,
         }
         columns = {"topics": "topics_json"}
         assignments: list[str] = []
@@ -1060,6 +1174,23 @@ class EducationalLibraryService:
             first_seen_at=row["first_seen_at"],
             last_seen_at=row["last_seen_at"],
             current_version=row["current_version"],
+            canonical_title=row["canonical_title"],
+            display_alias=row["display_alias"],
+            author=row["author"],
+            publisher=row["publisher"],
+            edition=row["edition"],
+            cefr_min=row["cefr_min"],
+            cefr_max=row["cefr_max"],
+            pedagogical_role=row["pedagogical_role"],
+            source_priority=row["priority"],
+            editorial_status=row["editorial_status"],
+            user_selected_core=bool(row["user_selected_core"]),
+            metadata_origin=row["metadata_origin"],
+            metadata_confidence=row["metadata_confidence"],
+            editorial_notes=row["editorial_notes"],
+            related_source_id=row["related_source_id"],
+            semantic_indexed_chunks=row["semantic_indexed_chunks"],
+            semantic_failed_chunks=row["semantic_failed_chunks"],
         )
 
     def supported_formats(self) -> list[str]:

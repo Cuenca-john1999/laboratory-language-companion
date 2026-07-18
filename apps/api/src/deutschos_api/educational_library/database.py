@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 2
+LIBRARY_SCHEMA_VERSION = 3
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -290,6 +290,160 @@ CREATE INDEX ix_teacher_queries_created ON teacher_queries(created_at DESC);
 CREATE INDEX ix_teacher_query_sources_chunk ON teacher_query_sources(chunk_id);
 """
 
+_MIGRATION_0003 = """
+ALTER TABLE sources ADD COLUMN canonical_title TEXT;
+ALTER TABLE sources ADD COLUMN display_alias TEXT;
+ALTER TABLE sources ADD COLUMN edition TEXT;
+ALTER TABLE sources ADD COLUMN cefr_min TEXT;
+ALTER TABLE sources ADD COLUMN cefr_max TEXT;
+ALTER TABLE sources ADD COLUMN pedagogical_role TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE sources ADD COLUMN editorial_status TEXT NOT NULL DEFAULT 'unreviewed';
+ALTER TABLE sources ADD COLUMN user_selected_core INTEGER NOT NULL DEFAULT 0
+    CHECK(user_selected_core IN (0, 1));
+ALTER TABLE sources ADD COLUMN metadata_origin TEXT NOT NULL DEFAULT 'scanner';
+ALTER TABLE sources ADD COLUMN metadata_confidence REAL NOT NULL DEFAULT 0.5
+    CHECK(metadata_confidence BETWEEN 0 AND 1);
+ALTER TABLE sources ADD COLUMN editorial_notes TEXT;
+ALTER TABLE sources ADD COLUMN related_source_id TEXT REFERENCES sources(id);
+
+ALTER TABLE sections ADD COLUMN cefr_min TEXT;
+ALTER TABLE sections ADD COLUMN cefr_max TEXT;
+ALTER TABLE sections ADD COLUMN topic TEXT;
+ALTER TABLE sections ADD COLUMN extraction_method TEXT NOT NULL DEFAULT 'source_extractor';
+ALTER TABLE sections ADD COLUMN provenance_confidence REAL NOT NULL DEFAULT 0.5
+    CHECK(provenance_confidence BETWEEN 0 AND 1);
+ALTER TABLE sections ADD COLUMN editorial_status TEXT NOT NULL DEFAULT 'system_suggested';
+
+ALTER TABLE embeddings ADD COLUMN source_version_id INTEGER REFERENCES source_versions(id);
+ALTER TABLE embeddings ADD COLUMN model_digest TEXT;
+ALTER TABLE embeddings ADD COLUMN text_hash TEXT;
+ALTER TABLE embeddings ADD COLUMN normalization_version TEXT NOT NULL DEFAULT 'embedding-text.v1';
+ALTER TABLE embeddings ADD COLUMN chunk_quality REAL NOT NULL DEFAULT 1
+    CHECK(chunk_quality BETWEEN 0 AND 1);
+ALTER TABLE embeddings ADD COLUMN status TEXT NOT NULL DEFAULT 'indexed';
+ALTER TABLE embeddings ADD COLUMN error_code TEXT;
+ALTER TABLE embeddings ADD COLUMN error_detail TEXT;
+ALTER TABLE embeddings ADD COLUMN updated_at TEXT;
+
+UPDATE embeddings
+SET source_version_id=(SELECT source_version_id FROM chunks WHERE chunks.id=embeddings.chunk_id),
+    text_hash=(SELECT content_hash FROM chunks WHERE chunks.id=embeddings.chunk_id),
+    updated_at=created_at
+WHERE source_version_id IS NULL OR text_hash IS NULL OR updated_at IS NULL;
+
+ALTER TABLE teacher_queries ADD COLUMN failure_reason TEXT;
+ALTER TABLE teacher_queries ADD COLUMN models_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE teacher_queries ADD COLUMN cache_hit INTEGER NOT NULL DEFAULT 0
+    CHECK(cache_hit IN (0, 1));
+ALTER TABLE teacher_queries ADD COLUMN stream_status TEXT NOT NULL DEFAULT 'complete';
+
+CREATE TABLE source_editorial_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(source_id, operation_id)
+);
+
+CREATE TABLE editorial_sections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    stable_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    page_start INTEGER NOT NULL CHECK(page_start > 0),
+    page_end INTEGER NOT NULL CHECK(page_end >= page_start),
+    cefr_min TEXT,
+    cefr_max TEXT,
+    topic TEXT,
+    content_role TEXT NOT NULL DEFAULT 'other',
+    derivation_method TEXT NOT NULL,
+    provenance_confidence REAL NOT NULL CHECK(provenance_confidence BETWEEN 0 AND 1),
+    editorial_status TEXT NOT NULL DEFAULT 'system_suggested',
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source_version_id, stable_key)
+);
+
+CREATE TABLE editorial_section_links (
+    source_section_id INTEGER NOT NULL REFERENCES editorial_sections(id) ON DELETE CASCADE,
+    target_section_id INTEGER NOT NULL REFERENCES editorial_sections(id) ON DELETE CASCADE,
+    relation TEXT NOT NULL,
+    editorial_status TEXT NOT NULL DEFAULT 'system_suggested',
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(source_section_id, target_section_id, relation),
+    CHECK(source_section_id != target_section_id)
+);
+
+CREATE TABLE page_quality (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    page_number INTEGER NOT NULL CHECK(page_number > 0),
+    extraction_method TEXT NOT NULL,
+    character_count INTEGER NOT NULL DEFAULT 0 CHECK(character_count >= 0),
+    detected_language TEXT,
+    text_density REAL NOT NULL DEFAULT 0 CHECK(text_density >= 0),
+    replacement_ratio REAL NOT NULL DEFAULT 0 CHECK(replacement_ratio BETWEEN 0 AND 1),
+    weird_character_ratio REAL NOT NULL DEFAULT 0 CHECK(weird_character_ratio BETWEEN 0 AND 1),
+    repeated_line_ratio REAL NOT NULL DEFAULT 0 CHECK(repeated_line_ratio BETWEEN 0 AND 1),
+    ordering_warning INTEGER NOT NULL DEFAULT 0 CHECK(ordering_warning IN (0, 1)),
+    columns_warning INTEGER NOT NULL DEFAULT 0 CHECK(columns_warning IN (0, 1)),
+    tables_warning INTEGER NOT NULL DEFAULT 0 CHECK(tables_warning IN (0, 1)),
+    damaged_german_ratio REAL NOT NULL DEFAULT 0 CHECK(damaged_german_ratio BETWEEN 0 AND 1),
+    quality TEXT NOT NULL,
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    review_status TEXT NOT NULL DEFAULT 'unreviewed',
+    reviewed_variant_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source_version_id, page_number)
+);
+
+CREATE TABLE page_extraction_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    page_number INTEGER NOT NULL CHECK(page_number > 0),
+    method TEXT NOT NULL,
+    method_version TEXT NOT NULL,
+    text TEXT NOT NULL,
+    text_hash TEXT NOT NULL,
+    quality_score REAL NOT NULL CHECK(quality_score BETWEEN 0 AND 1),
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    UNIQUE(source_version_id, page_number, method, method_version, text_hash)
+);
+
+CREATE TABLE library_cache (
+    namespace TEXT NOT NULL,
+    cache_key TEXT NOT NULL,
+    value_json TEXT NOT NULL,
+    source_fingerprint TEXT NOT NULL,
+    model TEXT,
+    model_digest TEXT,
+    prompt_version TEXT,
+    config_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT,
+    PRIMARY KEY(namespace, cache_key)
+);
+
+CREATE INDEX ix_sources_pedagogical_role
+    ON sources(pedagogical_role, editorial_status, user_selected_core);
+CREATE INDEX ix_editorial_sections_source
+    ON editorial_sections(source_version_id, page_start, page_end);
+CREATE INDEX ix_page_quality_source
+    ON page_quality(source_version_id, quality, page_number);
+CREATE INDEX ix_page_variants_source
+    ON page_extraction_variants(source_version_id, page_number);
+CREATE INDEX ix_embeddings_validity
+    ON embeddings(provider, model, model_version, status, text_hash);
+CREATE INDEX ix_library_cache_expiry ON library_cache(namespace, expires_at);
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -316,6 +470,9 @@ class LibraryDatabase:
                 current = 1
             if current < 2:
                 self._apply_migration(connection, 2, _MIGRATION_0002)
+                current = 2
+            if current < 3:
+                self._apply_migration(connection, 3, _MIGRATION_0003)
             return self._current_version(connection)
 
     @staticmethod

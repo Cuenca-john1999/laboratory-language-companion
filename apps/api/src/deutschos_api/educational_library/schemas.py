@@ -79,6 +79,32 @@ class SourceKind(StrEnum):
     UNKNOWN = "unknown"
 
 
+class PedagogicalRole(StrEnum):
+    CORE_THEORY = "core_theory"
+    CORE_WORKBOOK = "core_workbook"
+    CORE_ANSWER_KEY = "core_answer_key"
+    SUPPLEMENTARY = "supplementary"
+    REFERENCE = "reference"
+    GLOSSARY = "glossary"
+    ANSWER_KEY = "answer_key"
+    UNKNOWN = "unknown"
+
+
+class EditorialStatus(StrEnum):
+    UNREVIEWED = "unreviewed"
+    USER_CONFIRMED = "user_confirmed"
+    SYSTEM_SUGGESTED = "system_suggested"
+    REJECTED = "rejected"
+
+
+class MetadataOrigin(StrEnum):
+    SCANNER = "scanner"
+    DOCUMENT_METADATA = "document_metadata"
+    CONTENT_INSPECTION = "content_inspection"
+    FILENAME = "filename"
+    USER = "user"
+
+
 class TeacherIntent(StrEnum):
     DEFINITION = "definition"
     DIFFERENCE = "difference"
@@ -107,6 +133,21 @@ class EvidenceConfidence(StrEnum):
 class TeacherQueryStatus(StrEnum):
     COMPLETED = "completed"
     INSUFFICIENT = "insufficient"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"
+
+
+class TeacherFailureReason(StrEnum):
+    NO_EVIDENCE = "no_evidence"
+    WEAK_EVIDENCE = "weak_evidence"
+    RETRIEVAL_FAILURE = "retrieval_failure"
+    MODEL_UNAVAILABLE = "model_unavailable"
+    GENERATION_FAILURE = "generation_failure"
+    CITATION_VALIDATION_FAILURE = "citation_validation_failure"
+    REPAIR_FAILURE = "repair_failure"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
 
 
 class ExtractedSection(APIModel):
@@ -201,6 +242,24 @@ class LibraryCapabilities(APIModel):
     embedding_provider: str | None = None
     embedding_model: str | None = None
     ollama_available: bool = False
+    pdftoppm: bool = False
+    tesseract: bool = False
+    ocrmypdf: bool = False
+    tesseract_languages: list[str] = Field(default_factory=list)
+    vision_available: bool = False
+    installed_models: list[str] = Field(default_factory=list)
+
+
+class SemanticIndexSummary(APIModel):
+    model: str | None
+    model_digest: str | None
+    indexed: int = Field(ge=0)
+    pending: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    stale: int = Field(ge=0)
+    excluded: int = Field(ge=0)
+    dimension: int | None = Field(default=None, ge=1)
+    normalization_version: str
 
 
 class LibrarySummary(APIModel):
@@ -223,6 +282,7 @@ class LibrarySummary(APIModel):
     knowledge_by_status: dict[str, int]
     jobs_by_status: dict[str, int]
     capabilities: LibraryCapabilities
+    semantic_index: SemanticIndexSummary
     latest_inventory: InventoryReport | None = None
 
 
@@ -248,6 +308,48 @@ class SourceRead(APIModel):
     first_seen_at: datetime
     last_seen_at: datetime
     current_version: int
+    canonical_title: str | None
+    display_alias: str | None
+    author: str | None
+    publisher: str | None
+    edition: str | None
+    cefr_min: str | None
+    cefr_max: str | None
+    pedagogical_role: PedagogicalRole
+    source_priority: int
+    editorial_status: EditorialStatus
+    user_selected_core: bool
+    metadata_origin: MetadataOrigin
+    metadata_confidence: float = Field(ge=0, le=1)
+    editorial_notes: str | None
+    related_source_id: str | None
+    semantic_indexed_chunks: int = Field(default=0, ge=0)
+    semantic_failed_chunks: int = Field(default=0, ge=0)
+
+
+class CoreSourceCandidate(APIModel):
+    source: SourceRead
+    suggested_role: PedagogicalRole | None
+    confidence: float = Field(ge=0, le=1)
+    evidence: list[str] = Field(default_factory=list, max_length=10)
+    unambiguous: bool = False
+
+
+class CoreSourceAssignmentRequest(APIModel):
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    pedagogical_role: Literal["core_theory", "core_workbook", "core_answer_key"]
+    display_alias: str | None = Field(default=None, min_length=1, max_length=300)
+    canonical_title: str | None = Field(default=None, min_length=1, max_length=500)
+    related_source_id: str | None = Field(default=None, min_length=8, max_length=100)
+    editorial_notes: str | None = Field(default=None, max_length=2_000)
+
+
+class CoreSourcePairRead(APIModel):
+    theory: SourceRead | None
+    workbook: SourceRead | None
+    answer_key: SourceRead | None
+    candidates: list[CoreSourceCandidate]
+    ready: bool
 
 
 class SourceVersionRead(APIModel):
@@ -290,6 +392,19 @@ class SearchResult(ChunkRead):
     semantic_score: float | None = None
     combined_score: float
     snippet: str
+    pedagogical_role: PedagogicalRole = PedagogicalRole.UNKNOWN
+    source_priority: int = 0
+    extraction_quality: float = Field(default=0, ge=0, le=1)
+    page_quality: str | None = None
+    retrieval_origins: list[str] = Field(default_factory=list)
+
+
+class SearchTimings(APIModel):
+    fts_ms: int = Field(default=0, ge=0)
+    query_embedding_ms: int = Field(default=0, ge=0)
+    vector_ms: int = Field(default=0, ge=0)
+    ranking_ms: int = Field(default=0, ge=0)
+    total_ms: int = Field(default=0, ge=0)
 
 
 class SearchResponse(APIModel):
@@ -299,6 +414,10 @@ class SearchResponse(APIModel):
     semantic_available: bool
     results: list[SearchResult]
     warning: str | None = None
+    core_results: int = Field(default=0, ge=0)
+    supplementary_results: int = Field(default=0, ge=0)
+    query_embedding_cache_hit: bool = False
+    timings: SearchTimings = Field(default_factory=SearchTimings)
 
 
 class KnowledgeCitation(APIModel):
@@ -483,6 +602,9 @@ class TeacherSourceRead(APIModel):
     extraction_quality: float = Field(ge=0, le=1)
     content_role: str
     retrieval_score: float = Field(ge=0)
+    pedagogical_role: PedagogicalRole = PedagogicalRole.UNKNOWN
+    evidence_origin: Literal["core", "supplementary"] = "supplementary"
+    page_quality: str | None = None
 
 
 class TeacherTimings(APIModel):
@@ -491,6 +613,12 @@ class TeacherTimings(APIModel):
     generation_ms: int = Field(ge=0)
     validation_ms: int = Field(ge=0)
     total_ms: int = Field(ge=0)
+    embedding_ms: int = Field(default=0, ge=0)
+    model_selection_ms: int = Field(default=0, ge=0)
+    fts_ms: int = Field(default=0, ge=0)
+    vector_ms: int = Field(default=0, ge=0)
+    ranking_ms: int = Field(default=0, ge=0)
+    repair_ms: int = Field(default=0, ge=0)
 
 
 class TeacherAskRequest(APIModel):
@@ -523,6 +651,19 @@ class TeacherQueryRead(APIModel):
     semantic_search_available: bool
     timings: TeacherTimings
     created_at: datetime
+    failure_reason: TeacherFailureReason | None = None
+    models: dict[str, str] = Field(default_factory=dict)
+    cache_hit: bool = False
+    answer_verified: bool = True
+
+
+class TeacherStreamEvent(APIModel):
+    event: Literal[
+        "accepted", "planning", "retrieving", "generating", "provisional", "verified", "error"
+    ]
+    message: str
+    query: TeacherQueryRead | None = None
+    failure_reason: TeacherFailureReason | None = None
 
 
 class TeacherConversationSummary(APIModel):
@@ -564,6 +705,19 @@ class SourceUpdateRequest(APIModel):
     language: str | None = Field(default=None, max_length=20)
     cefr_level: str | None = Field(default=None, max_length=20)
     topics: list[str] | None = Field(default=None, max_length=30)
+    canonical_title: str | None = Field(default=None, max_length=500)
+    display_alias: str | None = Field(default=None, max_length=300)
+    author: str | None = Field(default=None, max_length=500)
+    publisher: str | None = Field(default=None, max_length=500)
+    edition: str | None = Field(default=None, max_length=200)
+    cefr_min: str | None = Field(default=None, max_length=20)
+    cefr_max: str | None = Field(default=None, max_length=20)
+    pedagogical_role: PedagogicalRole | None = None
+    editorial_status: EditorialStatus | None = None
+    metadata_origin: MetadataOrigin | None = None
+    metadata_confidence: float | None = Field(default=None, ge=0, le=1)
+    editorial_notes: str | None = Field(default=None, max_length=2_000)
+    related_source_id: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def at_least_one_change(self):
@@ -596,3 +750,119 @@ class LibraryContractError(LibraryError):
 
 class LibraryProviderUnavailableError(LibraryError):
     pass
+
+
+class LibraryTeacherError(LibraryError):
+    def __init__(self, reason: TeacherFailureReason, message: str):
+        super().__init__(message)
+        self.reason = reason
+
+
+class EditorialSectionRead(APIModel):
+    id: int
+    source_version_id: int
+    stable_key: str
+    title: str
+    page_start: int
+    page_end: int
+    cefr_min: str | None
+    cefr_max: str | None
+    topic: str | None
+    content_role: str
+    derivation_method: str
+    provenance_confidence: float = Field(ge=0, le=1)
+    editorial_status: EditorialStatus
+    notes: str | None
+    related_sections: list[int] = Field(default_factory=list)
+
+
+class EditorialSectionUpdate(APIModel):
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    cefr_min: str | None = Field(default=None, max_length=20)
+    cefr_max: str | None = Field(default=None, max_length=20)
+    topic: str | None = Field(default=None, max_length=200)
+    content_role: str | None = Field(default=None, max_length=50)
+    editorial_status: EditorialStatus | None = None
+    notes: str | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def valid_range(self):
+        if self.page_start is not None and self.page_end is not None:
+            if self.page_end < self.page_start:
+                raise ValueError("page_end must be greater than or equal to page_start")
+        if not self.model_fields_set:
+            raise ValueError("at least one section field must be provided")
+        return self
+
+
+class EditorialSectionLinkRequest(APIModel):
+    target_section_id: int = Field(ge=1)
+    relation: Literal["theory_to_practice", "practice_to_theory", "continues", "related"]
+    editorial_status: EditorialStatus = EditorialStatus.USER_CONFIRMED
+
+
+class PageQualityRead(APIModel):
+    id: int
+    source_version_id: int
+    page_number: int
+    extraction_method: str
+    character_count: int
+    detected_language: str | None
+    text_density: float
+    replacement_ratio: float
+    weird_character_ratio: float
+    repeated_line_ratio: float
+    ordering_warning: bool
+    columns_warning: bool
+    tables_warning: bool
+    damaged_german_ratio: float
+    quality: Literal["good", "acceptable", "poor", "unusable"]
+    warnings: list[str]
+    review_status: str
+    reviewed_variant_id: int | None
+
+
+class PageVariantRead(APIModel):
+    id: int
+    source_version_id: int
+    page_number: int
+    method: str
+    method_version: str
+    text_preview: str
+    text_hash: str
+    quality_score: float = Field(ge=0, le=1)
+    warnings: list[str]
+    provenance: dict[str, JsonValue]
+    created_at: datetime
+
+
+class PageReprocessRequest(APIModel):
+    method: Literal["pdftotext", "ocr", "vision"]
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class PageVariantReviewRequest(APIModel):
+    variant_id: int = Field(ge=1)
+
+
+class SemanticIndexRequest(APIModel):
+    batch_size: int = Field(default=16, ge=1, le=64)
+    limit: int | None = Field(default=None, ge=1, le=100_000)
+    core_first: bool = True
+
+
+class ModelRoleRead(APIModel):
+    role: Literal["planner", "embedding", "teacher", "fallback", "vision", "repair"]
+    configured_model: str
+    available: bool
+    selected_model: str | None
+    fallback_models: list[str] = Field(default_factory=list)
+
+
+class ModelRoutingRead(APIModel):
+    ollama_available: bool
+    installed_models: list[str]
+    roles: list[ModelRoleRead]
+    policy_version: str

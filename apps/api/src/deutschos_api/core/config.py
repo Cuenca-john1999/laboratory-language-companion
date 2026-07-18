@@ -21,7 +21,17 @@ class Settings(BaseSettings):
     educational_library_runtime_dir: Path = PROJECT_ROOT / "var" / "educational-library"
     educational_library_scan_on_startup: bool = True
     educational_library_scan_interval_seconds: int = 900
-    educational_library_embedding_model: str = ""
+    educational_library_embedding_model: str = "qwen3-embedding:0.6b"
+    educational_library_planner_model: str = "qwen3.5:4b"
+    educational_library_teacher_model: str = "qwen3:14b"
+    educational_library_fallback_model: str = "qwen3.5:27b"
+    educational_library_vision_model: str = "qwen3-vl:8b"
+    educational_library_repair_model: str = "qwen3.5:4b"
+    educational_library_model_keep_alive: str = "5m"
+    educational_library_planner_timeout_seconds: float = 45
+    educational_library_teacher_timeout_seconds: float = 180
+    educational_library_embedding_timeout_seconds: float = 120
+    educational_library_cache_ttl_seconds: int = 86_400
     educational_library_max_extract_bytes: int = 512 * 1024 * 1024
     educational_library_max_text_characters: int = 12_000_000
     educational_library_max_pdf_pages: int = 2_000
@@ -105,11 +115,23 @@ class Settings(BaseSettings):
         "educational_library_teacher_max_chunks",
         "educational_library_teacher_max_chunks_per_source",
         "educational_library_teacher_max_context_characters",
+        "educational_library_cache_ttl_seconds",
     )
     @classmethod
     def positive_library_limit(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("educational library limits must be positive")
+        return value
+
+    @field_validator(
+        "educational_library_planner_timeout_seconds",
+        "educational_library_teacher_timeout_seconds",
+        "educational_library_embedding_timeout_seconds",
+    )
+    @classmethod
+    def safe_model_timeout(cls, value: float) -> float:
+        if value < 1 or value > 600:
+            raise ValueError("library model timeouts must be between 1 and 600 seconds")
         return value
 
     @model_validator(mode="after")
