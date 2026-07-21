@@ -176,6 +176,14 @@ export const createStudyNote = (payload: Record<string, unknown>) =>
     method: "POST",
     body: JSON.stringify(payload),
   });
+export const updateStudyNote = (
+  noteId: string,
+  payload: Record<string, unknown>,
+) =>
+  api<StudyNote>(`/api/study/notes/${noteId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 export const deleteStudyNote = (noteId: string) =>
   apiNoContent(`/api/study/notes/${noteId}`, {
     method: "DELETE",
@@ -201,10 +209,59 @@ export const updateStudyQuestion = (
     method: "PUT",
     body: JSON.stringify(payload),
   });
+export const deleteStudyQuestion = (questionId: string) =>
+  apiNoContent(`/api/study/questions/${questionId}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      operation_id: operationId("delete-question"),
+      confirmation: "BORRAR",
+    }),
+  });
 export const createStudyWorkbookLink = (payload: Record<string, unknown>) =>
   api<StudyWorkbookLink>("/api/study/workbook-links", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+export const updateStudyWorkbookLink = (
+  linkId: string,
+  payload: Record<string, unknown>,
+) =>
+  api<StudyWorkbookLink>(`/api/study/workbook-links/${linkId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+export const reviewStudyWorkbookLink = (
+  linkId: string,
+  action: "confirm" | "reject" | "unknown" | "revert",
+) =>
+  api<StudyWorkbookLink>(`/api/study/workbook-links/${linkId}/review`, {
+    method: "POST",
+    body: JSON.stringify({
+      operation_id: operationId(`workbook-${action}`),
+      action,
+    }),
+  });
+export const deleteStudySession = (sessionId: string) =>
+  apiNoContent(`/api/study/sessions/${sessionId}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      operation_id: operationId("delete-session"),
+      confirmation: "BORRAR",
+    }),
+  });
+export const deleteAllStudyData = () =>
+  api<{
+    deleted_sessions: number;
+    deleted_notes: number;
+    deleted_questions: number;
+    deleted_workbook_links: number;
+    deleted_section_states: number;
+  }>("/api/study/data", {
+    method: "DELETE",
+    body: JSON.stringify({
+      operation_id: operationId("delete-study-data"),
+      confirmation: "BORRAR",
+    }),
   });
 export const updateStudyPreferences = (mission: StudyMissionType) =>
   api<StudyPreferences>("/api/study/preferences", {

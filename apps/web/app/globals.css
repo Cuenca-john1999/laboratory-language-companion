@@ -1871,13 +1871,18 @@ textarea {
   gap: 8px;
   margin: 12px 0;
 }
-.session-plan > div span {
+.session-plan > div label {
   display: flex;
   gap: 7px;
   align-items: center;
   padding: 8px 10px;
   background: #e9e2d1;
   font-size: 12px;
+  cursor: pointer;
+}
+.session-plan > div input {
+  width: auto;
+  margin: 0;
 }
 .session-plan b {
   display: grid;
@@ -1913,6 +1918,20 @@ textarea {
 .workbook-form button {
   grid-column: 1/-1;
 }
+.workbook-details {
+  display: grid;
+  gap: 8px;
+}
+.workbook-details h3,
+.workbook-details p {
+  margin: 0;
+}
+.workbook-actions,
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
 .study-session-aside form {
   display: grid;
   gap: 9px;
@@ -1947,6 +1966,10 @@ textarea {
 .personal-items button {
   padding: 5px 7px;
 }
+.personal-items .personal-actions {
+  display: grid;
+  gap: 5px;
+}
 .session-controls {
   display: grid;
   gap: 10px;
@@ -1957,6 +1980,16 @@ textarea {
 .study-history {
   display: grid;
   gap: 0;
+}
+.history-toolbar,
+.history-danger-zone {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+}
+.history-toolbar select {
+  min-width: 180px;
 }
 .study-history > article {
   display: grid;
@@ -1981,6 +2014,15 @@ textarea {
   display: grid;
   gap: 5px;
   font-size: 12px;
+}
+.history-danger-zone {
+  align-items: center;
+  margin-top: 34px;
+  padding: 20px;
+  border: 1px solid #bd766b;
+}
+.history-danger-zone p {
+  margin: 5px 0 0;
 }
 .free-study {
   display: grid;
@@ -2040,6 +2082,11 @@ textarea {
   }
   .study-start-settings {
     display: grid;
+  }
+  .history-toolbar,
+  .history-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
   }
   .path-order {
     display: none;

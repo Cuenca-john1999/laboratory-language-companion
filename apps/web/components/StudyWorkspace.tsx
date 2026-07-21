@@ -18,18 +18,24 @@ import {
   createStudyNote,
   createStudyQuestion,
   createStudyWorkbookLink,
+  deleteAllStudyData,
   deleteStudyNote,
+  deleteStudyQuestion,
+  deleteStudySession,
   getStudyDashboard,
   getStudyHistory,
   getStudyNotes,
   getStudyPath,
   getStudyQuestions,
   operationId,
+  reviewStudyWorkbookLink,
   startStudySession,
   transitionStudySession,
+  updateStudyNote,
   updateStudyPosition,
   updateStudyPreferences,
   updateStudyQuestion,
+  updateStudyWorkbookLink,
 } from "../lib/api";
 
 type View = "dashboard" | "path" | "session" | "history" | "free";
@@ -55,6 +61,29 @@ const MISSION_LABELS: Record<StudyMissionType, string> = {
   underwater_exploration: "Expedición submarina",
   space_mission: "Operación espacial",
   mixed: "Sorpresa temática",
+};
+
+const WORKBOOK_STATUS_LABELS: Record<string, string> = {
+  candidate: "Candidato",
+  user_confirmed: "Confirmado por ti",
+  rejected: "Rechazado",
+  stale: "Pendiente de revisar",
+};
+
+const QUESTION_STATUS_LABELS: Record<string, string> = {
+  open: "Abierta",
+  clarified: "Aclarada",
+  revisit: "Volver a revisar",
+  archived: "Archivada",
+};
+
+const RESULT_LABELS: Record<string, string> = {
+  understood: "Lo he entendido",
+  needs_review: "Necesito repasarlo",
+  unfinished: "Me he quedado a medias",
+  difficult: "Este tema me cuesta",
+  continue_next_time: "Continuar la próxima vez",
+  change_topic: "Cambiaré de tema",
 };
 
 const QUICK_ACTIONS = [
@@ -103,6 +132,8 @@ export function StudyWorkspace() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [closeResult, setCloseResult] = useState("needs_review");
+  const [historyFilter, setHistoryFilter] = useState("all");
+  const [editingWorkbook, setEditingWorkbook] = useState(false);
   const [free, setFree] = useState({
     title: "",
     concept: "",
@@ -127,7 +158,13 @@ export function StudyWorkspace() {
     setPath(nextPath);
     setHistory(nextHistory);
     const current = nextDashboard.active_session;
-    setSession((existing) => current ?? existing);
+    setSession(
+      (existing) =>
+        current ??
+        (existing && nextHistory.some((item) => item.id === existing.id)
+          ? existing
+          : null),
+    );
     if (current) {
       const [nextNotes, nextQuestions] = await Promise.all([
         getStudyNotes(current.id),
@@ -160,6 +197,37 @@ export function StudyWorkspace() {
         .includes(folded),
     );
   }, [path, search]);
+
+  const filteredHistory = useMemo(() => {
+    if (historyFilter === "needs_review") {
+      return history.filter(
+        (item) => item.subjective_result === "needs_review",
+      );
+    }
+    if (historyFilter === "completed") {
+      return history.filter((item) => item.status === "completed");
+    }
+    if (historyFilter === "in_progress") {
+      return history.filter((item) =>
+        ["active", "paused", "planned"].includes(item.status),
+      );
+    }
+    if (historyFilter === "laboratory") {
+      return history.filter((item) => item.mission.type === "laboratory");
+    }
+    if (historyFilter === "thematic") {
+      return history.filter((item) => item.mission.type !== "standard");
+    }
+    return history;
+  }, [history, historyFilter]);
+
+  const currentWorkbookLink = useMemo(
+    () =>
+      path?.sections.find(
+        (item) => item.stable_key === session?.section_stable_key,
+      )?.workbook_link ?? null,
+    [path, session?.section_stable_key],
+  );
 
   const run = async (name: string, action: () => Promise<void>) => {
     setBusy(name);
@@ -285,27 +353,113 @@ export function StudyWorkspace() {
     });
   };
 
+  const editNote = (item: StudyNote) => {
+    const nextText = window.prompt("Editar nota privada", item.text);
+    if (!nextText?.trim() || nextText === item.text) return;
+    run("edit-note", async () => {
+      await updateStudyNote(item.id, {
+        operation_id: operationId("update-note"),
+        session_id: item.session_id,
+        source_id: item.source_id,
+        section_stable_key: item.section_stable_key,
+        concept_name: item.concept_name,
+        pdf_page: item.pdf_page,
+        text: nextText,
+      });
+      if (session) setNotes(await getStudyNotes(session.id));
+    });
+  };
+
+  const toggleChecklist = (stepId: string, completed: boolean) => {
+    if (!session) return;
+    const checklist = (session.plan.steps ?? []).map((step) => ({
+      id: step.id,
+      completed:
+        step.id === stepId
+          ? completed
+          : session.checklist.some(
+              (entry) =>
+                typeof entry === "object" &&
+                entry !== null &&
+                "id" in entry &&
+                "completed" in entry &&
+                entry.id === step.id &&
+                entry.completed === true,
+            ),
+    }));
+    run("checklist", async () => {
+      const next = await updateStudyPosition(session.id, {
+        operation_id: operationId("study-checklist"),
+        current_pdf_page: session.current_pdf_page,
+        printed_page_label: session.printed_page_label,
+        checklist,
+      });
+      setSession(next);
+      await refresh();
+    });
+  };
+
+  const checklistCompleted = (stepId: string) =>
+    session?.checklist.some(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "id" in entry &&
+        "completed" in entry &&
+        entry.id === stepId &&
+        entry.completed === true,
+    ) ?? false;
+
   const addWorkbook = (event: FormEvent) => {
     event.preventDefault();
     if (!session?.source_id || !session.section_stable_key || !workbook.pdfPage)
       return;
     run("workbook", async () => {
-      await createStudyWorkbookLink({
+      const fields = {
         operation_id: operationId("study-workbook"),
-        theory_source_id: session.source_id,
-        theory_section_stable_key: session.section_stable_key,
         workbook_pdf_page: Number(workbook.pdfPage),
         printed_page_label: workbook.printedPage || null,
         exercise_start: workbook.exerciseStart || null,
         exercise_end: workbook.exerciseEnd || null,
         region: "unknown",
-      });
+      };
+      if (currentWorkbookLink) {
+        await updateStudyWorkbookLink(currentWorkbookLink.id, fields);
+      } else {
+        await createStudyWorkbookLink({
+          ...fields,
+          theory_source_id: session.source_id,
+          theory_section_stable_key: session.section_stable_key,
+        });
+      }
       setWorkbook({
         pdfPage: "",
         printedPage: "",
         exerciseStart: "",
         exerciseEnd: "",
       });
+      setEditingWorkbook(false);
+      await refresh();
+    });
+  };
+
+  const editWorkbook = () => {
+    if (!currentWorkbookLink) return;
+    setWorkbook({
+      pdfPage: String(currentWorkbookLink.workbook_pdf_page),
+      printedPage: currentWorkbookLink.printed_page_label ?? "",
+      exerciseStart: currentWorkbookLink.exercise_start ?? "",
+      exerciseEnd: currentWorkbookLink.exercise_end ?? "",
+    });
+    setEditingWorkbook(true);
+  };
+
+  const reviewWorkbook = (
+    action: "confirm" | "reject" | "unknown" | "revert",
+  ) => {
+    if (!currentWorkbookLink) return;
+    run(`workbook-${action}`, async () => {
+      await reviewStudyWorkbookLink(currentWorkbookLink.id, action);
       await refresh();
     });
   };
@@ -415,7 +569,24 @@ export function StudyWorkspace() {
                     PDF p.{" "}
                     {dashboard.active_session.current_pdf_page ?? "sin indicar"}
                   </span>
+                  <span>
+                    {dashboard.active_session.printed_page_label
+                      ? `Libro p. ${dashboard.active_session.printed_page_label}`
+                      : "Libro sin página identificada"}
+                  </span>
                   <span>{STATUS_LABELS[dashboard.active_session.status]}</span>
+                  <span>
+                    Última actividad:{" "}
+                    {dateLabel(dashboard.active_session.updated_at)}
+                  </span>
+                  <span>
+                    {currentWorkbookLink
+                      ? `Workbook PDF p. ${currentWorkbookLink.workbook_pdf_page}`
+                      : "Workbook sin vincular"}
+                  </span>
+                  <span>
+                    {notes.length} nota(s) · {questions.length} duda(s)
+                  </span>
                 </div>
               </div>
               <button
@@ -574,6 +745,11 @@ export function StudyWorkspace() {
                     {item.open_questions ? (
                       <span>{item.open_questions} duda(s)</span>
                     ) : null}
+                    {item.last_activity_at ? (
+                      <span>
+                        Última sesión: {dateLabel(item.last_activity_at)}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <div className="path-action">
@@ -647,10 +823,18 @@ export function StudyWorkspace() {
                 <p className="eyebrow">PLAN LIGERO</p>
                 <div>
                   {session.plan.steps?.map((step, index) => (
-                    <span key={step.id}>
+                    <label key={step.id}>
+                      <input
+                        type="checkbox"
+                        checked={checklistCompleted(step.id)}
+                        onChange={(event) =>
+                          toggleChecklist(step.id, event.target.checked)
+                        }
+                        disabled={busy === "checklist"}
+                      />
                       <b>{index + 1}</b>
-                      {step.label}
-                    </span>
+                      <span>{step.label}</span>
+                    </label>
                   ))}
                 </div>
                 <small>
@@ -695,27 +879,81 @@ export function StudyWorkspace() {
 
               <article className="workbook-card">
                 <p className="eyebrow">PRÁCTICA RELACIONADA</p>
-                {path.sections.find(
-                  (item) => item.stable_key === session.section_stable_key,
-                )?.workbook_link ? (
-                  <p>
-                    Herder · Ejercicios y soluciones · PDF p.{" "}
-                    {
-                      path.sections.find(
-                        (item) =>
-                          item.stable_key === session.section_stable_key,
-                      )?.workbook_link?.workbook_pdf_page
-                    }
-                  </p>
+                {currentWorkbookLink && !editingWorkbook ? (
+                  <div className="workbook-details">
+                    <h3>Herder · Ejercicios y soluciones</h3>
+                    <p>
+                      PDF p. {currentWorkbookLink.workbook_pdf_page}
+                      {currentWorkbookLink.printed_page_label
+                        ? ` · libro p. ${currentWorkbookLink.printed_page_label}`
+                        : ""}
+                    </p>
+                    <p>
+                      {currentWorkbookLink.exercise_start
+                        ? `Ejercicios ${currentWorkbookLink.exercise_start}${
+                            currentWorkbookLink.exercise_end
+                              ? `–${currentWorkbookLink.exercise_end}`
+                              : ""
+                          }`
+                        : "Ejercicios todavía sin indicar"}
+                    </p>
+                    <p>
+                      Estado:{" "}
+                      <strong>
+                        {WORKBOOK_STATUS_LABELS[currentWorkbookLink.status]}
+                      </strong>
+                    </p>
+                    <div className="workbook-actions">
+                      <button onClick={editWorkbook} type="button">
+                        Corregir vínculo
+                      </button>
+                      {currentWorkbookLink.status !== "user_confirmed" ? (
+                        <button
+                          onClick={() => reviewWorkbook("confirm")}
+                          type="button"
+                        >
+                          Confirmar
+                        </button>
+                      ) : null}
+                      {currentWorkbookLink.status !== "rejected" ? (
+                        <button
+                          onClick={() => reviewWorkbook("reject")}
+                          type="button"
+                        >
+                          Rechazar
+                        </button>
+                      ) : null}
+                      <button
+                        onClick={() => reviewWorkbook("unknown")}
+                        type="button"
+                      >
+                        No lo sé
+                      </button>
+                      {currentWorkbookLink.reviewed_at ? (
+                        <button
+                          onClick={() => reviewWorkbook("revert")}
+                          type="button"
+                        >
+                          Revertir revisión
+                        </button>
+                      ) : null}
+                    </div>
+                    <small>
+                      Las soluciones permanecen ocultas y no se consultan
+                      automáticamente.
+                    </small>
+                  </div>
                 ) : (
                   <>
                     <h3>
-                      Todavía no hemos identificado los ejercicios de esta
-                      sección.
+                      {currentWorkbookLink
+                        ? "Corrige la referencia de práctica"
+                        : "Todavía no hemos identificado los ejercicios de esta sección."}
                     </h3>
                     <p>
-                      Puedes continuar sin workbook o registrar una relación
-                      manual.
+                      {currentWorkbookLink
+                        ? "La corrección queda auditada y no cambia la teoría principal."
+                        : "Puedes continuar sin workbook o registrar una relación manual."}
                     </p>
                     <form onSubmit={addWorkbook} className="workbook-form">
                       <label>
@@ -768,7 +1006,19 @@ export function StudyWorkspace() {
                           }
                         />
                       </label>
-                      <button type="submit">Guardar como candidata</button>
+                      <button type="submit">
+                        {currentWorkbookLink
+                          ? "Guardar corrección"
+                          : "Guardar como candidata"}
+                      </button>
+                      {currentWorkbookLink ? (
+                        <button
+                          onClick={() => setEditingWorkbook(false)}
+                          type="button"
+                        >
+                          Cancelar
+                        </button>
+                      ) : null}
                     </form>
                   </>
                 )}
@@ -830,19 +1080,24 @@ export function StudyWorkspace() {
                         {item.text}
                         <small>Usar como contexto explícito</small>
                       </span>
-                      <button
-                        aria-label="Eliminar nota"
-                        onClick={() => {
-                          if (window.confirm("¿Borrar esta nota privada?"))
-                            run("delete-note", async () => {
-                              await deleteStudyNote(item.id);
-                              setNotes(await getStudyNotes(session.id));
-                            });
-                        }}
-                        type="button"
-                      >
-                        ×
-                      </button>
+                      <span className="personal-actions">
+                        <button onClick={() => editNote(item)} type="button">
+                          Editar
+                        </button>
+                        <button
+                          aria-label="Eliminar nota"
+                          onClick={() => {
+                            if (window.confirm("¿Borrar esta nota privada?"))
+                              run("delete-note", async () => {
+                                await deleteStudyNote(item.id);
+                                setNotes(await getStudyNotes(session.id));
+                              });
+                          }}
+                          type="button"
+                        >
+                          Eliminar
+                        </button>
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -862,25 +1117,42 @@ export function StudyWorkspace() {
                     <div key={item.id}>
                       <span>
                         {item.question}
-                        <small>{item.status}</small>
+                        <small>{QUESTION_STATUS_LABELS[item.status]}</small>
                       </span>
-                      <button
-                        onClick={() =>
-                          run("question-status", async () => {
-                            await updateStudyQuestion(item.id, {
-                              operation_id: operationId("question-status"),
-                              status:
-                                item.status === "clarified"
-                                  ? "open"
-                                  : "clarified",
-                            });
-                            setQuestions(await getStudyQuestions(session.id));
-                          })
-                        }
-                        type="button"
-                      >
-                        {item.status === "clarified" ? "Reabrir" : "Aclarada"}
-                      </button>
+                      <span className="personal-actions">
+                        <button
+                          onClick={() =>
+                            run("question-status", async () => {
+                              await updateStudyQuestion(item.id, {
+                                operation_id: operationId("question-status"),
+                                status:
+                                  item.status === "clarified"
+                                    ? "open"
+                                    : "clarified",
+                              });
+                              setQuestions(await getStudyQuestions(session.id));
+                            })
+                          }
+                          type="button"
+                        >
+                          {item.status === "clarified" ? "Reabrir" : "Aclarada"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm("¿Borrar esta duda?"))
+                              run("delete-question", async () => {
+                                await deleteStudyQuestion(item.id);
+                                setQuestions(
+                                  await getStudyQuestions(session.id),
+                                );
+                                await refresh();
+                              });
+                          }}
+                          type="button"
+                        >
+                          Eliminar
+                        </button>
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -952,12 +1224,28 @@ export function StudyWorkspace() {
 
       {view === "history" ? (
         <div className="study-history">
-          <div>
-            <p className="eyebrow">HISTORIAL LOCAL</p>
-            <h2>Tu recorrido reciente</h2>
+          <div className="history-toolbar">
+            <div>
+              <p className="eyebrow">HISTORIAL LOCAL</p>
+              <h2>Tu recorrido reciente</h2>
+            </div>
+            <label>
+              Filtrar
+              <select
+                value={historyFilter}
+                onChange={(event) => setHistoryFilter(event.target.value)}
+              >
+                <option value="all">Reciente</option>
+                <option value="needs_review">Necesita repaso</option>
+                <option value="completed">Completadas</option>
+                <option value="in_progress">En curso</option>
+                <option value="laboratory">Laboratorio</option>
+                <option value="thematic">Temáticas</option>
+              </select>
+            </label>
           </div>
-          {history.length ? (
-            history.map((item) => (
+          {filteredHistory.length ? (
+            filteredHistory.map((item) => (
               <article key={item.id}>
                 <div>
                   <small>{dateLabel(item.started_at)}</small>
@@ -968,6 +1256,12 @@ export function StudyWorkspace() {
                       ? `PDF p. ${item.current_pdf_page}`
                       : "sin página"}
                   </p>
+                  {item.subjective_result ? (
+                    <small>
+                      Resultado personal:{" "}
+                      {RESULT_LABELS[item.subjective_result]}
+                    </small>
+                  ) : null}
                 </div>
                 <div>
                   <span className="state">{STATUS_LABELS[item.status]}</span>
@@ -976,14 +1270,61 @@ export function StudyWorkspace() {
                     {Math.round(item.active_seconds / 60)} min activos
                   </span>
                 </div>
-                <button onClick={() => loadSessionData(item)} type="button">
-                  Ver sesión
-                </button>
+                <div className="history-actions">
+                  <button onClick={() => loadSessionData(item)} type="button">
+                    Ver sesión
+                  </button>
+                  <button
+                    className="text-danger"
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          "¿Borrar esta sesión y sus notas y dudas asociadas?",
+                        )
+                      )
+                        run("delete-session", async () => {
+                          await deleteStudySession(item.id);
+                          if (session?.id === item.id) setSession(null);
+                          await refresh();
+                        });
+                    }}
+                    type="button"
+                  >
+                    Borrar
+                  </button>
+                </div>
               </article>
             ))
           ) : (
-            <p>No hay sesiones guardadas todavía.</p>
+            <p>No hay sesiones que coincidan con este filtro.</p>
           )}
+          {history.length ? (
+            <div className="history-danger-zone">
+              <div>
+                <strong>Borrar datos del modo estudio</strong>
+                <p>El progreso evaluado y la biblioteca no se modificarán.</p>
+              </div>
+              <button
+                className="text-danger"
+                onClick={() => {
+                  const confirmation = window.prompt(
+                    "Escribe BORRAR para eliminar sesiones, notas, dudas y vínculos de estudio.",
+                  );
+                  if (confirmation === "BORRAR")
+                    run("delete-all", async () => {
+                      await deleteAllStudyData();
+                      setSession(null);
+                      setNotes([]);
+                      setQuestions([]);
+                      await refresh();
+                    });
+                }}
+                type="button"
+              >
+                Borrar todo el modo estudio
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
