@@ -60,6 +60,16 @@ transcripción local, revisión editorial de las secciones detectadas, streaming
 tokens validados y la experiencia final de lecciones. El perfeccionamiento
 diagnóstico queda congelado temporalmente después de `#006E4F1`.
 
+## Milestone 2.5 — Estudio guiado Herder
+
+Completado: `/study` ofrece dashboard, ruta editorial, sesiones reanudables,
+posición, estados prácticos, notas, dudas, historial, estudio libre, relaciones
+manuales con el workbook y misiones originales. Teacher Query recibe contexto
+acotado únicamente bajo una acción explícita. Este estado no es evidencia y no
+se proyecta al Learning Engine. Quedan para un bloque posterior la revisión
+editorial de las secciones realmente usadas y comprobaciones manuales pequeñas,
+sin puntuación ni dominio.
+
 ## Milestone 3 — Escucha y voz
 
 Ejercicios auditivos, speech-to-text, text-to-speech y conversación de voz en vivo.

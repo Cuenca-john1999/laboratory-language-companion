@@ -58,6 +58,173 @@ export type Mistake = {
   next_review_at: string | null;
 };
 
+export type StudyPracticalStatus =
+  | "not_started"
+  | "in_progress"
+  | "viewed"
+  | "needs_review"
+  | "completed_by_user"
+  | "paused";
+
+export type StudyMissionType =
+  | "automatic"
+  | "standard"
+  | "laboratory"
+  | "frozen_city"
+  | "underwater_exploration"
+  | "space_mission"
+  | "mixed";
+
+export type StudyMission = {
+  type: Exclude<StudyMissionType, "automatic" | "mixed">;
+  label: string;
+  concept: string;
+  brief: string;
+  example_de: string | null;
+  example_es: string | null;
+  objective: string;
+  original_content: boolean;
+};
+
+export type StudyWorkbookLink = {
+  id: string;
+  theory_source_id: string;
+  theory_section_stable_key: string;
+  workbook_source_id: string;
+  workbook_source_version: number;
+  workbook_pdf_page: number;
+  printed_page_label: string | null;
+  exercise_start: string | null;
+  exercise_end: string | null;
+  region: "full" | "left" | "right" | "both" | "unknown";
+  comment: string | null;
+  status: "candidate" | "user_confirmed" | "rejected" | "stale";
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudySection = {
+  id: number;
+  stable_key: string;
+  order: number;
+  title: string;
+  topic: string | null;
+  source_id: string;
+  source_version: number;
+  source_name: string;
+  pdf_page_start: number;
+  pdf_page_end: number;
+  printed_page_label: string | null;
+  editorial_status: string;
+  practical_status: StudyPracticalStatus;
+  current_pdf_page: number | null;
+  selection_origin: string | null;
+  last_activity_at: string | null;
+  last_session_id: string | null;
+  open_questions: number;
+  workbook_link: StudyWorkbookLink | null;
+};
+
+export type StudyPath = {
+  source_id: string;
+  source_version: number;
+  source_name: string;
+  workbook_source_id: string | null;
+  workbook_source_name: string | null;
+  sections: StudySection[];
+};
+
+export type StudySessionStatus =
+  | "planned"
+  | "active"
+  | "paused"
+  | "completed"
+  | "abandoned";
+
+export type StudySession = {
+  id: string;
+  kind: "guided" | "free";
+  status: StudySessionStatus;
+  source_id: string | null;
+  source_version: number | null;
+  source_name: string | null;
+  section_id: number | null;
+  section_stable_key: string | null;
+  section_title: string;
+  concept_name: string | null;
+  pdf_page_start: number | null;
+  pdf_page_end: number | null;
+  current_pdf_page: number | null;
+  printed_page_label: string | null;
+  objective: string;
+  mission: StudyMission;
+  plan: {
+    objective?: string;
+    steps?: Array<{ id: string; label: string; completed: boolean }>;
+  };
+  checklist: unknown[];
+  planned_minutes: number | null;
+  active_seconds: number;
+  started_at: string;
+  paused_at: string | null;
+  resumed_at: string | null;
+  closed_at: string | null;
+  subjective_result: string | null;
+  final_pdf_page: number | null;
+  final_workbook_exercise: string | null;
+  next_action: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudyNote = {
+  id: string;
+  session_id: string | null;
+  source_id: string | null;
+  section_stable_key: string | null;
+  concept_name: string | null;
+  pdf_page: number | null;
+  text: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudyQuestion = {
+  id: string;
+  session_id: string | null;
+  source_id: string | null;
+  section_stable_key: string | null;
+  concept_name: string | null;
+  pdf_page: number | null;
+  question: string;
+  answer_query_id: string | null;
+  status: "open" | "clarified" | "revisit" | "archived";
+  created_at: string;
+  updated_at: string;
+};
+
+export type StudyPreferences = {
+  mission_preference: StudyMissionType;
+  active_source_id: string | null;
+  active_section_stable_key: string | null;
+};
+
+export type StudyDashboard = {
+  path_ready: boolean;
+  total_sections: number;
+  active_session: StudySession | null;
+  recommendation: {
+    kind: "active_session" | "paused_session" | "section" | "manual";
+    reason: string;
+    session_id: string | null;
+    section_stable_key: string | null;
+  };
+  open_questions: number;
+  recent_sessions: StudySession[];
+  preferences: StudyPreferences;
+};
+
 export type ChatHistoryMessage = {
   role: "user" | "assistant";
   content: string;

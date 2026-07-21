@@ -42,3 +42,11 @@ Dashboard reproduzca una decisión real y no la reinterprete. Ninguna de estas
 rutas depende de Ollama. Consulta [Learning Engine](learning-engine.md) y los
 ADR [0004](adr/0004-deterministic-daily-planner.md) y
 [0005](adr/0005-spaced-repetition-and-corrections.md).
+
+El modo `/study` cruza ambos mundos sin mezclarlos: lee la ruta editorial Herder
+desde la SQLite reconstruible de biblioteca, pero guarda sesiones, posición,
+notas, dudas y enlaces manuales en la base principal no reconstruible. Solo
+persiste IDs externos y snapshots; no existen claves foráneas entre bases. Sus
+estados son autorreportados y nunca se proyectan a `StudentSkill` o
+`SkillEvidence`. Consulta [Modo de estudio guiado](guided-study.md) y el
+[ADR 0011](adr/0011-guided-study-persistence.md).

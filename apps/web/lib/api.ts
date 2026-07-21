@@ -34,6 +34,15 @@ import type {
   TeacherConversationSummary,
   TeacherQuery,
   TeacherStreamEvent,
+  StudyDashboard,
+  StudyMissionType,
+  StudyNote,
+  StudyPath,
+  StudyPreferences,
+  StudyQuestion,
+  StudySession,
+  StudySessionStatus,
+  StudyWorkbookLink,
 } from "@deutschos/shared";
 
 export const API_URL =
@@ -112,6 +121,107 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await request(path, init);
   return response.json() as Promise<T>;
 }
+
+export async function apiNoContent(
+  path: string,
+  init?: RequestInit,
+): Promise<void> {
+  await request(path, init);
+}
+
+export const operationId = (scope: string) => `${scope}-${crypto.randomUUID()}`;
+
+export const getStudyDashboard = () =>
+  api<StudyDashboard>("/api/study/dashboard");
+export const getStudyPath = (query = "") =>
+  api<StudyPath>(
+    `/api/study/path${query ? `?query=${encodeURIComponent(query)}` : ""}`,
+  );
+export const getStudyHistory = (
+  status?: StudySessionStatus,
+  missionType?: StudyMissionType,
+) => {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (missionType) params.set("mission_type", missionType);
+  return api<StudySession[]>(`/api/study/history?${params}`);
+};
+export const startStudySession = (payload: Record<string, unknown>) =>
+  api<StudySession>("/api/study/sessions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const transitionStudySession = (
+  sessionId: string,
+  payload: Record<string, unknown>,
+) =>
+  api<StudySession>(`/api/study/sessions/${sessionId}/transition`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const updateStudyPosition = (
+  sessionId: string,
+  payload: Record<string, unknown>,
+) =>
+  api<StudySession>(`/api/study/sessions/${sessionId}/position`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+export const getStudyNotes = (sessionId?: string) =>
+  api<StudyNote[]>(
+    `/api/study/notes${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+  );
+export const createStudyNote = (payload: Record<string, unknown>) =>
+  api<StudyNote>("/api/study/notes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const deleteStudyNote = (noteId: string) =>
+  apiNoContent(`/api/study/notes/${noteId}`, {
+    method: "DELETE",
+    body: JSON.stringify({
+      operation_id: operationId("delete-note"),
+      confirmation: "BORRAR",
+    }),
+  });
+export const getStudyQuestions = (sessionId?: string) =>
+  api<StudyQuestion[]>(
+    `/api/study/questions${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ""}`,
+  );
+export const createStudyQuestion = (payload: Record<string, unknown>) =>
+  api<StudyQuestion>("/api/study/questions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const updateStudyQuestion = (
+  questionId: string,
+  payload: Record<string, unknown>,
+) =>
+  api<StudyQuestion>(`/api/study/questions/${questionId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+export const createStudyWorkbookLink = (payload: Record<string, unknown>) =>
+  api<StudyWorkbookLink>("/api/study/workbook-links", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const updateStudyPreferences = (mission: StudyMissionType) =>
+  api<StudyPreferences>("/api/study/preferences", {
+    method: "PUT",
+    body: JSON.stringify({
+      operation_id: operationId("study-preferences"),
+      mission_preference: mission,
+    }),
+  });
+export const askStudyTeacher = (
+  sessionId: string,
+  payload: Record<string, unknown>,
+) =>
+  api<TeacherQuery>(`/api/study/sessions/${sessionId}/teacher`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 
 function parseNdjsonLine<T>(line: string): T {
   try {

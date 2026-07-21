@@ -8,6 +8,7 @@ export function Nav() {
       </Link>
       <nav>
         <Link href="/">Übersicht</Link>
+        <Link href="/study">Estudio</Link>
         <Link href="/progress">Plan</Link>
         <Link href="/skills">Fähigkeiten</Link>
         <Link href="/chat">Lehrer</Link>

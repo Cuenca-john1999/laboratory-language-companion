@@ -80,3 +80,17 @@ Todos los instantes representan UTC. SQLite los conserva sin offset y el
 adaptador ORM los devuelve conscientes de zona; la API emite ISO 8601 con
 `Z`/`+00:00`. Solo `DailyPlan.plan_date` es una fecha civil calculada con
 `DEUTSCHOS_TIMEZONE` (por defecto `Europe/Berlin`).
+
+La revisión `0006` añade el acompañamiento no evaluativo:
+
+- `StudySectionState` conserva el estado práctico y la posición por sección;
+- `StudySession` conserva el snapshot de fuente/sección, plan, misión, tiempo
+  activo y cierre subjetivo;
+- `StudyNote` y `StudyQuestion` guardan información personal local;
+- `StudyWorkbookLink` relaciona manualmente teoría y práctica con revisión;
+- `StudyPreference` guarda presentación preferida y punto activo;
+- `StudyEvent` registra mutaciones idempotentes y reversiones editoriales.
+
+Las referencias a biblioteca no son claves foráneas porque viven en otra
+SQLite. Ninguna de estas tablas referencia `StudentSkill`, `SkillEvidence` ni
+`DailyPlan`. Borrar datos de estudio no borra progreso normal.
