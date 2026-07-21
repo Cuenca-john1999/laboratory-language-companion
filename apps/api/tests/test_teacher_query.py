@@ -451,6 +451,7 @@ async def test_teacher_query_handles_prompt_injection_source_lookup_and_no_evide
     )
     assert missing.status.value == "insufficient"
     assert missing.confidence.value == "insufficient"
+    assert missing.used_generation is False
     assert not missing.answer.examples
     assert "evidencia suficiente" in missing.answer.direct_answer
 

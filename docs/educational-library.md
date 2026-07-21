@@ -203,6 +203,30 @@ contexto pedagógico lee perfil, preferencias y categorías recientes de error d
 la base principal, pero nunca escribe `StudentSkill`, `SkillEvidence` ni otro
 progreso.
 
+### Consultar dónde aparece un tema
+
+El mismo `POST /api/library/ask` acepta consultas de localización y persiste el
+turno en la conversación ordinaria. La respuesta declara `answer_kind` como
+`source_lookup` o `teacher_answer_with_source_lookup` y añade un
+`source_lookup` estructurado con concepto, estado, hasta tres ubicaciones
+iniciales, página PDF, página impresa, layout, región, estado de revisión, cita,
+provenance y fragmento breve. Una continuación `expand` puede mostrar hasta diez
+ubicaciones y ejecutar recuperación híbrida adicional.
+
+La detección local separa localización pura, explicación y petición mixta. Una
+ubicación confirmada se resuelve desde SQLite sin planner ni docente. El DTO
+indica por separado `used_generation`, `memory_hit`, `lookup_cache_hit` y
+`hybrid_fallback`; `answer_cache_hit` permanece falso mientras no exista una
+caché de respuestas. Los timings añaden detección, lookup de memoria y fallback.
+No se exponen paths, hashes, prompts, chunks completos ni razones privadas de
+ranking.
+
+En peticiones mixtas, los claims pedagógicos siguen pasando por generación y
+validación normal, pero la cita de ubicación se reconstruye de forma
+determinista. Si el docente local no está disponible o falla la reparación, el
+turno conserva la tarjeta de ubicación y un `failure_reason` específico; no se
+degrada falsamente a `no_evidence`.
+
 ## Operación
 
 ```bash
@@ -236,6 +260,13 @@ búsqueda FTS5, inventario, catálogo y controles editoriales permanecen en
 modelo, nivel o estrategia de recuperación en la consulta principal. El
 controlador macOS muestra disponibilidad, ruta y
 cantidad catalogada mediante campos aditivos de `deutschos-status-v1`.
+
+Las localizaciones usan una tarjeta **Dónde aparece** separada de la explicación,
+con estado de confianza documental, PDF/libro, layout y región. Desde ella se
+puede abrir la fuente, confirmar/rechazar, indicar “No lo sé”, calibrar doble
+página o mitad, editar la página impresa, ampliar ubicaciones y pedir una
+explicación. La cola de revisión comienza en diez elementos y ofrece filtros por
+Herder, uso reciente, tipo y estado.
 
 El panel **Fuentes principales** muestra manual y workbook, confirmación, alias,
 relación, calidad de extracción y estado semántico. Los detalles de respuesta

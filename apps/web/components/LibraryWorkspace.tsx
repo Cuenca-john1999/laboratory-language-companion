@@ -18,6 +18,7 @@ import type {
   MemoryAudit,
   MemoryFeedbackVerdict,
   MemoryReviewQueueItem,
+  SourceLookupLocation,
   TeacherConversationSummary,
   TeacherEvidenceConfidence,
   TeacherQuery,
@@ -95,6 +96,10 @@ const CONTINUATIONS = [
   },
 ] as const;
 
+type ContinuationAction =
+  | (typeof CONTINUATIONS)[number]["action"]
+  | "follow_up";
+
 const PROGRESS_STEPS = [
   "Entendiendo la pregunta…",
   "Consultando tus materiales…",
@@ -134,6 +139,39 @@ function confidenceLabel(confidence: TeacherEvidenceConfidence): string {
   }[confidence];
 }
 
+function memoryLocationLabel(
+  status: SourceLookupLocation["review_status"],
+): string {
+  return {
+    user_confirmed: "Confirmada por ti",
+    system_verified: "Verificada automáticamente",
+    candidate: "Candidata pendiente de revisión",
+    rejected: "Rechazada",
+    conflict: "En conflicto",
+    stale: "Pertenece a una versión anterior",
+  }[status];
+}
+
+function scanLayoutLabel(layout: SourceLookupLocation["scan_layout"]): string {
+  return {
+    single_page: "Una página por escaneo",
+    double_page: "Escaneo doble",
+    mixed: "Diseño mixto",
+    unknown: "Diseño sin identificar",
+  }[layout];
+}
+
+function regionLabel(region: SourceLookupLocation["region"]): string {
+  return {
+    full: "Página completa",
+    left: "Mitad izquierda",
+    right: "Mitad derecha",
+    both: "Ambas mitades",
+    custom: "Región marcada",
+    unknown: "Región sin identificar",
+  }[region];
+}
+
 export function LibraryWorkspace() {
   const [summary, setSummary] = useState<LibrarySummary | null>(null);
   const [sources, setSources] = useState<LibrarySource[]>([]);
@@ -157,6 +195,12 @@ export function LibraryWorkspace() {
     useState<PedagogicalMemorySummary | null>(null);
   const [concepts, setConcepts] = useState<PedagogicalConceptSummary[]>([]);
   const [reviewQueue, setReviewQueue] = useState<MemoryReviewQueueItem[]>([]);
+  const [reviewFilters, setReviewFilters] = useState({
+    target_type: "",
+    status: "",
+    herder_only: false,
+    recently_used_only: false,
+  });
   const [selectedMemoryConcept, setSelectedMemoryConcept] =
     useState<PedagogicalConcept | null>(null);
   const [memoryAudit, setMemoryAudit] = useState<MemoryAudit[]>([]);
@@ -261,10 +305,26 @@ export function LibraryWorkspace() {
     return () => window.clearInterval(timer);
   }, [busy]);
 
-  async function ask(
-    nextQuestion: string,
-    continuation?: (typeof CONTINUATIONS)[number]["action"],
-  ) {
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      getMemoryReviewQueue({
+        target_type:
+          reviewFilters.target_type === "concept" ||
+          reviewFilters.target_type === "location"
+            ? reviewFilters.target_type
+            : undefined,
+        status: reviewFilters.status || undefined,
+        herder_only: reviewFilters.herder_only,
+        recently_used_only: reviewFilters.recently_used_only,
+        current_query_id: answer?.query_id,
+      })
+        .then(setReviewQueue)
+        .catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [answer?.query_id, reviewFilters]);
+
+  async function ask(nextQuestion: string, continuation?: ContinuationAction) {
     if (!nextQuestion.trim()) return;
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -321,6 +381,22 @@ export function LibraryWorkspace() {
   function submitQuestion(event: FormEvent) {
     event.preventDefault();
     void ask(question);
+  }
+
+  async function refreshVisibleReviewQueue(currentQueryId = answer?.query_id) {
+    setReviewQueue(
+      await getMemoryReviewQueue({
+        target_type:
+          reviewFilters.target_type === "concept" ||
+          reviewFilters.target_type === "location"
+            ? reviewFilters.target_type
+            : undefined,
+        status: reviewFilters.status || undefined,
+        herder_only: reviewFilters.herder_only,
+        recently_used_only: reviewFilters.recently_used_only,
+        current_query_id: currentQueryId,
+      }),
+    );
   }
 
   async function openHistory(item: TeacherConversationSummary) {
@@ -586,11 +662,58 @@ export function LibraryWorkspace() {
       setAnswer(await getTeacherQuery(answer.query_id));
       setEditingLocationId(null);
       await refresh();
+      await refreshVisibleReviewQueue(answer.query_id);
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "No se pudo revisar la ubicación.",
+      );
+    } finally {
+      setBusy("");
+    }
+  }
+
+  function beginLocationEdit(location: SourceLookupLocation) {
+    setEditingLocationId(location.location_id);
+    setLocationDraft({
+      scan_layout: location.scan_layout,
+      region: location.region,
+      printed_left_label:
+        location.region === "left" || location.region === "both"
+          ? (location.printed_page ?? "")
+          : "",
+      printed_right_label:
+        location.region === "right" ? (location.printed_page ?? "") : "",
+      printed_full_label:
+        location.region === "full" ? (location.printed_page ?? "") : "",
+    });
+  }
+
+  async function quickLocationCalibration(
+    location: SourceLookupLocation,
+    update: {
+      scan_layout?: "single_page" | "double_page" | "mixed" | "unknown";
+      region?: "full" | "left" | "right" | "both" | "unknown";
+    },
+  ) {
+    if (!answer) return;
+    setBusy(`location-${location.location_id}`);
+    setError("");
+    try {
+      await sendTeacherLocationFeedback(answer.query_id, location.location_id, {
+        verdict: "correct",
+        scan_layout: update.scan_layout ?? location.scan_layout,
+        region: update.region ?? location.region,
+      });
+      setAnswer(await getTeacherQuery(answer.query_id));
+      await refresh();
+      await refreshVisibleReviewQueue(answer.query_id);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "No se pudo calibrar la ubicación.",
       );
     } finally {
       setBusy("");
@@ -641,6 +764,7 @@ export function LibraryWorkspace() {
     try {
       await reviewPedagogicalMemory(item.target_type, item.target_id, action);
       await refresh();
+      await refreshVisibleReviewQueue();
       if (item.target_type === "concept") {
         await openMemoryConcept(item.target_id);
       }
@@ -666,6 +790,7 @@ export function LibraryWorkspace() {
         await openMemoryConcept(selectedMemoryConcept.id);
       }
       await refresh();
+      await refreshVisibleReviewQueue();
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -839,9 +964,7 @@ export function LibraryWorkspace() {
           <div className="teacher-progress" role="status" aria-live="polite">
             <span className="progress-pulse" />
             <strong>{PROGRESS_STEPS[progressStep]}</strong>
-            <small>
-              Qwen está leyendo únicamente la evidencia local recuperada.
-            </small>
+            <small>DeutschOS está consultando memoria y evidencia local.</small>
           </div>
         ) : null}
       </section>
@@ -850,7 +973,11 @@ export function LibraryWorkspace() {
         <article className="teacher-answer" aria-live="polite">
           <header>
             <div>
-              <p className="eyebrow">RESPUESTA DEL PROFESOR LOCAL</p>
+              <p className="eyebrow">
+                {answer.answer_kind === "source_lookup"
+                  ? "LOCALIZACIÓN DOCUMENTAL"
+                  : "RESPUESTA DEL PROFESOR LOCAL"}
+              </p>
               <h2>{answer.question}</h2>
             </div>
             <span className={`confidence ${answer.confidence}`}>
@@ -902,6 +1029,294 @@ export function LibraryWorkspace() {
               {answer.answer.follow_up_question}
             </p>
           ) : null}
+          {answer.source_lookup ? (
+            <section
+              className={`source-lookup-card ${answer.source_lookup.status}`}
+              aria-labelledby="source-lookup-title"
+            >
+              <header>
+                <div>
+                  <p className="eyebrow">DÓNDE APARECE</p>
+                  <h3 id="source-lookup-title">
+                    {answer.source_lookup.concept?.display_name_de ??
+                      answer.source_lookup.concept?.display_name_es ??
+                      "Tema solicitado"}
+                  </h3>
+                </div>
+                <span className={`memory-state ${answer.source_lookup.status}`}>
+                  {answer.source_lookup.status.replaceAll("_", " ")}
+                </span>
+              </header>
+              {answer.source_lookup.locations.length ? (
+                <ol className="source-lookup-locations">
+                  {answer.source_lookup.locations.map((location) => (
+                    <li key={location.location_id}>
+                      <div className="lookup-location-heading">
+                        <strong>{location.source_name}</strong>
+                        <span
+                          className={`memory-state ${location.review_status}`}
+                        >
+                          {memoryLocationLabel(location.review_status)}
+                        </span>
+                      </div>
+                      <dl className="lookup-location-facts">
+                        <div>
+                          <dt>Página PDF</dt>
+                          <dd>{location.pdf_page ?? "Sin identificar"}</dd>
+                        </div>
+                        <div>
+                          <dt>Página impresa</dt>
+                          <dd>{location.printed_page ?? "Sin identificar"}</dd>
+                        </div>
+                        <div>
+                          <dt>Diseño</dt>
+                          <dd>{scanLayoutLabel(location.scan_layout)}</dd>
+                        </div>
+                        <div>
+                          <dt>Región</dt>
+                          <dd>{regionLabel(location.region)}</dd>
+                        </div>
+                      </dl>
+                      <p className="lookup-citation">{location.citation}</p>
+                      {location.heading ? (
+                        <small>{location.heading}</small>
+                      ) : null}
+                      <details className="lookup-snippet">
+                        <summary>Ver evidencia breve</summary>
+                        <blockquote>{location.snippet}</blockquote>
+                      </details>
+                      <div
+                        className="lookup-actions"
+                        role="group"
+                        aria-label={`Revisar ubicación en ${location.source_name}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void openSourceDetail(location.source_id)
+                          }
+                        >
+                          Abrir fuente
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => beginLocationEdit(location)}
+                        >
+                          Revisar paginación
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${location.location_id}`}
+                          onClick={() =>
+                            void locationFeedback(
+                              location.location_id,
+                              "correct",
+                            )
+                          }
+                        >
+                          Confirmar ubicación
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${location.location_id}`}
+                          onClick={() =>
+                            void locationFeedback(
+                              location.location_id,
+                              "incorrect",
+                            )
+                          }
+                        >
+                          No corresponde
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${location.location_id}`}
+                          onClick={() =>
+                            void locationFeedback(
+                              location.location_id,
+                              "unknown",
+                            )
+                          }
+                        >
+                          No lo sé
+                        </button>
+                      </div>
+                      <div
+                        className="lookup-calibration"
+                        role="group"
+                        aria-label="Calibración rápida de página"
+                      >
+                        <span>Calibración rápida:</span>
+                        <button
+                          type="button"
+                          disabled={busy === `location-${location.location_id}`}
+                          onClick={() =>
+                            void quickLocationCalibration(location, {
+                              scan_layout: "double_page",
+                            })
+                          }
+                        >
+                          Es doble
+                        </button>
+                        {(
+                          [
+                            ["left", "Izquierda"],
+                            ["right", "Derecha"],
+                            ["both", "Ambas"],
+                          ] as const
+                        ).map(([region, label]) => (
+                          <button
+                            type="button"
+                            key={region}
+                            disabled={
+                              busy === `location-${location.location_id}`
+                            }
+                            onClick={() =>
+                              void quickLocationCalibration(location, {
+                                region,
+                              })
+                            }
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {editingLocationId === location.location_id ? (
+                        <form
+                          className="page-map-editor"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void locationFeedback(
+                              location.location_id,
+                              "correct",
+                              true,
+                            );
+                          }}
+                        >
+                          <label>
+                            Escaneo
+                            <select
+                              value={locationDraft.scan_layout}
+                              onChange={(event) =>
+                                setLocationDraft((current) => ({
+                                  ...current,
+                                  scan_layout: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="unknown">Sin comprobar</option>
+                              <option value="single_page">Una página</option>
+                              <option value="double_page">Dos páginas</option>
+                              <option value="mixed">Mixto</option>
+                            </select>
+                          </label>
+                          <label>
+                            Región
+                            <select
+                              value={locationDraft.region}
+                              onChange={(event) =>
+                                setLocationDraft((current) => ({
+                                  ...current,
+                                  region: event.target.value,
+                                }))
+                              }
+                            >
+                              <option value="unknown">Sin comprobar</option>
+                              <option value="left">Mitad izquierda</option>
+                              <option value="right">Mitad derecha</option>
+                              <option value="both">Ambas mitades</option>
+                              <option value="full">Página completa</option>
+                            </select>
+                          </label>
+                          <label>
+                            Página impresa izquierda
+                            <input
+                              value={locationDraft.printed_left_label}
+                              onChange={(event) =>
+                                setLocationDraft((current) => ({
+                                  ...current,
+                                  printed_left_label: event.target.value,
+                                }))
+                              }
+                              placeholder="desconocida"
+                            />
+                          </label>
+                          <label>
+                            Página impresa derecha
+                            <input
+                              value={locationDraft.printed_right_label}
+                              onChange={(event) =>
+                                setLocationDraft((current) => ({
+                                  ...current,
+                                  printed_right_label: event.target.value,
+                                }))
+                              }
+                              placeholder="desconocida"
+                            />
+                          </label>
+                          <label>
+                            Página impresa completa
+                            <input
+                              value={locationDraft.printed_full_label}
+                              onChange={(event) =>
+                                setLocationDraft((current) => ({
+                                  ...current,
+                                  printed_full_label: event.target.value,
+                                }))
+                              }
+                              placeholder="desconocida"
+                            />
+                          </label>
+                          <button type="submit">Guardar y confirmar</button>
+                        </form>
+                      ) : null}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="muted">{answer.source_lookup.summary}</p>
+              )}
+              <div className="lookup-follow-ups">
+                <button
+                  type="button"
+                  disabled={busy === "ask"}
+                  onClick={() =>
+                    void ask(
+                      `Busca más ubicaciones de ${
+                        answer.source_lookup?.concept?.canonical_name ??
+                        "este tema"
+                      }`,
+                      "expand",
+                    )
+                  }
+                >
+                  Buscar más ubicaciones
+                </button>
+                <button
+                  type="button"
+                  disabled={busy === "ask"}
+                  onClick={() =>
+                    void ask(
+                      `Explícame ${
+                        answer.source_lookup?.concept?.canonical_name ??
+                        "este tema"
+                      }`,
+                      "follow_up",
+                    )
+                  }
+                >
+                  Pedir explicación
+                </button>
+              </div>
+              {answer.source_lookup.available_location_count >
+              answer.source_lookup.locations.length ? (
+                <small>
+                  Hay {answer.source_lookup.available_location_count}{" "}
+                  ubicaciones registradas; se muestran las más relevantes.
+                </small>
+              ) : null}
+            </section>
+          ) : null}
           {answer.warnings.length ? (
             <ul className="answer-warnings">
               {answer.warnings.map((warning) => (
@@ -909,50 +1324,54 @@ export function LibraryWorkspace() {
               ))}
             </ul>
           ) : null}
-          <section
-            className="memory-feedback"
-            aria-labelledby="answer-feedback-title"
-          >
-            <strong id="answer-feedback-title">
-              ¿La explicación te resultó correcta?
-            </strong>
-            <div role="group" aria-label="Valorar explicación">
-              {(
-                [
-                  ["correct", "Correcta"],
-                  ["incorrect", "Incorrecta"],
-                  ["unknown", "No lo sé"],
-                ] as const
-              ).map(([verdict, label]) => (
+          {answer.answer_kind !== "source_lookup" ? (
+            <section
+              className="memory-feedback"
+              aria-labelledby="answer-feedback-title"
+            >
+              <strong id="answer-feedback-title">
+                ¿La explicación te resultó correcta?
+              </strong>
+              <div role="group" aria-label="Valorar explicación">
+                {(
+                  [
+                    ["correct", "Correcta"],
+                    ["incorrect", "Incorrecta"],
+                    ["unknown", "No lo sé"],
+                  ] as const
+                ).map(([verdict, label]) => (
+                  <button
+                    type="button"
+                    key={verdict}
+                    aria-pressed={answer.response_feedback === verdict}
+                    disabled={busy === "answer-feedback"}
+                    onClick={() => void answerFeedback(verdict)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <small>
+                Esta valoración no confirma automáticamente ninguna fuente.
+              </small>
+            </section>
+          ) : null}
+          {answer.answer_kind !== "source_lookup" ? (
+            <div
+              className="continuation-actions"
+              aria-label="Continuar la explicación"
+            >
+              {CONTINUATIONS.map((item) => (
                 <button
-                  type="button"
-                  key={verdict}
-                  aria-pressed={answer.response_feedback === verdict}
-                  disabled={busy === "answer-feedback"}
-                  onClick={() => void answerFeedback(verdict)}
+                  key={item.action}
+                  disabled={busy === "ask"}
+                  onClick={() => void ask(item.question, item.action)}
                 >
-                  {label}
+                  {item.label}
                 </button>
               ))}
             </div>
-            <small>
-              Esta valoración no confirma automáticamente ninguna fuente.
-            </small>
-          </section>
-          <div
-            className="continuation-actions"
-            aria-label="Continuar la explicación"
-          >
-            {CONTINUATIONS.map((item) => (
-              <button
-                key={item.action}
-                disabled={busy === "ask"}
-                onClick={() => void ask(item.question, item.action)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
+          ) : null}
           <details className="answer-sources">
             <summary>
               Fuentes consultadas ({answerSourceCount}) · fragmentos (
@@ -1152,7 +1571,9 @@ export function LibraryWorkspace() {
               </div>
               <div>
                 <dt>Estado</dt>
-                <dd>{answer.status}</dd>
+                <dd>
+                  {answer.status} · {answer.answer_kind}
+                </dd>
               </div>
               <div>
                 <dt>Modelos</dt>
@@ -1163,9 +1584,38 @@ export function LibraryWorkspace() {
                 </dd>
               </div>
               <div>
-                <dt>Caché</dt>
+                <dt>Generación</dt>
                 <dd>
-                  {answer.cache_hit ? "plan reutilizado" : "consulta nueva"}
+                  {answer.used_generation
+                    ? "modelo docente usado"
+                    : "sin modelo"}
+                </dd>
+              </div>
+              <div>
+                <dt>Memoria y caché</dt>
+                <dd>
+                  {answer.memory_hit ? "memoria usada" : "sin coincidencia"} ·{" "}
+                  {answer.lookup_cache_hit
+                    ? "lookup reutilizado"
+                    : "lookup nuevo"}
+                  {answer.cache_hit ? " · plan reutilizado" : ""}
+                  {answer.answer_cache_hit ? " · respuesta reutilizada" : ""}
+                </dd>
+              </div>
+              <div>
+                <dt>Fallback</dt>
+                <dd>
+                  {answer.hybrid_fallback
+                    ? "recuperación híbrida usada"
+                    : "no necesaria"}
+                </dd>
+              </div>
+              <div>
+                <dt>Tiempos del lookup</dt>
+                <dd>
+                  intención {answer.timings.intent_detection_ms} ms · memoria{" "}
+                  {answer.timings.memory_lookup_ms} ms · híbrido{" "}
+                  {answer.timings.hybrid_fallback_ms} ms
                 </dd>
               </div>
             </dl>
@@ -1361,14 +1811,85 @@ export function LibraryWorkspace() {
           <summary>Cola de revisión ({reviewQueue.length})</summary>
           <p>
             “No lo sé” es neutral: registra la revisión sin confirmar ni
-            rechazar.
+            rechazar y oculta temporalmente el elemento.
           </p>
+          <div
+            className="memory-review-filters"
+            aria-label="Filtros de revisión"
+          >
+            <label>
+              Elementos
+              <select
+                value={reviewFilters.target_type}
+                onChange={(event) =>
+                  setReviewFilters((current) => ({
+                    ...current,
+                    target_type: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Conceptos y ubicaciones</option>
+                <option value="concept">Conceptos</option>
+                <option value="location">Ubicaciones</option>
+              </select>
+            </label>
+            <label>
+              Estado
+              <select
+                value={reviewFilters.status}
+                onChange={(event) =>
+                  setReviewFilters((current) => ({
+                    ...current,
+                    status: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Pendientes</option>
+                <option value="candidate">Candidatos</option>
+                <option value="user_confirmed">Confirmados por ti</option>
+                <option value="system_verified">Verificados</option>
+                <option value="rejected">Rechazados</option>
+                <option value="conflict">Conflictos</option>
+                <option value="stale">Versiones anteriores</option>
+              </select>
+            </label>
+            <label className="check-filter">
+              <input
+                type="checkbox"
+                checked={reviewFilters.herder_only}
+                onChange={(event) =>
+                  setReviewFilters((current) => ({
+                    ...current,
+                    herder_only: event.target.checked,
+                  }))
+                }
+              />
+              Solo Herder
+            </label>
+            <label className="check-filter">
+              <input
+                type="checkbox"
+                checked={reviewFilters.recently_used_only}
+                onChange={(event) =>
+                  setReviewFilters((current) => ({
+                    ...current,
+                    recently_used_only: event.target.checked,
+                  }))
+                }
+              />
+              Usados recientemente
+            </label>
+          </div>
           <div>
             {reviewQueue.map((item) => (
               <article key={`${item.target_type}-${item.target_id}`}>
                 <span>
                   <strong>{item.title}</strong>
                   <small>{item.subtitle ?? item.target_type}</small>
+                  <small>
+                    prioridad {item.priority} · {item.used_by_queries} usos
+                    {item.source_role ? ` · ${item.source_role}` : ""}
+                  </small>
                 </span>
                 <div>
                   {(

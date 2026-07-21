@@ -47,9 +47,11 @@ y revisión visual local; no se ejecuta OCR visual masivo.
 La memoria pedagógica verificable está implementada sobre el esquema 4 de la
 biblioteca: conceptos y alias multilingües, páginas PDF/impresas, doble escaneo,
 regiones, feedback independiente, correcciones reversibles e integración
-prudente con Teacher. Quedan para después la revisión visual de regiones
-personalizadas y cualquier proyección al progreso normal, que requeriría una
-decisión arquitectónica separada.
+prudente con Teacher. Las consultas deterministas de localización, su fallback
+híbrido, caché invalidable y tarjeta de calibración ya reutilizan esa memoria sin
+generación innecesaria. Quedan para después la revisión visual de regiones
+personalizadas, calibración masiva y cualquier proyección al progreso normal,
+que requeriría una decisión arquitectónica separada.
 
 La consulta educativa y los futuros **Ejercicios rápidos** son experiencias
 separadas: los ejercicios no forman parte del pipeline docente ni escriben

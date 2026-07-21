@@ -33,6 +33,8 @@ Ninguno de esos tres estados se utiliza como verdad vigente.
 Una confirmación de la explicación solo valora la respuesta. No confirma sus
 fuentes. Una confirmación de ubicación sí puede promover ese enlace exacto a
 `user_confirmed`. “No lo sé” crea una revisión neutral y mantiene el estado.
+`unknown` y `postpone` ocultan el elemento de la cola durante siete días, salvo
+que la revisión se revierta; no convierten la duda en evidencia negativa.
 
 ## Conceptos, alias y relaciones
 
@@ -88,6 +90,34 @@ Caché y memoria no son lo mismo: la caché evita repetir planes o embeddings ba
 el mismo fingerprint; la memoria conserva decisiones editoriales y evidencia
 versionada. Un cache hit no implica memoria confirmada y viceversa.
 
+### Localización documental determinista
+
+Las preguntas locales de ubicación (`¿Dónde aparece X?`, `¿En qué página está
+X?`, `Wo steht X?`) se detectan sin un modelo generativo. El resolver usa alias,
+fuente solicitada y contexto conversacional; ordena `user_confirmed`,
+`system_verified`, candidatos y conflictos, y descarta evidencia rechazada,
+obsoleta o vinculada a una versión que ya no es vigente. El resultado distingue
+`verified_location`, `candidate_locations`, `multiple_locations`, `conflict`,
+`stale`, `no_location` y `retrieval_error`.
+
+Una coincidencia confirmada devuelve una plantilla española y la cita pública
+reconstruida desde datos estructurados. No llama a Qwen. Si falta memoria, la
+búsqueda híbrida local puede proponer ubicaciones como `candidate`, pero nunca
+las presenta como verificadas. Una pregunta mixta conserva por separado la
+explicación docente y la localización; un fallo de generación, validación o
+reparación no elimina una ubicación vigente.
+
+Cada uso se enlaza con su concepto y ubicaciones en las tablas existentes del
+esquema 4. `answer_json` conserva el tipo y snapshot público; al leerlo, fuente,
+página impresa, región y cita se reconstruyen desde la memoria vigente para no
+mostrar una paginación ya corregida. No fue necesaria una migración.
+
+La caché `source_lookup` incorpora consulta, filtro, modo normal/expandido y una
+huella de conceptos, alias, ubicaciones, mapas de página y versiones actuales.
+Cualquier corrección o feedback cambia la huella. Una entrada cacheada solo
+guarda IDs permitidos y su cita se reconstruye antes de responder, por lo que no
+puede perpetuar una referencia textual manipulada u obsoleta.
+
 ## Importación inicial
 
 La importación explícita y auditable puede leer:
@@ -136,6 +166,11 @@ La API se encuentra bajo `/api/library`:
 
 Los DTO no exponen hashes de contenido, rutas locales, prompts, el índice PDF
 cero-based en citas ni claves privadas de evaluación.
+
+`GET /memory/review-queue` devuelve diez elementos por defecto y admite filtros
+`target_type`, `status`, `herder_only`, `recently_used_only` y
+`current_query_id`. Conflictos, elementos usados por la respuesta actual,
+fuentes core, uso reciente y frecuencia determinan la prioridad en ese orden.
 
 ## Invalidación y límites
 

@@ -415,8 +415,24 @@ export const getPedagogicalConcept = (conceptId: string) =>
     `/api/library/memory/concepts/${encodeURIComponent(conceptId)}`,
   );
 
-export const getMemoryReviewQueue = () =>
-  api<MemoryReviewQueueItem[]>("/api/library/memory/review-queue?limit=30");
+export const getMemoryReviewQueue = (filters?: {
+  target_type?: "concept" | "location";
+  status?: string;
+  herder_only?: boolean;
+  recently_used_only?: boolean;
+  current_query_id?: string;
+}) => {
+  const params = new URLSearchParams({ limit: "10" });
+  if (filters?.target_type) params.set("target_type", filters.target_type);
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.herder_only) params.set("herder_only", "true");
+  if (filters?.recently_used_only) params.set("recently_used_only", "true");
+  if (filters?.current_query_id)
+    params.set("current_query_id", filters.current_query_id);
+  return api<MemoryReviewQueueItem[]>(
+    `/api/library/memory/review-queue?${params.toString()}`,
+  );
+};
 
 export const getMemoryAudit = (targetType: string, targetId: string) =>
   api<MemoryAudit[]>(

@@ -1529,6 +1529,7 @@ class EducationalTeacherService:
             follow_up_question="¿Quieres reformular la pregunta o consultar una fuente concreta?",
             claims=[],
             warnings=[],
+            used_generation=False,
         )
 
     def _resolve_conversation(

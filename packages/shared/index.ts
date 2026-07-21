@@ -591,6 +591,55 @@ export type TeacherTimings = {
   total_ms: number;
   embedding_ms: number;
   model_selection_ms: number;
+  fts_ms: number;
+  vector_ms: number;
+  ranking_ms: number;
+  repair_ms: number;
+  intent_detection_ms: number;
+  memory_lookup_ms: number;
+  hybrid_fallback_ms: number;
+};
+
+export type SourceLookupLocation = {
+  location_id: string;
+  source_id: string;
+  source_name: string;
+  source_role: LibrarySource["pedagogical_role"];
+  source_version: number;
+  pdf_page: number | null;
+  printed_page: string | null;
+  scan_layout: ScanLayout;
+  region: EvidenceRegion;
+  heading: string | null;
+  review_status: PedagogicalMemoryStatus;
+  citation: string;
+  snippet: string;
+  provenance: "memory" | "hybrid";
+};
+
+export type SourceLookup = {
+  status:
+    | "verified_location"
+    | "candidate_locations"
+    | "multiple_locations"
+    | "conflict"
+    | "stale"
+    | "no_location"
+    | "retrieval_error";
+  concept: {
+    concept_id: string | null;
+    canonical_name: string;
+    display_name_es: string | null;
+    display_name_de: string | null;
+  } | null;
+  summary: string;
+  locations: SourceLookupLocation[];
+  available_location_count: number;
+  warnings: string[];
+  memory_hit: boolean;
+  lookup_cache_hit: boolean;
+  hybrid_fallback: boolean;
+  used_generation: boolean;
 };
 
 export type TeacherQuery = {
@@ -623,6 +672,16 @@ export type TeacherQuery = {
   answer_verified: boolean;
   memory_used: boolean;
   response_feedback: MemoryFeedbackVerdict | null;
+  answer_kind:
+    | "teacher_answer"
+    | "source_lookup"
+    | "teacher_answer_with_source_lookup";
+  source_lookup: SourceLookup | null;
+  used_generation: boolean;
+  memory_hit: boolean;
+  lookup_cache_hit: boolean;
+  hybrid_fallback: boolean;
+  answer_cache_hit: boolean;
 };
 
 export type LibraryModelRouting = {
@@ -764,6 +823,8 @@ export type MemoryReviewQueueItem = {
   status: PedagogicalMemoryStatus;
   priority: number;
   used_by_queries: number;
+  source_role: LibrarySource["pedagogical_role"] | null;
+  last_used_at: string | null;
 };
 
 export type MemoryAudit = {
