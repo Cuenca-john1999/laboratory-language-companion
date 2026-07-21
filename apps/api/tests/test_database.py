@@ -91,7 +91,7 @@ def test_migrations_reproduce_from_empty_database(tmp_path):
     run_alembic(database_path, "upgrade", "head")
     with sqlite3.connect(database_path) as connection:
         assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0006",)
         assert connection.execute("SELECT preferred_name FROM student_profiles").fetchone() == (
             "Jhon",
         )
@@ -101,6 +101,45 @@ def test_migrations_reproduce_from_empty_database(tmp_path):
             "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' "
             "AND name LIKE 'skill_evidence_no_%'"
         ).fetchone() == (2,)
+
+
+def test_upgrade_from_0005_adds_guided_study_without_touching_progress(tmp_path):
+    database_path = tmp_path / "upgrade-study.sqlite3"
+    run_alembic(database_path, "upgrade", "0005")
+    with sqlite3.connect(database_path) as connection:
+        before = {
+            "student_skills": connection.execute("SELECT COUNT(*) FROM student_skills").fetchone()[
+                0
+            ],
+            "skill_evidence": connection.execute("SELECT COUNT(*) FROM skill_evidence").fetchone()[
+                0
+            ],
+        }
+    run_alembic(database_path, "upgrade", "head")
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0006",)
+        for table in (
+            "study_section_states",
+            "study_sessions",
+            "study_notes",
+            "study_questions",
+            "study_workbook_links",
+            "study_preferences",
+            "study_events",
+        ):
+            assert connection.execute(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name=?", (table,)
+            ).fetchone() == (1,)
+        assert (
+            connection.execute("SELECT COUNT(*) FROM student_skills").fetchone()[0]
+            == before["student_skills"]
+        )
+        assert (
+            connection.execute("SELECT COUNT(*) FROM skill_evidence").fetchone()[0]
+            == before["skill_evidence"]
+        )
+        assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute(
             "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'trigger' "
             "AND name IN ('skill_evidence_require_snapshot', "
@@ -366,7 +405,7 @@ def test_upgrade_preserves_existing_milestone_zero_rows(tmp_path):
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("SELECT COUNT(*) FROM learning_sessions").fetchone() == (1,)
         assert connection.execute("SELECT COUNT(*) FROM exercise_attempts").fetchone() == (1,)
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0006",)
 
 
 def test_profile_persists_across_api_process_restarts(tmp_path):

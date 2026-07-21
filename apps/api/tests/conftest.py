@@ -32,7 +32,7 @@ def anyio_backend():
 def _seed_database(factory):
     with factory() as db:
         db.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
-        db.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0005')"))
+        db.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0006')"))
         db.add(
             StudentProfile(
                 id=1,

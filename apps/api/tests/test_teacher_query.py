@@ -22,6 +22,7 @@ from deutschos_api.educational_library.memory import PedagogicalMemoryService
 from deutschos_api.educational_library.schemas import (
     MemoryFeedbackRequest,
     QueryAmbiguity,
+    StudyTeacherContext,
     TeacherAnswerDraft,
     TeacherAskRequest,
     TeacherClaim,
@@ -198,6 +199,38 @@ def test_query_contract_rejects_empty_long_extra_and_unsafe_plan():
         TeacherAskRequest(question="x" * 1_001)
     with pytest.raises(ValueError):
         TeacherAskRequest.model_validate({"question": "die", "temperature": 1})
+
+
+@pytest.mark.anyio
+async def test_teacher_receives_bounded_study_context_only_when_explicit(
+    teacher_library: EducationalLibraryService,
+):
+    provider = TeacherFakeProvider()
+    teacher = make_teacher(teacher_library, provider)
+    await teacher.ask(
+        TeacherAskRequest(
+            question="¿Qué significa die?",
+            study_context=StudyTeacherContext(
+                session_id="00000000-0000-0000-0000-000000000001",
+                section_title="Artículos definidos",
+                concept_name="der, die, das",
+                source_name="Herder · Gramática",
+                pdf_page_start=10,
+                pdf_page_end=12,
+                current_pdf_page=11,
+                mission_type="laboratory",
+                selected_notes=["Nota incluida de forma explícita."],
+            ),
+        )
+    )
+    context = provider.plan_payloads[0]["study_context"]
+    assert context["section_title"] == "Artículos definidos"
+    assert context["selected_notes"] == ["Nota incluida de forma explícita."]
+
+    provider_without_notes = TeacherFakeProvider()
+    teacher_without_notes = make_teacher(teacher_library, provider_without_notes)
+    await teacher_without_notes.ask(TeacherAskRequest(question="¿Qué significa die?"))
+    assert provider_without_notes.plan_payloads[0]["study_context"] is None
     with pytest.raises(ValueError):
         TeacherQueryPlan(
             intent="definition",

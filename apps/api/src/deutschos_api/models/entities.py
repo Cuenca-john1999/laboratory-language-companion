@@ -42,6 +42,33 @@ class MistakeStatus(StrEnum):
     IGNORED = "ignored"
 
 
+class StudyPracticalStatus(StrEnum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    VIEWED = "viewed"
+    NEEDS_REVIEW = "needs_review"
+    COMPLETED_BY_USER = "completed_by_user"
+    PAUSED = "paused"
+
+
+class StudySessionStatus(StrEnum):
+    PLANNED = "planned"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    ABANDONED = "abandoned"
+
+
+class StudyMissionType(StrEnum):
+    AUTOMATIC = "automatic"
+    STANDARD = "standard"
+    LABORATORY = "laboratory"
+    FROZEN_CITY = "frozen_city"
+    UNDERWATER_EXPLORATION = "underwater_exploration"
+    SPACE_MISSION = "space_mission"
+    MIXED = "mixed"
+
+
 class DiagnosticSessionStatus(StrEnum):
     NOT_STARTED = "not_started"
     ONBOARDING = "onboarding"
@@ -330,6 +357,260 @@ class LearningSession(Base):
     user_motivation_before: Mapped[int | None] = mapped_column(Integer)
     user_motivation_after: Mapped[int | None] = mapped_column(Integer)
     attempts: Mapped[list["ExerciseAttempt"]] = relationship(back_populates="learning_session")
+
+
+class StudySectionState(Base, TimestampMixin):
+    __tablename__ = "study_section_states"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint(
+            "practical_status IN ('not_started','in_progress','viewed','needs_review',"
+            "'completed_by_user','paused')",
+            name="valid_practical_status",
+        ),
+        CheckConstraint(
+            "selection_origin IN ('first_section','section_picker','concept_search',"
+            "'manual_page','already_studying','recommendation')",
+            name="valid_selection_origin",
+        ),
+        CheckConstraint("current_pdf_page IS NULL OR current_pdf_page > 0", name="page_positive"),
+        UniqueConstraint("profile_id", "source_id", "section_stable_key"),
+        Index("ix_study_section_states_status_activity", "practical_status", "last_activity_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), default=1
+    )
+    source_id: Mapped[str] = mapped_column(String(100))
+    source_version: Mapped[int] = mapped_column(Integer)
+    section_id: Mapped[int] = mapped_column(Integer)
+    section_stable_key: Mapped[str] = mapped_column(String(100))
+    section_title: Mapped[str] = mapped_column(String(500))
+    practical_status: Mapped[str] = mapped_column(
+        String(30), default=StudyPracticalStatus.NOT_STARTED
+    )
+    current_pdf_page: Mapped[int | None] = mapped_column(Integer)
+    printed_page_label: Mapped[str | None] = mapped_column(String(100))
+    selection_origin: Mapped[str] = mapped_column(String(40))
+    last_activity_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
+class StudySession(Base, TimestampMixin):
+    __tablename__ = "study_sessions"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint("kind IN ('guided','free')", name="valid_kind"),
+        CheckConstraint(
+            "status IN ('planned','active','paused','completed','abandoned')",
+            name="valid_status",
+        ),
+        CheckConstraint(
+            "planned_minutes IS NULL OR planned_minutes IN (20,30,45,60)",
+            name="valid_planned_minutes",
+        ),
+        CheckConstraint("active_seconds >= 0", name="active_seconds_nonnegative"),
+        CheckConstraint("pdf_page_start IS NULL OR pdf_page_start > 0", name="page_start_positive"),
+        CheckConstraint("pdf_page_end IS NULL OR pdf_page_end > 0", name="page_end_positive"),
+        CheckConstraint(
+            "pdf_page_end IS NULL OR pdf_page_start IS NULL OR pdf_page_end >= pdf_page_start",
+            name="valid_page_range",
+        ),
+        CheckConstraint(
+            "current_pdf_page IS NULL OR current_pdf_page > 0", name="current_page_positive"
+        ),
+        CheckConstraint(
+            "subjective_result IS NULL OR subjective_result IN ('understood','needs_review',"
+            "'unfinished','difficult','continue_next_time','change_topic')",
+            name="valid_subjective_result",
+        ),
+        CheckConstraint(
+            "json_valid(mission) AND json_type(mission) = 'object'", name="mission_json_object"
+        ),
+        CheckConstraint("json_valid(plan) AND json_type(plan) = 'object'", name="plan_json_object"),
+        CheckConstraint(
+            "json_valid(checklist) AND json_type(checklist) = 'array'",
+            name="checklist_json_array",
+        ),
+        CheckConstraint("closed_at IS NULL OR closed_at >= started_at", name="valid_closed_time"),
+        Index(
+            "ix_study_sessions_one_active",
+            "profile_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+        ),
+        Index("ix_study_sessions_updated", "updated_at"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), default=1
+    )
+    section_state_id: Mapped[int | None] = mapped_column(
+        ForeignKey("study_section_states.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20), default=StudySessionStatus.PLANNED)
+    source_id: Mapped[str | None] = mapped_column(String(100))
+    source_version: Mapped[int | None] = mapped_column(Integer)
+    source_name: Mapped[str | None] = mapped_column(String(500))
+    section_id: Mapped[int | None] = mapped_column(Integer)
+    section_stable_key: Mapped[str | None] = mapped_column(String(100))
+    section_title: Mapped[str] = mapped_column(String(500))
+    concept_name: Mapped[str | None] = mapped_column(String(300))
+    pdf_page_start: Mapped[int | None] = mapped_column(Integer)
+    pdf_page_end: Mapped[int | None] = mapped_column(Integer)
+    current_pdf_page: Mapped[int | None] = mapped_column(Integer)
+    printed_page_label: Mapped[str | None] = mapped_column(String(100))
+    objective: Mapped[str] = mapped_column(Text)
+    mission_type: Mapped[str] = mapped_column(String(40))
+    mission: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    plan: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    checklist: Mapped[list[object]] = mapped_column(JSON, default=list)
+    planned_minutes: Mapped[int | None] = mapped_column(Integer)
+    active_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    paused_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    resumed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    closed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    subjective_result: Mapped[str | None] = mapped_column(String(40))
+    final_pdf_page: Mapped[int | None] = mapped_column(Integer)
+    final_workbook_exercise: Mapped[str | None] = mapped_column(String(100))
+    next_action: Mapped[str | None] = mapped_column(String(100))
+
+
+class StudyNote(Base, TimestampMixin):
+    __tablename__ = "study_notes"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint("length(text) > 0", name="text_nonempty"),
+        CheckConstraint("pdf_page IS NULL OR pdf_page > 0", name="page_positive"),
+        Index("ix_study_notes_section", "source_id", "section_stable_key"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), default=1
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("study_sessions.id", ondelete="SET NULL")
+    )
+    source_id: Mapped[str | None] = mapped_column(String(100))
+    section_stable_key: Mapped[str | None] = mapped_column(String(100))
+    concept_name: Mapped[str | None] = mapped_column(String(300))
+    pdf_page: Mapped[int | None] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+
+
+class StudyQuestion(Base, TimestampMixin):
+    __tablename__ = "study_questions"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint("length(question) > 0", name="question_nonempty"),
+        CheckConstraint("status IN ('open','clarified','revisit','archived')", name="valid_status"),
+        CheckConstraint("pdf_page IS NULL OR pdf_page > 0", name="page_positive"),
+        Index("ix_study_questions_status_section", "status", "section_stable_key"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), default=1
+    )
+    session_id: Mapped[str | None] = mapped_column(
+        ForeignKey("study_sessions.id", ondelete="SET NULL")
+    )
+    source_id: Mapped[str | None] = mapped_column(String(100))
+    section_stable_key: Mapped[str | None] = mapped_column(String(100))
+    concept_name: Mapped[str | None] = mapped_column(String(300))
+    pdf_page: Mapped[int | None] = mapped_column(Integer)
+    question: Mapped[str] = mapped_column(Text)
+    answer_query_id: Mapped[str | None] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(20), default="open")
+
+
+class StudyWorkbookLink(Base, TimestampMixin):
+    __tablename__ = "study_workbook_links"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint("workbook_pdf_page > 0", name="page_positive"),
+        CheckConstraint("region IN ('full','left','right','both','unknown')", name="valid_region"),
+        CheckConstraint(
+            "status IN ('candidate','user_confirmed','rejected','stale')", name="valid_status"
+        ),
+        UniqueConstraint(
+            "profile_id",
+            "theory_source_id",
+            "section_stable_key",
+            "workbook_source_id",
+            "workbook_pdf_page",
+            "exercise_start",
+            "exercise_end",
+        ),
+        Index("ix_study_workbook_links_section", "theory_source_id", "section_stable_key"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), default=1
+    )
+    theory_source_id: Mapped[str] = mapped_column(String(100))
+    theory_source_version: Mapped[int] = mapped_column(Integer)
+    section_stable_key: Mapped[str] = mapped_column(String(100))
+    workbook_source_id: Mapped[str] = mapped_column(String(100))
+    workbook_source_version: Mapped[int] = mapped_column(Integer)
+    workbook_pdf_page: Mapped[int] = mapped_column(Integer)
+    workbook_printed_page: Mapped[str | None] = mapped_column(String(100))
+    exercise_start: Mapped[str | None] = mapped_column(String(100))
+    exercise_end: Mapped[str | None] = mapped_column(String(100))
+    region: Mapped[str] = mapped_column(String(20), default="unknown")
+    comment: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="candidate")
+    reviewed_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class StudyPreference(Base):
+    __tablename__ = "study_preferences"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint(
+            "mission_preference IN ('automatic','standard','laboratory','frozen_city',"
+            "'underwater_exploration','space_mission','mixed')",
+            name="valid_mission_preference",
+        ),
+    )
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), primary_key=True
+    )
+    mission_preference: Mapped[str] = mapped_column(String(40), default="automatic")
+    active_source_id: Mapped[str | None] = mapped_column(String(100))
+    active_section_stable_key: Mapped[str | None] = mapped_column(String(100))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)
+
+
+class StudyEvent(Base):
+    __tablename__ = "study_events"
+    __table_args__ = (
+        CheckConstraint("profile_id = 1", name="single_user"),
+        CheckConstraint(
+            "json_valid(before_state) AND json_type(before_state) = 'object'",
+            name="before_json_object",
+        ),
+        CheckConstraint(
+            "json_valid(after_state) AND json_type(after_state) = 'object'",
+            name="after_json_object",
+        ),
+        UniqueConstraint("operation_id"),
+        Index("ix_study_events_target_created", "target_type", "target_id", "created_at"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    profile_id: Mapped[int] = mapped_column(
+        ForeignKey("student_profiles.id", ondelete="CASCADE"), default=1
+    )
+    operation_id: Mapped[str] = mapped_column(String(100))
+    target_type: Mapped[str] = mapped_column(String(40))
+    target_id: Mapped[str] = mapped_column(String(100))
+    action: Mapped[str] = mapped_column(String(50))
+    before_state: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    after_state: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)
+    reverts_event_id: Mapped[int | None] = mapped_column(
+        ForeignKey("study_events.id", ondelete="RESTRICT")
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
 
 
 class DailyPlan(Base):

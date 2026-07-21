@@ -210,7 +210,7 @@ def test_upgrade_from_existing_0004_preserves_all_existing_rows(tmp_path):
             for table in before
         }
         assert after == before
-        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0005",)
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == ("0006",)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute("PRAGMA quick_check").fetchone() == ("ok",)
 

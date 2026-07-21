@@ -748,6 +748,27 @@ class TeacherTimings(APIModel):
     hybrid_fallback_ms: int = Field(default=0, ge=0)
 
 
+class StudyTeacherContext(APIModel):
+    session_id: str = Field(min_length=1, max_length=36)
+    section_title: str = Field(min_length=1, max_length=500)
+    concept_name: str | None = Field(default=None, max_length=300)
+    source_name: str | None = Field(default=None, max_length=500)
+    pdf_page_start: int | None = Field(default=None, ge=1)
+    pdf_page_end: int | None = Field(default=None, ge=1)
+    current_pdf_page: int | None = Field(default=None, ge=1)
+    printed_page_label: str | None = Field(default=None, max_length=100)
+    mission_type: str | None = Field(default=None, max_length=40)
+    preferred_language: Literal["es-ES"] = "es-ES"
+    selected_notes: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("selected_notes")
+    @classmethod
+    def bounded_selected_notes(cls, values: list[str]) -> list[str]:
+        if any(not value or len(value) > 2_000 for value in values):
+            raise ValueError("selected study notes must contain 1 to 2000 characters")
+        return values
+
+
 class TeacherAskRequest(APIModel):
     question: str = Field(min_length=2, max_length=1_000)
     conversation_id: str | None = Field(default=None, max_length=100)
@@ -755,6 +776,7 @@ class TeacherAskRequest(APIModel):
     continuation_action: (
         Literal["expand", "more_examples", "rephrase", "use_in_sentence", "follow_up"] | None
     ) = None
+    study_context: StudyTeacherContext | None = None
 
     @field_validator("question")
     @classmethod

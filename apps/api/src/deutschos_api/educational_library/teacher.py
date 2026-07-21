@@ -689,6 +689,9 @@ class EducationalTeacherService:
             "continuation_action": request.continuation_action,
             "learner": learner.prompt_payload(),
             "previous_turn": self._parent_prompt(parent),
+            "study_context": (
+                request.study_context.model_dump(mode="json") if request.study_context else None
+            ),
         }
         source_fingerprint = self.search.source_fingerprint()
         config_hash = stable_cache_key(QUERY_PLAN_VERSION, learner.prompt_payload())
@@ -1260,6 +1263,9 @@ class EducationalTeacherService:
             "previous_turn": self._parent_prompt(parent),
             "knowledge_units": knowledge,
             "evidence": package,
+            "study_context": (
+                request.study_context.model_dump(mode="json") if request.study_context else None
+            ),
         }
         messages = [
             {
