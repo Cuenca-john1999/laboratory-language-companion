@@ -854,11 +854,23 @@ def teacher_query_memory(
 
 @router.get("/memory/review-queue", response_model=list[MemoryReviewQueueItem])
 def pedagogical_memory_review_queue(
-    limit: int = Query(default=30, ge=1, le=100),
+    limit: int = Query(default=10, ge=1, le=100),
+    target_type: Literal["concept", "location"] | None = Query(default=None),
+    memory_status: PedagogicalMemoryStatus | None = Query(default=None, alias="status"),
+    herder_only: bool = Query(default=False),
+    recently_used_only: bool = Query(default=False),
+    current_query_id: str | None = Query(default=None, max_length=100),
     memory: PedagogicalMemoryService = Depends(get_library_memory),
 ) -> list[MemoryReviewQueueItem]:
     try:
-        return memory.review_queue(limit)
+        return memory.review_queue(
+            limit,
+            target_type=target_type,
+            status=memory_status,
+            herder_only=herder_only,
+            recently_used_only=recently_used_only,
+            current_query_id=current_query_id,
+        )
     except Exception as exc:
         raise _translate(exc) from exc
 

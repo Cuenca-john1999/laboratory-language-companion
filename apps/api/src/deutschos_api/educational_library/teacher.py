@@ -29,7 +29,10 @@ from .schemas import (
     LibraryNotFoundError,
     LibraryProviderUnavailableError,
     LibraryTeacherError,
+    PedagogicalMemoryStatus,
     QueryAmbiguity,
+    SourceLookupMode,
+    SourceLookupStatus,
     TeacherAnswerDraft,
     TeacherAskRequest,
     TeacherConversationSummary,
@@ -44,6 +47,11 @@ from .schemas import (
 )
 from .search import EducationalSearchService
 from .service import json_dump, json_load, utc_text
+from .source_lookup import (
+    DeterministicSourceLookupService,
+    SourceLookupExecution,
+    detect_source_lookup,
+)
 
 PROMPT_ROOT = Path(__file__).resolve().parents[1] / "prompts"
 QUERY_PLAN_VERSION = "library-query-plan.v1"
@@ -221,6 +229,7 @@ class EducationalTeacherService:
         model_router: LibraryModelRouter | None = None,
         cache: LibraryCache | None = None,
         memory: PedagogicalMemoryService | None = None,
+        source_lookup: DeterministicSourceLookupService | None = None,
     ):
         self.database = database
         self.search = search
@@ -230,6 +239,12 @@ class EducationalTeacherService:
         self.model_router = model_router
         self.cache = cache or LibraryCache(database)
         self.memory = memory or PedagogicalMemoryService(database)
+        self.source_lookup = source_lookup or DeterministicSourceLookupService(
+            database,
+            search,
+            memory=self.memory,
+            cache=self.cache,
+        )
 
     async def ask(
         self,
@@ -239,23 +254,96 @@ class EducationalTeacherService:
     ) -> TeacherQueryRead:
         started = perf_counter()
         learner = learner or LearnerContext()
+        conversation_id, parent = self._resolve_conversation(request.conversation_id)
+        parent_plan = json_load(str(parent["plan_json"]), {}) if parent else {}
+        parent_target = str(parent_plan.get("target_expression") or "") or None
+        detection_started = perf_counter()
+        lookup_detection = detect_source_lookup(
+            request.question,
+            parent_target=parent_target,
+        )
+        intent_detection_ms = self._elapsed_ms(detection_started)
+        lookup: SourceLookupExecution | None = None
+        if lookup_detection.mode in {SourceLookupMode.PURE, SourceLookupMode.MIXED}:
+            lookup = await self.source_lookup.resolve(
+                request.question,
+                source_id=request.source_id,
+                parent_target=parent_target,
+                detection=lookup_detection,
+                expanded=request.continuation_action == "expand",
+            )
+        if lookup_detection.mode == SourceLookupMode.PURE and lookup is not None:
+            return self._persist_source_lookup(
+                request,
+                conversation_id,
+                parent,
+                lookup,
+                started,
+                intent_detection_ms,
+            )
+
         model = self.default_model
         if not model and self.model_router is None:
+            if lookup is not None and self._lookup_has_location(lookup):
+                return self._persist_source_lookup(
+                    request,
+                    conversation_id,
+                    parent,
+                    lookup,
+                    started,
+                    intent_detection_ms,
+                    mixed=True,
+                    failure_reason=TeacherFailureReason.MODEL_UNAVAILABLE,
+                )
             raise LibraryProviderUnavailableError("No hay un modelo docente local configurado.")
 
-        conversation_id, parent = self._resolve_conversation(request.conversation_id)
         planning_started = perf_counter()
-        plan, planner_model, plan_cache_hit = await self._plan(request, learner, parent, model)
+        try:
+            plan, planner_model, plan_cache_hit = await self._plan(request, learner, parent, model)
+        except (LibraryTeacherError, LibraryProviderUnavailableError):
+            if lookup is not None and self._lookup_has_location(lookup):
+                return self._persist_source_lookup(
+                    request,
+                    conversation_id,
+                    parent,
+                    lookup,
+                    started,
+                    intent_detection_ms,
+                    mixed=True,
+                    failure_reason=TeacherFailureReason.GENERATION_FAILURE,
+                )
+            raise
+        if lookup_detection.mode == SourceLookupMode.MIXED:
+            plan = plan.model_copy(
+                update={
+                    "intent": TeacherIntent.GRAMMAR_EXPLANATION,
+                    "required_evidence": ["explicación", "ejemplo"],
+                }
+            )
         planning_ms = self._elapsed_ms(planning_started)
 
         retrieval_started = perf_counter()
-        (
-            evidence,
-            knowledge,
-            retrieval_mode,
-            semantic_available,
-            retrieval_phases,
-        ) = await self._retrieve(request, plan)
+        try:
+            (
+                evidence,
+                knowledge,
+                retrieval_mode,
+                semantic_available,
+                retrieval_phases,
+            ) = await self._retrieve(request, plan)
+        except LibraryTeacherError:
+            if lookup is not None and self._lookup_has_location(lookup):
+                return self._persist_source_lookup(
+                    request,
+                    conversation_id,
+                    parent,
+                    lookup,
+                    started,
+                    intent_detection_ms,
+                    mixed=True,
+                    failure_reason=TeacherFailureReason.RETRIEVAL_FAILURE,
+                )
+            raise
         retrieval_ms = self._elapsed_ms(retrieval_started)
         confidence, confidence_score, confidence_warnings = self._confidence(evidence, knowledge)
 
@@ -265,33 +353,58 @@ class EducationalTeacherService:
         answer_model = planner_model
         generation_failure: TeacherFailureReason | None = None
         if not evidence or confidence == EvidenceConfidence.INSUFFICIENT:
-            draft = self._insufficient_answer(plan)
-            status = TeacherQueryStatus.INSUFFICIENT
-        else:
-            (
-                draft,
-                validation_ms,
-                repair_ms,
-                answer_model,
-                generation_failure,
-            ) = await self._generate(
-                request,
-                plan,
-                learner,
-                parent,
-                evidence,
-                knowledge,
-                model,
-            )
-            if draft.evidence_sufficient:
+            if lookup is not None and self._lookup_has_location(lookup):
+                draft = self._mixed_lookup_failure_answer(lookup)
                 status = TeacherQueryStatus.COMPLETED
+                generation_failure = TeacherFailureReason.WEAK_EVIDENCE
+                confidence = self._lookup_confidence(lookup)
             else:
                 draft = self._insufficient_answer(plan)
-                confidence = EvidenceConfidence.INSUFFICIENT
                 status = TeacherQueryStatus.INSUFFICIENT
+        else:
+            try:
+                (
+                    draft,
+                    validation_ms,
+                    repair_ms,
+                    answer_model,
+                    generation_failure,
+                ) = await self._generate(
+                    request,
+                    plan,
+                    learner,
+                    parent,
+                    evidence,
+                    knowledge,
+                    model,
+                )
+            except LibraryProviderUnavailableError:
+                if lookup is None or not self._lookup_has_location(lookup):
+                    raise
+                draft = self._mixed_lookup_failure_answer(lookup)
+                generation_failure = TeacherFailureReason.GENERATION_FAILURE
+            if draft.evidence_sufficient:
+                if lookup is not None:
+                    draft = draft.model_copy(
+                        update={
+                            "answer_kind": "teacher_answer_with_source_lookup",
+                            "source_lookup": lookup.result,
+                            "used_generation": generation_failure is None,
+                        }
+                    )
+                status = TeacherQueryStatus.COMPLETED
+            else:
+                if lookup is not None and self._lookup_has_location(lookup):
+                    draft = self._mixed_lookup_failure_answer(lookup)
+                    confidence = self._lookup_confidence(lookup)
+                    status = TeacherQueryStatus.COMPLETED
+                else:
+                    draft = self._insufficient_answer(plan)
+                    confidence = EvidenceConfidence.INSUFFICIENT
+                    status = TeacherQueryStatus.INSUFFICIENT
         if not evidence:
-            failure_reason = TeacherFailureReason.NO_EVIDENCE
-        elif confidence == EvidenceConfidence.INSUFFICIENT:
+            failure_reason = generation_failure or TeacherFailureReason.NO_EVIDENCE
+        elif confidence == EvidenceConfidence.INSUFFICIENT and lookup is None:
             failure_reason = generation_failure or TeacherFailureReason.WEAK_EVIDENCE
         else:
             failure_reason = generation_failure
@@ -313,6 +426,9 @@ class EducationalTeacherService:
             vector_ms=retrieval_phases["vector_ms"],
             ranking_ms=retrieval_phases["ranking_ms"],
             repair_ms=repair_ms,
+            intent_detection_ms=intent_detection_ms,
+            memory_lookup_ms=lookup.memory_ms if lookup else 0,
+            hybrid_fallback_ms=lookup.hybrid_ms if lookup else 0,
         )
         query_id = self._persist(
             request=request,
@@ -334,7 +450,184 @@ class EducationalTeacherService:
             cache_hit=plan_cache_hit,
         )
         self.memory.remember_teacher_query(query_id)
+        if lookup is not None:
+            self.memory.link_lookup_query(
+                query_id,
+                list(lookup.concept_ids),
+                list(lookup.location_ids),
+            )
         return self.get_query(query_id)
+
+    def _persist_source_lookup(
+        self,
+        request: TeacherAskRequest,
+        conversation_id: str,
+        parent: dict[str, object] | None,
+        lookup: SourceLookupExecution,
+        started: float,
+        intent_detection_ms: int,
+        *,
+        mixed: bool = False,
+        failure_reason: TeacherFailureReason | None = None,
+    ) -> TeacherQueryRead:
+        target = (
+            lookup.result.concept.canonical_name
+            if lookup.result.concept
+            else lookup.detection.target
+        )
+        plan = TeacherQueryPlan(
+            intent=TeacherIntent.SOURCE_LOOKUP,
+            language="mixed",
+            target_expression=target,
+            user_language="es",
+            ambiguity=(
+                QueryAmbiguity.HIGH
+                if lookup.detection.mode == SourceLookupMode.AMBIGUOUS
+                else QueryAmbiguity.LOW
+            ),
+            possible_interpretations=[],
+            search_queries=[target or request.question[:160]],
+            required_evidence=["ubicación documental"],
+        )
+        has_location = self._lookup_has_location(lookup)
+        answer = (
+            self._mixed_lookup_failure_answer(lookup)
+            if mixed
+            else TeacherAnswerDraft(
+                evidence_sufficient=has_location,
+                direct_answer=lookup.result.summary,
+                key_points=[],
+                examples=[],
+                important_nuance=None,
+                ambiguity_note=None,
+                follow_up_question=(
+                    "¿Quieres que busque una explicación del tema?" if has_location else None
+                ),
+                claims=[],
+                warnings=lookup.result.warnings,
+                answer_kind="source_lookup",
+                source_lookup=lookup.result,
+                used_generation=False,
+            )
+        )
+        status = TeacherQueryStatus.COMPLETED
+        derived_failure = failure_reason
+        if lookup.result.status == SourceLookupStatus.NO_LOCATION:
+            status = TeacherQueryStatus.INSUFFICIENT
+            derived_failure = TeacherFailureReason.NO_EVIDENCE
+        elif lookup.result.status == SourceLookupStatus.RETRIEVAL_ERROR:
+            status = TeacherQueryStatus.FAILED
+            derived_failure = TeacherFailureReason.RETRIEVAL_FAILURE
+        confidence = self._lookup_confidence(lookup)
+        confidence_score = {
+            EvidenceConfidence.SOLID: 0.95,
+            EvidenceConfidence.MODERATE: 0.75,
+            EvidenceConfidence.LIMITED: 0.45,
+            EvidenceConfidence.INSUFFICIENT: 0.0,
+        }[confidence]
+        timings = TeacherTimings(
+            planning_ms=0,
+            retrieval_ms=lookup.memory_ms + lookup.hybrid_ms,
+            generation_ms=0,
+            validation_ms=0,
+            total_ms=self._elapsed_ms(started),
+            intent_detection_ms=intent_detection_ms,
+            memory_lookup_ms=lookup.memory_ms,
+            hybrid_fallback_ms=lookup.hybrid_ms,
+        )
+        evidence = self._lookup_evidence(lookup, plan)
+        query_id = self._persist(
+            request=request,
+            conversation_id=conversation_id,
+            parent_query_id=parent["id"] if parent else None,
+            plan=plan,
+            answer=answer,
+            evidence=evidence,
+            model="deterministic",
+            status=status,
+            confidence=confidence,
+            retrieval_mode=lookup.retrieval_mode,
+            semantic_available=lookup.semantic_available,
+            warnings=list(dict.fromkeys([*lookup.result.warnings, *answer.warnings])),
+            timings=timings,
+            confidence_score=confidence_score,
+            failure_reason=derived_failure,
+            models={},
+            cache_hit=False,
+        )
+        self.memory.link_lookup_query(
+            query_id,
+            list(lookup.concept_ids),
+            list(lookup.location_ids),
+        )
+        return self.get_query(query_id)
+
+    def _lookup_evidence(
+        self,
+        lookup: SourceLookupExecution,
+        plan: TeacherQueryPlan,
+    ) -> list[_Evidence]:
+        if not lookup.location_ids:
+            return []
+        placeholders = ",".join("?" for _ in lookup.location_ids)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                f"SELECT pel.id,pel.chunk_id,pel.status FROM pedagogical_evidence_locations pel "
+                f"JOIN sources s ON s.id=pel.source_id WHERE pel.id IN ({placeholders}) "
+                "AND pel.chunk_id IS NOT NULL AND pel.source_version_id=s.current_version_id "
+                "AND s.status='present' AND s.excluded=0 "
+                "AND pel.status NOT IN ('rejected','stale')",
+                lookup.location_ids,
+            ).fetchall()
+        scores: dict[int, float] = {}
+        matched: dict[int, set[str]] = {}
+        weights = {"user_confirmed": 2.0, "system_verified": 1.2, "candidate": 0.3}
+        for row in rows:
+            chunk_id = int(row["chunk_id"])
+            scores[chunk_id] = weights.get(str(row["status"]), 0.05)
+            matched[chunk_id] = {"memory:source_lookup"}
+        return self._deduplicate_and_select(self._load_and_rank(scores, matched, plan, []))
+
+    @staticmethod
+    def _lookup_has_location(lookup: SourceLookupExecution) -> bool:
+        return bool(lookup.result.locations) and lookup.result.status not in {
+            SourceLookupStatus.NO_LOCATION,
+            SourceLookupStatus.RETRIEVAL_ERROR,
+        }
+
+    @staticmethod
+    def _lookup_confidence(lookup: SourceLookupExecution) -> EvidenceConfidence:
+        statuses = {location.review_status for location in lookup.result.locations}
+        if PedagogicalMemoryStatus.USER_CONFIRMED in statuses:
+            return EvidenceConfidence.SOLID
+        if PedagogicalMemoryStatus.SYSTEM_VERIFIED in statuses:
+            return EvidenceConfidence.MODERATE
+        if statuses:
+            return EvidenceConfidence.LIMITED
+        return EvidenceConfidence.INSUFFICIENT
+
+    @staticmethod
+    def _mixed_lookup_failure_answer(lookup: SourceLookupExecution) -> TeacherAnswerDraft:
+        return TeacherAnswerDraft(
+            evidence_sufficient=True,
+            direct_answer=(
+                "No pude preparar la explicación docente, pero la ubicación documental sigue "
+                f"disponible. {lookup.result.summary}"
+            ),
+            key_points=[],
+            examples=[],
+            important_nuance=None,
+            ambiguity_note=None,
+            follow_up_question="¿Quieres reintentar únicamente la explicación?",
+            claims=[],
+            warnings=[
+                *lookup.result.warnings,
+                "La explicación no se completó; la ubicación se validó por separado.",
+            ],
+            answer_kind="teacher_answer_with_source_lookup",
+            source_lookup=lookup.result,
+            used_generation=False,
+        )
 
     def persist_cancelled(self, request: TeacherAskRequest) -> TeacherQueryRead:
         conversation_id, parent = self._resolve_conversation(request.conversation_id)
@@ -1250,7 +1543,8 @@ class EducationalTeacherService:
             if not exists:
                 raise LibraryNotFoundError("La conversación educativa no existe.")
             row = connection.execute(
-                "SELECT tq.id,tq.question,tq.answer_json,trf.verdict response_feedback "
+                "SELECT tq.id,tq.question,tq.plan_json,tq.answer_json,"
+                "trf.verdict response_feedback "
                 "FROM teacher_queries tq LEFT JOIN teacher_response_feedback trf "
                 "ON trf.query_id=tq.id WHERE tq.conversation_id=? "
                 "ORDER BY created_at DESC,id DESC LIMIT 1",
@@ -1372,6 +1666,18 @@ class EducationalTeacherService:
         # Public projection is sanitised again so historical rows created before
         # a newer output guard cannot leak internal retrieval identifiers.
         draft = self._sanitise_draft(TeacherAnswerDraft.model_validate_json(row["answer_json"]))
+        if draft.source_lookup is not None:
+            refreshed_lookup = self.source_lookup.refresh_persisted(draft.source_lookup)
+            draft = draft.model_copy(
+                update={
+                    "source_lookup": refreshed_lookup,
+                    **(
+                        {"direct_answer": refreshed_lookup.summary}
+                        if draft.answer_kind == "source_lookup"
+                        else {}
+                    ),
+                }
+            )
         timings_raw = json_load(row["timings_json"], {})
         memory_state = self.memory.query_memory(query_id)
         memory_by_chunk = {}
@@ -1474,6 +1780,13 @@ class EducationalTeacherService:
                 total_ms=int(timings_raw.get("total_ms", 0)),
                 embedding_ms=int(timings_raw.get("embedding_ms", 0)),
                 model_selection_ms=int(timings_raw.get("model_selection_ms", 0)),
+                fts_ms=int(timings_raw.get("fts_ms", 0)),
+                vector_ms=int(timings_raw.get("vector_ms", 0)),
+                ranking_ms=int(timings_raw.get("ranking_ms", 0)),
+                repair_ms=int(timings_raw.get("repair_ms", 0)),
+                intent_detection_ms=int(timings_raw.get("intent_detection_ms", 0)),
+                memory_lookup_ms=int(timings_raw.get("memory_lookup_ms", 0)),
+                hybrid_fallback_ms=int(timings_raw.get("hybrid_fallback_ms", 0)),
             ),
             created_at=row["created_at"],
             failure_reason=row["failure_reason"],
@@ -1482,6 +1795,15 @@ class EducationalTeacherService:
             answer_verified=True,
             memory_used=memory_state.memory_used,
             response_feedback=memory_state.response_feedback,
+            answer_kind=draft.answer_kind,
+            source_lookup=draft.source_lookup,
+            used_generation=draft.used_generation,
+            memory_hit=draft.source_lookup.memory_hit if draft.source_lookup else False,
+            lookup_cache_hit=(
+                draft.source_lookup.lookup_cache_hit if draft.source_lookup else False
+            ),
+            hybrid_fallback=(draft.source_lookup.hybrid_fallback if draft.source_lookup else False),
+            answer_cache_hit=False,
         )
 
     def list_conversations(self, *, limit: int = 20) -> list[TeacherConversationSummary]:

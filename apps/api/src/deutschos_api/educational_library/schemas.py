@@ -117,6 +117,23 @@ class TeacherIntent(StrEnum):
     UNKNOWN = "unknown"
 
 
+class SourceLookupMode(StrEnum):
+    NONE = "none"
+    PURE = "pure"
+    MIXED = "mixed"
+    AMBIGUOUS = "ambiguous"
+
+
+class SourceLookupStatus(StrEnum):
+    VERIFIED_LOCATION = "verified_location"
+    CANDIDATE_LOCATIONS = "candidate_locations"
+    MULTIPLE_LOCATIONS = "multiple_locations"
+    CONFLICT = "conflict"
+    STALE = "stale"
+    NO_LOCATION = "no_location"
+    RETRIEVAL_ERROR = "retrieval_error"
+
+
 class QueryAmbiguity(StrEnum):
     LOW = "low"
     MODERATE = "moderate"
@@ -617,6 +634,43 @@ class TeacherClaim(APIModel):
     source_chunk_ids: list[int] = Field(min_length=1, max_length=8)
 
 
+class SourceLookupConceptRead(APIModel):
+    concept_id: str | None = None
+    canonical_name: str
+    display_name_es: str | None = None
+    display_name_de: str | None = None
+
+
+class SourceLookupLocationRead(APIModel):
+    location_id: str
+    source_id: str
+    source_name: str
+    source_role: PedagogicalRole
+    source_version: int = Field(ge=1)
+    pdf_page: int | None = Field(default=None, ge=1)
+    printed_page: str | None = None
+    scan_layout: ScanLayout
+    region: EvidenceRegion
+    heading: str | None = None
+    review_status: PedagogicalMemoryStatus
+    citation: str
+    snippet: str = Field(max_length=600)
+    provenance: Literal["memory", "hybrid"]
+
+
+class SourceLookupRead(APIModel):
+    status: SourceLookupStatus
+    concept: SourceLookupConceptRead | None = None
+    summary: str = Field(min_length=1, max_length=5_000)
+    locations: list[SourceLookupLocationRead] = Field(default_factory=list, max_length=10)
+    available_location_count: int = Field(default=0, ge=0)
+    warnings: list[str] = Field(default_factory=list, max_length=10)
+    memory_hit: bool = False
+    lookup_cache_hit: bool = False
+    hybrid_fallback: bool = False
+    used_generation: bool = False
+
+
 class TeacherAnswerDraft(APIModel):
     evidence_sufficient: bool
     direct_answer: str = Field(min_length=1, max_length=5_000)
@@ -627,11 +681,18 @@ class TeacherAnswerDraft(APIModel):
     follow_up_question: str | None = Field(default=None, max_length=500)
     claims: list[TeacherClaim] = Field(default_factory=list, max_length=20)
     warnings: list[str] = Field(default_factory=list, max_length=10)
+    answer_kind: Literal["teacher_answer", "source_lookup", "teacher_answer_with_source_lookup"] = (
+        "teacher_answer"
+    )
+    source_lookup: SourceLookupRead | None = None
+    used_generation: bool = True
 
     @model_validator(mode="after")
     def claims_required_for_grounded_answer(self):
-        if self.evidence_sufficient and not self.claims:
+        if self.evidence_sufficient and self.source_lookup is None and not self.claims:
             raise ValueError("a grounded answer requires at least one supported claim")
+        if self.answer_kind != "teacher_answer" and self.source_lookup is None:
+            raise ValueError("source lookup answers require a structured lookup result")
         return self
 
 
@@ -682,6 +743,9 @@ class TeacherTimings(APIModel):
     vector_ms: int = Field(default=0, ge=0)
     ranking_ms: int = Field(default=0, ge=0)
     repair_ms: int = Field(default=0, ge=0)
+    intent_detection_ms: int = Field(default=0, ge=0)
+    memory_lookup_ms: int = Field(default=0, ge=0)
+    hybrid_fallback_ms: int = Field(default=0, ge=0)
 
 
 class TeacherAskRequest(APIModel):
@@ -720,6 +784,15 @@ class TeacherQueryRead(APIModel):
     answer_verified: bool = True
     memory_used: bool = False
     response_feedback: MemoryFeedbackVerdict | None = None
+    answer_kind: Literal["teacher_answer", "source_lookup", "teacher_answer_with_source_lookup"] = (
+        "teacher_answer"
+    )
+    source_lookup: SourceLookupRead | None = None
+    used_generation: bool = True
+    memory_hit: bool = False
+    lookup_cache_hit: bool = False
+    hybrid_fallback: bool = False
+    answer_cache_hit: bool = False
 
 
 class TeacherStreamEvent(APIModel):
@@ -989,7 +1062,10 @@ class EvidenceLocationRead(APIModel):
     concept_name: str
     source_id: str
     source_name: str
+    source_role: PedagogicalRole = PedagogicalRole.UNKNOWN
     source_version: int = Field(ge=1)
+    source_current: bool = True
+    source_present: bool = True
     chunk_id: int | None
     pdf_page_number: int | None = Field(default=None, ge=1)
     printed_page_label: str | None
@@ -1158,6 +1234,8 @@ class MemoryReviewQueueItem(APIModel):
     status: PedagogicalMemoryStatus
     priority: int
     used_by_queries: int = Field(ge=0)
+    source_role: PedagogicalRole | None = None
+    last_used_at: datetime | None = None
 
 
 class PedagogicalMemoryImportRequest(APIModel):

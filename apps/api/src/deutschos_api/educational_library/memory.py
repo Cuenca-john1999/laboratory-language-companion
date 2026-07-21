@@ -6,7 +6,7 @@ import re
 import sqlite3
 import unicodedata
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -65,6 +65,7 @@ _QUERY_TARGET_STOPWORDS = {
     "wie",
 }
 _PRIVATE_AUDIT_KEYS = {
+    "_page_mapping_snapshot",
     "answer_json",
     "content_hash",
     "current_path",
@@ -710,6 +711,88 @@ class PedagogicalMemoryService:
             ).fetchall()
             return [self._concept_summary(connection, row) for row in rows]
 
+    def match_concepts(self, text: str) -> list[PedagogicalConceptSummary]:
+        """Return concepts whose current aliases occur as complete terms in text."""
+        with self.database.connect() as connection:
+            concept_ids = self._match_concepts(connection, text)
+            if not concept_ids:
+                return []
+            placeholders = ",".join("?" for _ in concept_ids)
+            rows = connection.execute(
+                f"SELECT * FROM pedagogical_concepts WHERE id IN ({placeholders})",
+                concept_ids,
+            ).fetchall()
+            by_id = {str(row["id"]): row for row in rows}
+            return [
+                self._concept_summary(connection, by_id[concept_id])
+                for concept_id in concept_ids
+                if concept_id in by_id
+            ]
+
+    def lookup_locations(
+        self,
+        concept_ids: list[str],
+        *,
+        source_ids: list[str] | None = None,
+    ) -> list[EvidenceLocationRead]:
+        if not concept_ids:
+            return []
+        concept_placeholders = ",".join("?" for _ in concept_ids)
+        clauses = [f"pel.concept_id IN ({concept_placeholders})"]
+        values: list[object] = list(concept_ids)
+        if source_ids:
+            source_placeholders = ",".join("?" for _ in source_ids)
+            clauses.append(f"pel.source_id IN ({source_placeholders})")
+            values.extend(source_ids)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                self._location_select() + f" WHERE {' AND '.join(clauses)} ORDER BY "
+                "CASE pel.status WHEN 'user_confirmed' THEN 0 "
+                "WHEN 'system_verified' THEN 1 WHEN 'candidate' THEN 2 "
+                "WHEN 'conflict' THEN 3 WHEN 'stale' THEN 4 ELSE 5 END,"
+                "s.priority DESC,pel.extraction_quality DESC,pel.pdf_page_number,pel.id",
+                values,
+            ).fetchall()
+        return [self._location_read(row) for row in rows]
+
+    def link_lookup_query(
+        self,
+        query_id: str,
+        concept_ids: list[str],
+        location_ids: list[str],
+    ) -> None:
+        with self.database.transaction(immediate=True) as connection:
+            self._teacher_query_row(connection, query_id)
+            now = utc_text()
+            for index, concept_id in enumerate(dict.fromkeys(concept_ids)):
+                self._concept_row(connection, concept_id)
+                connection.execute(
+                    "INSERT OR IGNORE INTO teacher_query_concepts(query_id,concept_id,origin,"
+                    "is_primary,status,created_at) VALUES (?,?,?,?,'candidate',?)",
+                    (query_id, concept_id, "source_lookup", int(index == 0), now),
+                )
+            sequence = 0
+            for location_id in dict.fromkeys(location_ids):
+                location = connection.execute(
+                    "SELECT pel.id,pel.status,pel.source_version_id=s.current_version_id "
+                    "AND s.status='present' AND s.excluded=0 is_current "
+                    "FROM pedagogical_evidence_locations pel JOIN sources s "
+                    "ON s.id=pel.source_id WHERE pel.id=?",
+                    (location_id,),
+                ).fetchone()
+                if (
+                    not location
+                    or not location["is_current"]
+                    or location["status"] in {"rejected", "stale"}
+                ):
+                    continue
+                connection.execute(
+                    "INSERT OR IGNORE INTO teacher_query_location_usage(query_id,location_id,"
+                    "sequence,evidence_role,created_at) VALUES (?,?,?,?,?)",
+                    (query_id, location_id, sequence, "source_lookup", now),
+                )
+                sequence += 1
+
     def get_concept(self, concept_id: str) -> PedagogicalConceptRead:
         with self.database.connect() as connection:
             row = self._concept_row(connection, concept_id)
@@ -1026,6 +1109,14 @@ class PedagogicalMemoryService:
             if replay:
                 return self._feedback_from_audit(connection, replay)
             before = dict(row)
+            mapping_before = connection.execute(
+                "SELECT * FROM document_page_mappings WHERE source_version_id=? "
+                "AND pdf_page_number=?",
+                (row["source_version_id"], row["pdf_page_number"]),
+            ).fetchone()
+            before["_page_mapping_snapshot"] = (
+                dict(mapping_before) if mapping_before is not None else None
+            )
             status = row["status"]
             if request.verdict == MemoryFeedbackVerdict.CORRECT:
                 status = PedagogicalMemoryStatus.USER_CONFIRMED.value
@@ -1202,12 +1293,24 @@ class PedagogicalMemoryService:
                     f"SELECT * FROM {table} WHERE id=?", (target_id,)
                 ).fetchone()
                 current = dict(row) if row else {}
+                if target_type == "location" and row:
+                    mapping = connection.execute(
+                        "SELECT * FROM document_page_mappings WHERE source_version_id=? "
+                        "AND pdf_page_number=?",
+                        (row["source_version_id"], row["pdf_page_number"]),
+                    ).fetchone()
+                    current["_page_mapping_snapshot"] = dict(mapping) if mapping else None
                 previous = before_snapshot.get(column)
                 if previous is not None:
-                    connection.execute(
-                        f"UPDATE {table} SET {column}=?,updated_at=? WHERE id=?",
-                        (previous, utc_text(), target_id),
-                    )
+                    if target_type == "location":
+                        self._revert_location_feedback(
+                            connection, target_id, before_snapshot, utc_text()
+                        )
+                    else:
+                        connection.execute(
+                            f"UPDATE {table} SET {column}=?,updated_at=? WHERE id=?",
+                            (previous, utc_text(), target_id),
+                        )
                     resulting = str(previous)
             now = utc_text()
             reverted_review = self._review(
@@ -1241,6 +1344,66 @@ class PedagogicalMemoryService:
             resulting_status=resulting,
             created_at=now,
         )
+
+    @staticmethod
+    def _revert_location_feedback(
+        connection: sqlite3.Connection,
+        location_id: str,
+        before: dict[str, Any],
+        now: str,
+    ) -> None:
+        """Restore both the location and its page mapping after feedback."""
+        connection.execute(
+            "UPDATE pedagogical_evidence_locations SET status=?,reviewed_at=?,"
+            "page_mapping_id=?,region_kind=?,updated_at=? WHERE id=?",
+            (
+                before["status"],
+                before.get("reviewed_at"),
+                before.get("page_mapping_id"),
+                before.get("region_kind", EvidenceRegion.FULL.value),
+                now,
+                location_id,
+            ),
+        )
+        mapping_before = before.get("_page_mapping_snapshot")
+        mapping_now = connection.execute(
+            "SELECT * FROM document_page_mappings WHERE source_version_id=? AND pdf_page_number=?",
+            (before["source_version_id"], before["pdf_page_number"]),
+        ).fetchone()
+        if mapping_before is not None and mapping_now is not None:
+            connection.execute(
+                "UPDATE document_page_mappings SET scan_layout=?,printed_left_label=?,"
+                "printed_right_label=?,printed_full_label=?,rotation=?,mapping_status=?,"
+                "mapping_origin=?,mapping_version=mapping_version+1,reviewed_at=?,updated_at=? "
+                "WHERE id=?",
+                (
+                    mapping_before["scan_layout"],
+                    mapping_before.get("printed_left_label"),
+                    mapping_before.get("printed_right_label"),
+                    mapping_before.get("printed_full_label"),
+                    mapping_before["rotation"],
+                    mapping_before["mapping_status"],
+                    mapping_before["mapping_origin"],
+                    mapping_before.get("reviewed_at"),
+                    now,
+                    mapping_now["id"],
+                ),
+            )
+        elif mapping_before is None and mapping_now is not None:
+            references = connection.execute(
+                "SELECT count(*) FROM pedagogical_evidence_locations WHERE page_mapping_id=?",
+                (mapping_now["id"],),
+            ).fetchone()[0]
+            if references == 0:
+                connection.execute(
+                    "DELETE FROM document_page_mappings WHERE id=?", (mapping_now["id"],)
+                )
+            else:
+                connection.execute(
+                    "UPDATE document_page_mappings SET mapping_status='stale',"
+                    "mapping_version=mapping_version+1,updated_at=? WHERE id=?",
+                    (now, mapping_now["id"]),
+                )
 
     def audit(
         self, *, target_type: str | None = None, target_id: str | None = None, limit: int = 100
@@ -1276,38 +1439,134 @@ class PedagogicalMemoryService:
             for row in rows
         ]
 
-    def review_queue(self, limit: int = 30) -> list[MemoryReviewQueueItem]:
+    def review_queue(
+        self,
+        limit: int = 10,
+        *,
+        target_type: str | None = None,
+        status: PedagogicalMemoryStatus | None = None,
+        herder_only: bool = False,
+        recently_used_only: bool = False,
+        current_query_id: str | None = None,
+    ) -> list[MemoryReviewQueueItem]:
         with self.database.connect() as connection:
-            rows = connection.execute(
+            location_statuses = (status.value,) if status else ("candidate", "conflict")
+            location_status_placeholders = ",".join("?" for _ in location_statuses)
+            location_rows = connection.execute(
                 "SELECT 'location' target_type,pel.id target_id,pc.canonical_name title,"
                 "coalesce(s.display_alias,s.name) subtitle,pel.status,"
-                "CASE WHEN pel.status='conflict' THEN 100 ELSE 50 END + "
-                "CASE WHEN s.pedagogical_role LIKE 'core_%' THEN 30 ELSE 0 END + "
-                "count(tqlu.query_id) priority,count(tqlu.query_id) used_by_queries,pel.updated_at "
+                "s.pedagogical_role,count(tqlu.query_id) used_by_queries,"
+                "max(tq.created_at) last_used_at,pel.updated_at,pel.extraction_quality "
                 "FROM pedagogical_evidence_locations pel JOIN pedagogical_concepts pc "
                 "ON pc.id=pel.concept_id JOIN sources s ON s.id=pel.source_id "
                 "LEFT JOIN teacher_query_location_usage tqlu ON tqlu.location_id=pel.id "
-                "WHERE pel.status IN ('candidate','conflict') GROUP BY pel.id "
-                "UNION ALL SELECT 'concept',pc.id,pc.canonical_name,pc.category,"
-                "pc.editorial_status,CASE WHEN pc.editorial_status='conflict' THEN 90 ELSE 40 END + "
-                "count(tqc.query_id),count(tqc.query_id),pc.updated_at FROM pedagogical_concepts pc "
-                "LEFT JOIN teacher_query_concepts tqc ON tqc.concept_id=pc.id "
-                "WHERE pc.editorial_status IN ('candidate','conflict') GROUP BY pc.id "
-                "ORDER BY priority DESC,updated_at DESC,target_id LIMIT ?",
-                (limit,),
+                "LEFT JOIN teacher_queries tq ON tq.id=tqlu.query_id "
+                f"WHERE pel.status IN ({location_status_placeholders}) GROUP BY pel.id ",
+                location_statuses,
             ).fetchall()
-        return [
-            MemoryReviewQueueItem(
+            concept_statuses = (status.value,) if status else ("candidate", "conflict")
+            concept_status_placeholders = ",".join("?" for _ in concept_statuses)
+            concept_rows = connection.execute(
+                "SELECT 'concept' target_type,pc.id target_id,pc.canonical_name title,"
+                "pc.category subtitle,pc.editorial_status status,(SELECT s2.pedagogical_role "
+                "FROM pedagogical_evidence_locations pel2 JOIN sources s2 ON s2.id=pel2.source_id "
+                "WHERE pel2.concept_id=pc.id ORDER BY CASE s2.pedagogical_role "
+                "WHEN 'core_theory' THEN 0 WHEN 'core_workbook' THEN 1 WHEN 'core_answer_key' "
+                "THEN 2 ELSE 3 END,s2.id LIMIT 1) pedagogical_role,"
+                "count(tqc.query_id) used_by_queries,max(tq.created_at) last_used_at,pc.updated_at,"
+                "0 extraction_quality "
+                "FROM pedagogical_concepts pc "
+                "LEFT JOIN teacher_query_concepts tqc ON tqc.concept_id=pc.id "
+                "LEFT JOIN teacher_queries tq ON tq.id=tqc.query_id "
+                f"WHERE pc.editorial_status IN ({concept_status_placeholders}) GROUP BY pc.id",
+                concept_statuses,
+            ).fetchall()
+            latest_reviews = connection.execute(
+                "SELECT pmr.* FROM pedagogical_memory_reviews pmr WHERE pmr.target_type "
+                "IN ('concept','location') AND pmr.verdict IN ('unknown','postpone') "
+                "AND NOT EXISTS (SELECT 1 FROM pedagogical_memory_reviews reverted "
+                "WHERE reverted.reverts_review_id=pmr.id) ORDER BY pmr.created_at DESC,pmr.id DESC"
+            ).fetchall()
+            current_locations = {
+                str(row["location_id"])
+                for row in (
+                    connection.execute(
+                        "SELECT location_id FROM teacher_query_location_usage WHERE query_id=?",
+                        (current_query_id,),
+                    ).fetchall()
+                    if current_query_id
+                    else []
+                )
+            }
+            current_concepts = {
+                str(row["concept_id"])
+                for row in (
+                    connection.execute(
+                        "SELECT concept_id FROM teacher_query_concepts WHERE query_id=?",
+                        (current_query_id,),
+                    ).fetchall()
+                    if current_query_id
+                    else []
+                )
+            }
+        postponed: dict[tuple[str, str], datetime] = {}
+        for review in latest_reviews:
+            key = (str(review["target_type"]), str(review["target_id"]))
+            postponed.setdefault(key, datetime.fromisoformat(str(review["created_at"])))
+        cutoff = datetime.now(UTC) - timedelta(days=7)
+        recent_cutoff = datetime.now(UTC) - timedelta(days=30)
+        ranked: list[tuple[int, datetime, MemoryReviewQueueItem]] = []
+        for row in [*location_rows, *concept_rows]:
+            key = (str(row["target_type"]), str(row["target_id"]))
+            if postponed.get(key, datetime.min.replace(tzinfo=UTC)) >= cutoff:
+                continue
+            if target_type and row["target_type"] != target_type:
+                continue
+            if status and row["status"] != status.value:
+                continue
+            source_role = row["pedagogical_role"]
+            if herder_only and not str(source_role or "").startswith("core_"):
+                continue
+            last_used = (
+                datetime.fromisoformat(str(row["last_used_at"])) if row["last_used_at"] else None
+            )
+            if recently_used_only and (not last_used or last_used < recent_cutoff):
+                continue
+            priority = (
+                (2_000 if row["status"] == "conflict" else 0)
+                + (
+                    1_000
+                    if (row["target_type"] == "location" and row["target_id"] in current_locations)
+                    or (row["target_type"] == "concept" and row["target_id"] in current_concepts)
+                    else 0
+                )
+                + (300 if last_used and last_used >= recent_cutoff else 0)
+                + (200 if str(source_role or "").startswith("core_") else 0)
+                + min(100, int(row["used_by_queries"]) * 10)
+                + round(float(row["extraction_quality"] or 0) * 100)
+                + (50 if row["target_type"] == "location" else 0)
+            )
+            item = MemoryReviewQueueItem(
                 target_type=row["target_type"],
                 target_id=str(row["target_id"]),
                 title=row["title"],
                 subtitle=row["subtitle"],
                 status=row["status"],
-                priority=row["priority"],
+                priority=priority,
                 used_by_queries=row["used_by_queries"],
+                source_role=source_role,
+                last_used_at=last_used,
             )
-            for row in rows
-        ]
+            updated_at = datetime.fromisoformat(str(row["updated_at"]))
+            ranked.append((priority, updated_at, item))
+        ranked.sort(
+            key=lambda value: (
+                -value[0],
+                -value[1].timestamp(),
+                value[2].target_id,
+            )
+        )
+        return [item for _, _, item in ranked[:limit]]
 
     def import_existing(
         self, request: PedagogicalMemoryImportRequest
@@ -1584,7 +1843,8 @@ class PedagogicalMemoryService:
             concepts=[self._concept_summary(connection, row) for row in concept_rows],
             locations=[self._location_read(row) for row in location_rows],
             response_feedback=feedback["verdict"] if feedback else None,
-            memory_used=any(
+            memory_used=bool(location_rows)
+            or any(
                 "memory:" in value
                 for row in connection.execute(
                     "SELECT matched_queries_json FROM teacher_query_sources WHERE query_id=?",
@@ -1854,8 +2114,11 @@ class PedagogicalMemoryService:
     def _match_concepts(self, connection: sqlite3.Connection, text: str) -> list[str]:
         normalized = f" {normalize_concept(text)} "
         rows = connection.execute(
-            "SELECT concept_id,normalized_text FROM pedagogical_concept_aliases "
-            "WHERE status NOT IN ('rejected','stale') ORDER BY length(normalized_text) DESC"
+            "SELECT pca.concept_id,pca.normalized_text FROM pedagogical_concept_aliases pca "
+            "JOIN pedagogical_concepts pc ON pc.id=pca.concept_id "
+            "WHERE pca.status NOT IN ('rejected','stale') "
+            "AND pc.editorial_status NOT IN ('rejected','stale') "
+            "ORDER BY length(pca.normalized_text) DESC,pca.id"
         ).fetchall()
         result: list[str] = []
         for row in rows:
@@ -1869,7 +2132,8 @@ class PedagogicalMemoryService:
         return (
             "SELECT pel.*,pc.canonical_name concept_name,sv.version_number,"
             "coalesce(s.display_alias,s.name) source_name,dpm.scan_layout,dpm.printed_left_label,"
-            "dpm.printed_right_label,dpm.printed_full_label,dpm.mapping_status "
+            "dpm.printed_right_label,dpm.printed_full_label,dpm.mapping_status,"
+            "s.pedagogical_role,s.current_version_id,s.status source_status,s.excluded "
             "FROM pedagogical_evidence_locations pel JOIN pedagogical_concepts pc "
             "ON pc.id=pel.concept_id JOIN source_versions sv ON sv.id=pel.source_version_id "
             "JOIN sources s ON s.id=pel.source_id LEFT JOIN document_page_mappings dpm "
@@ -1884,7 +2148,10 @@ class PedagogicalMemoryService:
             concept_name=row["concept_name"],
             source_id=row["source_id"],
             source_name=row["source_name"],
+            source_role=row["pedagogical_role"],
             source_version=row["version_number"],
+            source_current=row["source_version_id"] == row["current_version_id"],
+            source_present=row["source_status"] == "present" and not bool(row["excluded"]),
             chunk_id=row["chunk_id"],
             pdf_page_number=row["pdf_page_number"],
             printed_page_label=_printed_label(row),
