@@ -137,6 +137,14 @@ export const getStudyPath = (query = "") =>
   api<StudyPath>(
     `/api/study/path${query ? `?query=${encodeURIComponent(query)}` : ""}`,
   );
+export const reviewCanonicalStudyTopic = (
+  themeNumber: number,
+  payload: Record<string, unknown>,
+) =>
+  api<unknown>(`/api/library/canonical-route/topics/${themeNumber}/review`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 export const getStudyHistory = (
   status?: StudySessionStatus,
   missionType?: StudyMissionType,

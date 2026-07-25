@@ -1765,9 +1765,9 @@ textarea {
   list-style: none;
   border-top: 1px solid #bdb4a0;
 }
-.herder-path-list li {
+.herder-path-list > li {
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr) 150px;
+  grid-template-columns: 92px minmax(0, 1fr) 160px;
   gap: 18px;
   align-items: center;
   padding: 20px 12px;
@@ -1794,6 +1794,34 @@ textarea {
   display: grid;
   gap: 8px;
   text-align: right;
+}
+.study-outline {
+  margin-top: 14px;
+}
+.study-outline summary {
+  cursor: pointer;
+  color: #38493f;
+  font-weight: 700;
+}
+.study-outline ol {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding-left: 24px;
+}
+.study-outline li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0;
+  border: 0;
+}
+.study-outline .outline-subsection {
+  padding-left: 14px;
+}
+.study-outline .outline-item {
+  padding-left: 28px;
 }
 .study-session-layout {
   display: grid;
@@ -2063,7 +2091,7 @@ textarea {
   .study-heading,
   .continue-card,
   .study-toolbar,
-  .herder-path-list li,
+  .herder-path-list > li,
   .study-history > article,
   .free-study,
   .workbook-form,

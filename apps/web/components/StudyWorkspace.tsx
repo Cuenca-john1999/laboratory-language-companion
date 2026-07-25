@@ -28,6 +28,7 @@ import {
   getStudyPath,
   getStudyQuestions,
   operationId,
+  reviewCanonicalStudyTopic,
   reviewStudyWorkbookLink,
   startStudySession,
   transitionStudySession,
@@ -70,6 +71,16 @@ const WORKBOOK_STATUS_LABELS: Record<string, string> = {
   stale: "Pendiente de revisar",
 };
 
+const EDITORIAL_STATUS_LABELS: Record<string, string> = {
+  system_verified: "Verificado con el índice",
+  user_confirmed: "Confirmado por ti",
+  candidate: "Pendiente de revisión",
+  conflict: "Conflicto",
+  stale: "Versión anterior",
+  rejected: "Marcado como incorrecto",
+  system_suggested: "Sección legacy sugerida",
+};
+
 const QUESTION_STATUS_LABELS: Record<string, string> = {
   open: "Abierta",
   clarified: "Aclarada",
@@ -109,7 +120,9 @@ function dateLabel(value: string | null): string {
 function pageLabel(
   section: Pick<StudySection, "pdf_page_start" | "pdf_page_end">,
 ) {
-  return section.pdf_page_start === section.pdf_page_end
+  if (!section.pdf_page_start) return "PDF del manual pendiente";
+  return !section.pdf_page_end ||
+    section.pdf_page_start === section.pdf_page_end
     ? `PDF p. ${section.pdf_page_start}`
     : `PDF pp. ${section.pdf_page_start}–${section.pdf_page_end}`;
 }
@@ -192,7 +205,7 @@ export function StudyWorkspace() {
     const folded = search.trim().toLocaleLowerCase("es");
     if (!folded) return path?.sections ?? [];
     return (path?.sections ?? []).filter((item) =>
-      `${item.title} ${item.topic ?? ""}`
+      `${item.theme_number ? `Tema ${item.theme_number}` : ""} ${item.title} ${item.title_de ?? ""} ${item.topic ?? ""} ${item.printed_page_start ?? ""} ${item.outline.map((node) => `${node.title_es ?? ""} ${node.title_de ?? ""}`).join(" ")}`
         .toLocaleLowerCase("es")
         .includes(folded),
     );
@@ -270,6 +283,43 @@ export function StudyWorkspace() {
       await loadSessionData(next);
       await refresh();
     });
+
+  const reviewTopic = (
+    section: StudySection,
+    action: "confirm" | "incorrect" | "unknown",
+  ) => {
+    if (!section.theme_number) return;
+    run(`route-${action}-${section.theme_number}`, async () => {
+      await reviewCanonicalStudyTopic(section.theme_number!, {
+        operation_id: operationId(`route-${action}`),
+        action,
+      });
+      await refresh();
+    });
+  };
+
+  const reviewTopicPages = (section: StudySection) => {
+    if (!section.theme_number) return;
+    const value = window.prompt(
+      "Página PDF verificada del manual (deja vacío para cancelar)",
+      section.pdf_page_start ? String(section.pdf_page_start) : "",
+    );
+    if (!value) return;
+    const manualPage = Number(value);
+    if (!Number.isInteger(manualPage) || manualPage < 1) return;
+    run(`route-pages-${section.theme_number}`, async () => {
+      await reviewCanonicalStudyTopic(section.theme_number!, {
+        operation_id: operationId("route-pages"),
+        action: "correct",
+        manual_pdf_start: manualPage,
+        manual_pdf_end: manualPage,
+        manual_scan_layout: "unknown",
+        manual_region: "unknown",
+        comment: "Calibración manual desde la ruta de estudio.",
+      });
+      await refresh();
+    });
+  };
 
   const transition = (action: "pause" | "resume" | "complete" | "abandon") =>
     session &&
@@ -524,7 +574,7 @@ export function StudyWorkspace() {
         </div>
         <div className="study-count">
           <strong>{dashboard.total_sections}</strong>
-          <span>secciones disponibles</span>
+          <span>temas disponibles</span>
         </div>
       </header>
 
@@ -724,23 +774,28 @@ export function StudyWorkspace() {
             {filteredSections.map((item) => (
               <li key={item.id}>
                 <span className="path-order">
-                  {String(item.order).padStart(2, "0")}
+                  {item.theme_number ? `Tema ${item.theme_number}` : item.order}
                 </span>
                 <div>
-                  <small>{item.topic ?? "Sección Herder"}</small>
-                  <h3>{item.title}</h3>
+                  <small>{item.topic ?? "Ruta Herder"}</small>
+                  <h3>{item.title_es ?? item.title}</h3>
+                  {item.title_de ? <p lang="de">{item.title_de}</p> : null}
                   <p>
-                    {pageLabel(item)} ·{" "}
-                    {item.printed_page_label
-                      ? `libro p. ${item.printed_page_label}`
-                      : "página impresa sin identificar"}
+                    {item.printed_page_start
+                      ? `Libro ${
+                          item.printed_page_end &&
+                          item.printed_page_end !== item.printed_page_start
+                            ? `pp. ${item.printed_page_start}–${item.printed_page_end}`
+                            : `p. ${item.printed_page_start}`
+                        }`
+                      : "Página impresa pendiente"}
+                    {` · ${pageLabel(item)}`}
                   </p>
                   <div className="study-meta">
                     <span>{STATUS_LABELS[item.practical_status]}</span>
                     <span>
-                      {item.editorial_status === "system_suggested"
-                        ? "Sección sugerida"
-                        : "Sección revisada"}
+                      {EDITORIAL_STATUS_LABELS[item.editorial_status] ??
+                        "Estado editorial desconocido"}
                     </span>
                     {item.open_questions ? (
                       <span>{item.open_questions} duda(s)</span>
@@ -751,6 +806,42 @@ export function StudyWorkspace() {
                       </span>
                     ) : null}
                   </div>
+                  {item.outline.length ? (
+                    <details className="study-outline">
+                      <summary>Ver {item.outline.length} subapartados</summary>
+                      <ol>
+                        {item.outline.map((node) => (
+                          <li
+                            className={`outline-${node.hierarchy_level}`}
+                            key={node.id}
+                          >
+                            <span>
+                              {node.local_number
+                                ? `${node.local_number}. `
+                                : ""}
+                              {node.title_es ?? node.title_de}
+                            </span>
+                            <small>
+                              {node.printed_page
+                                ? `Libro p. ${node.printed_page}`
+                                : "Sin página propia"}
+                              {node.manual_pdf_page
+                                ? ` · PDF p. ${node.manual_pdf_page}${
+                                    node.manual_scan_layout === "double_page"
+                                      ? " · escaneo doble"
+                                      : ""
+                                  }${
+                                    node.manual_region === "unknown"
+                                      ? " · mitad pendiente"
+                                      : ""
+                                  }`
+                                : ""}
+                            </small>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  ) : null}
                 </div>
                 <div className="path-action">
                   <button
@@ -762,6 +853,42 @@ export function StudyWorkspace() {
                       ? "Estudiar"
                       : "Abrir"}
                   </button>
+                  {item.theme_number ? (
+                    <>
+                      <button
+                        className="secondary"
+                        onClick={() => reviewTopicPages(item)}
+                        disabled={Boolean(busy)}
+                        type="button"
+                      >
+                        Revisar páginas
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => reviewTopic(item, "confirm")}
+                        disabled={Boolean(busy)}
+                        type="button"
+                      >
+                        Confirmar título
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => reviewTopic(item, "incorrect")}
+                        disabled={Boolean(busy)}
+                        type="button"
+                      >
+                        Título incorrecto
+                      </button>
+                      <button
+                        className="secondary"
+                        onClick={() => reviewTopic(item, "unknown")}
+                        disabled={Boolean(busy)}
+                        type="button"
+                      >
+                        No lo sé
+                      </button>
+                    </>
+                  ) : null}
                   {item.workbook_link ? (
                     <small>
                       Workbook PDF p. {item.workbook_link.workbook_pdf_page}
