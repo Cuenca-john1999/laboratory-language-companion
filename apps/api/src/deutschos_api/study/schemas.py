@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from deutschos_api.educational_library.schemas import CanonicalOutlineNodeRead
 from deutschos_api.models import StudyMissionType, StudyPracticalStatus, StudySessionStatus
 from deutschos_api.schemas.base import APIModel
 
@@ -57,8 +58,8 @@ class StudySectionRead(APIModel):
     source_id: str
     source_version: int
     source_name: str
-    pdf_page_start: int
-    pdf_page_end: int
+    pdf_page_start: int | None
+    pdf_page_end: int | None
     printed_page_label: str | None
     editorial_status: str
     practical_status: StudyPracticalStatus
@@ -68,6 +69,16 @@ class StudySectionRead(APIModel):
     last_session_id: str | None
     open_questions: int = 0
     workbook_link: WorkbookLinkRead | None = None
+    theme_number: int | None = None
+    title_es: str | None = None
+    title_de: str | None = None
+    printed_page_start: int | None = None
+    printed_page_end: int | None = None
+    printed_range_status: str = "unknown"
+    reference_pdf_page: int | None = None
+    manual_scan_layout: str | None = None
+    manual_region: str | None = None
+    outline: list[CanonicalOutlineNodeRead] = Field(default_factory=list)
 
 
 class StudyPathRead(APIModel):

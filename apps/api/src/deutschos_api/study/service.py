@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import datetime
 from uuid import uuid4
 
@@ -9,9 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from deutschos_api.core.time import utc_now
+from deutschos_api.educational_library.canonical_route import CanonicalRouteService
 from deutschos_api.educational_library.editorial import LibraryEditorialService
 from deutschos_api.educational_library.schemas import (
-    EditorialSectionRead,
+    CanonicalOutlineNodeRead,
     LibraryError,
     SourceRead,
 )
@@ -61,21 +64,86 @@ from .schemas import (
 )
 
 
+@dataclass(frozen=True)
+class _RouteSection:
+    id: int
+    stable_key: str
+    title: str
+    topic: str | None
+    page_start: int | None
+    page_end: int | None
+    editorial_status: str
+    theme_number: int | None = None
+    title_es: str | None = None
+    title_de: str | None = None
+    printed_start: int | None = None
+    printed_end: int | None = None
+    printed_end_origin: str = "unknown"
+    reference_pdf_page: int | None = None
+    manual_scan_layout: str | None = None
+    manual_region: str | None = None
+    outline: list[CanonicalOutlineNodeRead] = dc_field(default_factory=list)
+    canonical: bool = False
+
+
 class GuidedStudyService:
     """Persistent personal study state over read-only editorial library references."""
 
-    def __init__(self, db: Session, editorial: LibraryEditorialService):
+    def __init__(
+        self,
+        db: Session,
+        editorial: LibraryEditorialService,
+        canonical_route: CanonicalRouteService | None = None,
+    ):
         self.db = db
         self.editorial = editorial
+        self.canonical_route = canonical_route or CanonicalRouteService(editorial.database)
 
-    def _core(self) -> tuple[SourceRead, SourceRead | None, list[EditorialSectionRead]]:
+    def _core(self) -> tuple[SourceRead, SourceRead | None, list[_RouteSection]]:
         try:
             pair = self.editorial.core_pair()
             if pair.theory is None:
                 raise StudyLibraryUnavailableError(
                     "El manual principal todavía no está configurado en la biblioteca."
                 )
-            sections = self.editorial.list_sections(pair.theory.id)
+            status = self.canonical_route.status()
+            if status.available:
+                sections = [
+                    _RouteSection(
+                        id=topic.id,
+                        stable_key=topic.stable_key,
+                        title=topic.title_es,
+                        topic=f"Tema {topic.theme_number}",
+                        page_start=topic.manual_pdf_start,
+                        page_end=topic.manual_pdf_end,
+                        editorial_status=topic.editorial_status,
+                        theme_number=topic.theme_number,
+                        title_es=topic.title_es,
+                        title_de=topic.title_de,
+                        printed_start=topic.printed_start,
+                        printed_end=topic.printed_end,
+                        printed_end_origin=topic.printed_end_origin,
+                        reference_pdf_page=topic.reference_pdf_page,
+                        manual_scan_layout=topic.manual_scan_layout,
+                        manual_region=topic.manual_region,
+                        outline=topic.outline,
+                        canonical=True,
+                    )
+                    for topic in self.canonical_route.list_topics()
+                ]
+            else:
+                sections = [
+                    _RouteSection(
+                        id=section.id,
+                        stable_key=section.stable_key,
+                        title=section.title,
+                        topic=section.topic,
+                        page_start=section.page_start,
+                        page_end=section.page_end,
+                        editorial_status=section.editorial_status.value,
+                    )
+                    for section in self.editorial.list_sections(pair.theory.id)
+                ]
         except StudyLibraryUnavailableError:
             raise
         except LibraryError as exc:
@@ -106,6 +174,13 @@ class GuidedStudyService:
             select(StudySectionState).where(StudySectionState.source_id == theory.id)
         ).all()
         states = {item.section_stable_key: item for item in state_rows}
+        exact_aliases = self.canonical_route.legacy_exact_aliases()
+        for item in state_rows:
+            if item.section_stable_key.startswith("herder:"):
+                continue
+            canonical_key = exact_aliases.get(item.section_stable_key)
+            if canonical_key is not None:
+                states.setdefault(canonical_key, item)
         links = self.db.scalars(
             select(StudyWorkbookLink)
             .where(
@@ -117,6 +192,9 @@ class GuidedStudyService:
         links_by_section: dict[str, StudyWorkbookLink] = {}
         for item in links:
             links_by_section.setdefault(item.section_stable_key, item)
+            canonical_key = exact_aliases.get(item.section_stable_key)
+            if canonical_key is not None:
+                links_by_section.setdefault(canonical_key, item)
         recent = self.db.scalars(
             select(StudySession)
             .where(StudySession.source_id == theory.id)
@@ -126,6 +204,9 @@ class GuidedStudyService:
         for item in recent:
             if item.section_stable_key:
                 recent_by_section.setdefault(item.section_stable_key, item)
+                canonical_key = exact_aliases.get(item.section_stable_key)
+                if canonical_key is not None:
+                    recent_by_section.setdefault(canonical_key, item)
         question_counts = dict(
             self.db.execute(
                 select(StudyQuestion.section_stable_key, func.count(StudyQuestion.id))
@@ -133,13 +214,33 @@ class GuidedStudyService:
                 .group_by(StudyQuestion.section_stable_key)
             ).all()
         )
+        for legacy_key, canonical_key in exact_aliases.items():
+            if legacy_key in question_counts:
+                question_counts[canonical_key] = question_counts.get(canonical_key, 0) + int(
+                    question_counts[legacy_key]
+                )
         folded = query.casefold() if query else None
         items: list[StudySectionRead] = []
         visible_sections = [
-            section for section in sections if section.editorial_status.value != "rejected"
+            section
+            for section in sections
+            if section.canonical or section.editorial_status != "rejected"
         ]
         for order, section in enumerate(visible_sections, start=1):
-            if folded and folded not in f"{section.title} {section.topic or ''}".casefold():
+            searchable = " ".join(
+                [
+                    f"Tema {section.theme_number}" if section.theme_number else "",
+                    section.title,
+                    section.title_de or "",
+                    section.topic or "",
+                    str(section.printed_start or ""),
+                    *[
+                        f"{node.title_es or ''} {node.title_de or ''} {node.printed_page or ''}"
+                        for node in section.outline
+                    ],
+                ]
+            ).casefold()
+            if folded and folded not in searchable:
                 continue
             state = states.get(section.stable_key)
             last = recent_by_section.get(section.stable_key)
@@ -155,8 +256,14 @@ class GuidedStudyService:
                     source_name=self._source_name(theory),
                     pdf_page_start=section.page_start,
                     pdf_page_end=section.page_end,
-                    printed_page_label=state.printed_page_label if state else None,
-                    editorial_status=section.editorial_status.value,
+                    printed_page_label=(
+                        state.printed_page_label
+                        if state and state.printed_page_label
+                        else str(section.printed_start)
+                        if section.printed_start
+                        else None
+                    ),
+                    editorial_status=section.editorial_status,
                     practical_status=(
                         StudyPracticalStatus(state.practical_status)
                         if state
@@ -172,6 +279,16 @@ class GuidedStudyService:
                         if section.stable_key in links_by_section
                         else None
                     ),
+                    theme_number=section.theme_number,
+                    title_es=section.title_es,
+                    title_de=section.title_de,
+                    printed_page_start=section.printed_start,
+                    printed_page_end=section.printed_end,
+                    printed_range_status=section.printed_end_origin,
+                    reference_pdf_page=section.reference_pdf_page,
+                    manual_scan_layout=section.manual_scan_layout,
+                    manual_region=section.manual_region,
+                    outline=section.outline,
                 )
             )
         return StudyPathRead(
@@ -274,7 +391,7 @@ class GuidedStudyService:
             raise StudyConflictError("Ya existe una sesión de estudio activa.")
 
         theory, _, editorial_sections = self._core()
-        section: EditorialSectionRead | None = None
+        section: _RouteSection | None = None
         if request.kind == "guided":
             section = next(
                 (item for item in editorial_sections if item.id == request.section_id), None
@@ -317,7 +434,10 @@ class GuidedStudyService:
                     else StudyPracticalStatus.NOT_STARTED
                 ),
                 current_page=current_page,
-                printed_page=request.printed_page_label,
+                printed_page=(
+                    request.printed_page_label
+                    or (str(section.printed_start) if section.printed_start else None)
+                ),
                 selection_origin=request.start_origin.value,
                 now=now,
             )
@@ -339,7 +459,10 @@ class GuidedStudyService:
             pdf_page_start=page_start,
             pdf_page_end=page_end,
             current_pdf_page=current_page,
-            printed_page_label=request.printed_page_label,
+            printed_page_label=(
+                request.printed_page_label
+                or (str(section.printed_start) if section and section.printed_start else None)
+            ),
             objective=objective,
             mission_type=mission_type.value,
             mission=build_mission(mission_type, concept=concept, objective=objective),
@@ -887,7 +1010,7 @@ class GuidedStudyService:
     def _upsert_state(
         self,
         theory: SourceRead,
-        section: EditorialSectionRead,
+        section: _RouteSection,
         *,
         practical_status: StudyPracticalStatus,
         current_page: int | None,
@@ -1004,8 +1127,12 @@ class GuidedStudyService:
             "subjective_result": session.subjective_result,
         }
 
-    @staticmethod
-    def _session_read(session: StudySession) -> StudySessionRead:
+    def _session_read(self, session: StudySession) -> StudySessionRead:
+        canonical = (
+            None
+            if not session.section_stable_key or session.section_stable_key.startswith("herder:")
+            else self.canonical_route.resolve_legacy_exact(session.section_id)
+        )
         return StudySessionRead(
             id=session.id,
             kind=session.kind,
@@ -1015,8 +1142,12 @@ class GuidedStudyService:
             source_name=session.source_name,
             section_id=session.section_id,
             section_stable_key=session.section_stable_key,
-            section_title=session.section_title,
-            concept_name=session.concept_name,
+            section_title=canonical.title_es if canonical else session.section_title,
+            concept_name=(
+                f"Tema {canonical.theme_number} · {canonical.title_es}"
+                if canonical
+                else session.concept_name
+            ),
             pdf_page_start=session.pdf_page_start,
             pdf_page_end=session.pdf_page_end,
             current_pdf_page=session.current_pdf_page,

@@ -113,8 +113,8 @@ export type StudySection = {
   source_id: string;
   source_version: number;
   source_name: string;
-  pdf_page_start: number;
-  pdf_page_end: number;
+  pdf_page_start: number | null;
+  pdf_page_end: number | null;
   printed_page_label: string | null;
   editorial_status: string;
   practical_status: StudyPracticalStatus;
@@ -124,6 +124,32 @@ export type StudySection = {
   last_session_id: string | null;
   open_questions: number;
   workbook_link: StudyWorkbookLink | null;
+  theme_number: number | null;
+  title_es: string | null;
+  title_de: string | null;
+  printed_page_start: number | null;
+  printed_page_end: number | null;
+  printed_range_status: string;
+  reference_pdf_page: number | null;
+  manual_scan_layout: string | null;
+  manual_region: string | null;
+  outline: Array<{
+    id: number;
+    parent_id: number | null;
+    hierarchy_level: string;
+    local_number: string | null;
+    title_es: string | null;
+    title_de: string | null;
+    printed_page: number | null;
+    reference_pdf_page: number;
+    visual_region: string;
+    parse_status: string;
+    manual_pdf_page: number | null;
+    manual_scan_layout: string | null;
+    manual_region: string | null;
+    editorial_status: string;
+    confidence: number;
+  }>;
 };
 
 export type StudyPath = {

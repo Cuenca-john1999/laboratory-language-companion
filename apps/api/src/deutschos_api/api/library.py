@@ -9,7 +9,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from deutschos_api.db.session import get_db
+from deutschos_api.educational_library.canonical_route import CanonicalRouteService
 from deutschos_api.educational_library.dependencies import (
+    get_canonical_route,
     get_document_intelligence,
     get_library_editorial,
     get_library_knowledge,
@@ -25,6 +27,12 @@ from deutschos_api.educational_library.knowledge import EducationalKnowledgeServ
 from deutschos_api.educational_library.memory import PedagogicalMemoryService
 from deutschos_api.educational_library.routing import LibraryModelRouter
 from deutschos_api.educational_library.schemas import (
+    CanonicalLegacyMappingRead,
+    CanonicalRouteAuditRead,
+    CanonicalRouteRevertRequest,
+    CanonicalRouteStatusRead,
+    CanonicalTopicRead,
+    CanonicalTopicReviewRequest,
     ChunkRead,
     ConceptAliasCreate,
     ConceptRelationCreate,
@@ -157,6 +165,84 @@ async def library_status(
             ollama_available=bool(installed) or await _ollama_available(provider),
             installed_models=installed,
         )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/canonical-route/status", response_model=CanonicalRouteStatusRead)
+def canonical_route_status(
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> CanonicalRouteStatusRead:
+    try:
+        return service.status()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/canonical-route/topics", response_model=list[CanonicalTopicRead])
+def canonical_route_topics(
+    query: str | None = Query(default=None, max_length=200),
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> list[CanonicalTopicRead]:
+    try:
+        return service.list_topics(query)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/canonical-route/topics/{theme_number}", response_model=CanonicalTopicRead)
+def canonical_route_topic(
+    theme_number: int,
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> CanonicalTopicRead:
+    try:
+        return service.topic(theme_number)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/canonical-route/legacy-mappings", response_model=list[CanonicalLegacyMappingRead])
+def canonical_route_mappings(
+    mapping_status: Literal["exact", "probable", "ambiguous", "unmatched", "rejected"]
+    | None = Query(default=None, alias="status"),
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> list[CanonicalLegacyMappingRead]:
+    try:
+        return service.mappings(mapping_status)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/canonical-route/topics/{theme_number}/review", response_model=CanonicalTopicRead)
+def review_canonical_route_topic(
+    theme_number: int,
+    request: CanonicalTopicReviewRequest,
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> CanonicalTopicRead:
+    try:
+        return service.review_topic(theme_number, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/canonical-route/audits", response_model=list[CanonicalRouteAuditRead])
+def canonical_route_audits(
+    limit: int = Query(default=100, ge=1, le=500),
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> list[CanonicalRouteAuditRead]:
+    try:
+        return service.audits(limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/canonical-route/revert", response_model=CanonicalRouteAuditRead)
+def revert_canonical_route_review(
+    request: CanonicalRouteRevertRequest,
+    service: CanonicalRouteService = Depends(get_canonical_route),
+) -> CanonicalRouteAuditRead:
+    try:
+        return service.revert(request)
     except Exception as exc:
         raise _translate(exc) from exc
 

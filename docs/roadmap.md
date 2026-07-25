@@ -44,7 +44,7 @@ y una experiencia **Pregunta a tu biblioteca** con progreso, continuaciones e
 historial. También existen calidad y variantes por página, reextracción selectiva
 y revisión visual local; no se ejecuta OCR visual masivo.
 
-La memoria pedagógica verificable está implementada sobre el esquema 4 de la
+La memoria pedagógica verificable está implementada sobre el esquema 5 de la
 biblioteca: conceptos y alias multilingües, páginas PDF/impresas, doble escaneo,
 regiones, feedback independiente, correcciones reversibles e integración
 prudente con Teacher. Las consultas deterministas de localización, su fallback
@@ -60,14 +60,19 @@ transcripción local, revisión editorial de las secciones detectadas, streaming
 tokens validados y la experiencia final de lecciones. El perfeccionamiento
 diagnóstico queda congelado temporalmente después de `#006E4F1`.
 
+La calibración #007L6 añade la ruta canónica Herder Tema 1–51 desde un índice
+editorial verificado, con jerarquía, tres coordenadas de página, mappings legacy
+no destructivos y auditoría. No amplía OCR, embeddings ni currículo.
+
 ## Milestone 2.5 — Estudio guiado Herder
 
-Completado: `/study` ofrece dashboard, ruta editorial, sesiones reanudables,
+Completado: `/study` ofrece dashboard, ruta canónica de 51 temas con outline,
+sesiones reanudables,
 posición, estados prácticos, notas, dudas, historial, estudio libre, relaciones
 manuales con el workbook y misiones originales. Teacher Query recibe contexto
 acotado únicamente bajo una acción explícita. Este estado no es evidencia y no
 se proyecta al Learning Engine. Quedan para un bloque posterior la revisión
-editorial de las secciones realmente usadas y comprobaciones manuales pequeñas,
+editorial de mappings probables y calibraciones manuales puntuales del PDF,
 sin puntuación ni dominio.
 
 ## Milestone 3 — Escucha y voz

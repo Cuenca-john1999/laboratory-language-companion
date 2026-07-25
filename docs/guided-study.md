@@ -1,7 +1,8 @@
 # Modo de estudio guiado
 
 `/study` acompaña el recorrido por **Herder · Gramática alemana para
-hispanohablantes**. El manual `core_theory` determina el orden; el
+hispanohablantes**. El índice editorial canónico del manual `core_theory`
+determina el orden Tema 1–Tema 51; el
 `core_workbook` aporta práctica manual relacionada. La biblioteca complementaria
 y Teacher Query explican o contrastan, pero no sustituyen la teoría principal.
 
@@ -13,11 +14,27 @@ empezar por la primera sección, elegir otra o crear un estudio libre. La
 recomendación sigue este orden: sesión activa, sesión pausada, sección en curso,
 sección para repaso, sección pausada y primera sección no iniciada.
 
+La ruta completa muestra exactamente 51 temas principales en orden, título español,
+título alemán cuando existe, rango impreso derivado y outline desplegable. No muestra
+IDs técnicos ni títulos OCR legacy. La búsqueda incluye número de tema, títulos,
+subapartados y páginas impresas. Los subapartados son guía interna y no crean estados
+de progreso obligatorios.
+
 Cada sesión guarda fuente, versión, sección, páginas PDF e impresa, objetivo,
 plan, misión, duración orientativa, tiempo activo, posición final y resultado
 subjetivo. Sus estados son `planned`, `active`, `paused`, `completed` y
 `abandoned`. El reloj acumula solo intervalos activos; 20, 30, 45 y 60 minutos
 son sugerencias y nunca cierran una sesión automáticamente.
+
+Las coordenadas documentales nunca se mezclan:
+
+- `reference_pdf_page`: página del PDF verificado del índice;
+- `printed_page`: página impresa del libro;
+- `manual_pdf_page`: página del PDF digital estudiado.
+
+Un valor manual desconocido se muestra como pendiente. El ancla confirmada de
+`Akkusativ` conserva Tema 22, libro p. 162 y manual PDF p. 89 con
+`double_page` y región `unknown`; no se infiere una mitad.
 
 Los estados prácticos de sección no son dominio:
 
@@ -61,6 +78,12 @@ los archivos siguen en la SQLite reconstruible de biblioteca. La unión es por
 IDs estables y snapshots, no por claves foráneas entre bases. Consulta el
 [ADR 0011](adr/0011-guided-study-persistence.md).
 
+La reconciliación consulta la tabla versionada de mappings de biblioteca. Un mapping
+`exact` puede presentar el título canónico y asociar de forma reversible estado
+práctico, última sesión, dudas y workbook. `probable`, `ambiguous`, `unmatched` y
+`rejected` nunca reasignan silenciosamente datos: la sesión histórica conserva su
+snapshot y continúa accesible. No hay migración adicional de la base principal.
+
 Rutas principales:
 
 - `GET /api/study/dashboard`, `/path`, `/sections/{id}`, `/history`;
@@ -81,5 +104,5 @@ conocidos se traducen a 404, 409, 422 o 503 sin trazas ni datos privados.
 
 No hay puntuación, certificación, rachas, castigos, calendario obligatorio,
 repetición espaciada, corrección de workbook, soluciones automáticas, audio ni
-OCR masivo. Las 53 secciones sugeridas siguen siendo revisables desde la
-biblioteca; no es necesario corregirlas todas antes de estudiar.
+OCR masivo. Las 53 secciones sugeridas permanecen intactas como legacy y auditables,
+pero la ruta visible procede exclusivamente del índice canónico validado.
