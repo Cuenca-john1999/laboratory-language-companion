@@ -5,6 +5,7 @@ from deutschos_api.providers.base import ModelProvider
 from deutschos_api.providers.dependencies import get_model_provider
 
 from .cache import LibraryCache
+from .canonical_route import CanonicalRouteService
 from .document_intelligence import DocumentIntelligenceService
 from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
@@ -65,6 +66,12 @@ def get_library_editorial(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> LibraryEditorialService:
     return LibraryEditorialService(service.database)
+
+
+def get_canonical_route(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> CanonicalRouteService:
+    return CanonicalRouteService(service.database)
 
 
 def get_library_memory(

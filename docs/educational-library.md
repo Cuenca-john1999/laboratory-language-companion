@@ -22,7 +22,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 4 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 5 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -30,6 +30,10 @@ calidad y variantes por página, provenance de embeddings y caché invalidable.
 La versión 4 añade memoria pedagógica verificable: conceptos, alias, ubicaciones
 versionadas, mapas PDF/impreso/región, feedback separado y auditoría. El contrato
 completo se documenta en [pedagogical-memory.md](pedagogical-memory.md) y ADR 0010.
+La versión 5 añade la ruta canónica Herder derivada del índice editorial:
+importaciones versionadas, 51 temas, outline jerárquico, reconciliación no destructiva
+de secciones legacy, variantes documentales y auditoría reversible. El diseño se
+documenta en el [ADR 0012](adr/0012-canonical-herder-route.md).
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 
@@ -54,6 +58,14 @@ interno deriva sugerencias de capítulos o temas con página, método, confianza
 estado editorial. Son propuestas revisables: título, rango y tema pueden corregirse
 y una sección teórica puede enlazarse con práctica. Una nueva `SourceVersion` no
 reinterpreta el índice histórico.
+
+La ruta Herder canónica no reutiliza las 53 secciones OCR como estructura visible.
+Un índice de referencia validado aporta Tema 1–51, títulos bilingües, páginas impresas
+y subapartados. La importación conserva por separado página del PDF de referencia,
+página impresa del libro y página del PDF digital del manual. Los mappings legacy
+son `exact`, `probable`, `ambiguous`, `unmatched` o `rejected`; solo `exact` puede
+presentar datos personales existentes bajo el tema vigente, sin reescribir la base
+principal. Una relación probable o ambigua permanece disponible para revisión.
 
 Estados principales de proceso: `pending`, `processing`, `processed`, `partial`,
 `needs_ocr`, `awaiting_transcriber`, `unsupported` y `error`. Los trabajos
@@ -245,6 +257,12 @@ degrada falsamente a `no_evidence`.
 ./scripts/educational-library.sh generate "Nominativ Akkusativ" \
   --objective micro_lesson --level A1 --model qwen3:14b
 ./scripts/educational-library.sh integrity
+./scripts/educational-library.sh import-herder-index /ruta/Herder_Index.pdf \
+  --canonical-json /ruta/Herder_Index_canonical.json
+./scripts/educational-library.sh canonical-route
+./scripts/educational-library.sh canonical-route-mappings --status probable
+./scripts/educational-library.sh canonical-route-reconcile \
+  --operation-id canonical-route-reconcile-v1
 ```
 
 FastAPI inicia un polling incremental no bloqueante si
@@ -290,6 +308,9 @@ originales.
   `GET /api/library/queries/{query_id}`
 - `GET/DELETE /api/library/conversations`, lectura de sus consultas
 - `GET/POST /api/library/knowledge`, revisión de unidades
+- estado, temas, búsqueda, mappings y auditoría bajo `/canonical-route`
+- revisión de tema en `/canonical-route/topics/{theme_number}/review` y reversión
+  en `/canonical-route/revert`
 - `POST /api/library/grounded/generate`, `GET /api/library/grounded/{id}`
 
 Las rutas no aceptan paths del filesystem, paginan resultados, sanitizan errores

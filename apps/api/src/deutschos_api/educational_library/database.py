@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 4
+LIBRARY_SCHEMA_VERSION = 5
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -614,6 +614,156 @@ CREATE INDEX ix_memory_audit_target
     ON pedagogical_memory_audit(target_type, target_id, created_at DESC);
 """
 
+_MIGRATION_0005 = """
+CREATE TABLE canonical_route_imports (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    route_version INTEGER NOT NULL CHECK(route_version > 0),
+    reference_name TEXT NOT NULL,
+    reference_sha256 TEXT NOT NULL,
+    reference_size_bytes INTEGER NOT NULL CHECK(reference_size_bytes > 0),
+    reference_page_count INTEGER NOT NULL CHECK(reference_page_count > 0),
+    model TEXT NOT NULL,
+    parser_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    editorial_status TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 0 CHECK(active IN (0, 1)),
+    validation_json TEXT NOT NULL DEFAULT '{}',
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    statistics_json TEXT NOT NULL DEFAULT '{}',
+    imported_at TEXT NOT NULL,
+    validated_at TEXT,
+    superseded_at TEXT,
+    UNIQUE(source_version_id, reference_sha256),
+    UNIQUE(source_version_id, route_version)
+);
+
+CREATE UNIQUE INDEX ux_canonical_route_active_source
+    ON canonical_route_imports(source_version_id) WHERE active=1;
+
+CREATE TABLE canonical_route_pages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id TEXT NOT NULL REFERENCES canonical_route_imports(id) ON DELETE CASCADE,
+    reference_pdf_page INTEGER NOT NULL CHECK(reference_pdf_page > 0),
+    physical_index_page INTEGER,
+    extraction_json TEXT NOT NULL,
+    extraction_hash TEXT NOT NULL,
+    parse_status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(import_id, reference_pdf_page)
+);
+
+CREATE TABLE canonical_topics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id TEXT NOT NULL REFERENCES canonical_route_imports(id) ON DELETE CASCADE,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    stable_key TEXT NOT NULL,
+    theme_number INTEGER NOT NULL CHECK(theme_number BETWEEN 1 AND 51),
+    title_es TEXT NOT NULL,
+    title_de TEXT,
+    printed_start INTEGER NOT NULL CHECK(printed_start > 0),
+    printed_end INTEGER CHECK(printed_end >= printed_start),
+    printed_end_origin TEXT NOT NULL DEFAULT 'unknown',
+    reference_pdf_page INTEGER NOT NULL CHECK(reference_pdf_page > 0),
+    reference_visual_region TEXT NOT NULL DEFAULT 'unknown',
+    manual_pdf_start INTEGER CHECK(manual_pdf_start > 0),
+    manual_pdf_end INTEGER CHECK(manual_pdf_end >= manual_pdf_start),
+    manual_scan_layout TEXT,
+    manual_region TEXT,
+    editorial_status TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(import_id, stable_key),
+    UNIQUE(import_id, theme_number)
+);
+
+CREATE TABLE canonical_outline_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_topic_id INTEGER NOT NULL REFERENCES canonical_topics(id) ON DELETE CASCADE,
+    parent_id INTEGER REFERENCES canonical_outline_nodes(id) ON DELETE CASCADE,
+    sort_key INTEGER NOT NULL CHECK(sort_key >= 0),
+    hierarchy_level TEXT NOT NULL,
+    local_number TEXT,
+    title_es TEXT,
+    title_de TEXT,
+    printed_page INTEGER CHECK(printed_page > 0),
+    reference_pdf_page INTEGER NOT NULL CHECK(reference_pdf_page > 0),
+    visual_region TEXT NOT NULL,
+    parse_status TEXT NOT NULL,
+    manual_pdf_page INTEGER CHECK(manual_pdf_page > 0),
+    manual_scan_layout TEXT,
+    manual_region TEXT,
+    editorial_status TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    raw_visible_text TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(canonical_topic_id, sort_key)
+);
+
+CREATE TABLE canonical_legacy_mappings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id TEXT NOT NULL REFERENCES canonical_route_imports(id) ON DELETE CASCADE,
+    legacy_section_id INTEGER NOT NULL REFERENCES editorial_sections(id) ON DELETE CASCADE,
+    canonical_topic_id INTEGER REFERENCES canonical_topics(id) ON DELETE SET NULL,
+    outline_node_id INTEGER REFERENCES canonical_outline_nodes(id) ON DELETE SET NULL,
+    mapping_status TEXT NOT NULL,
+    score REAL NOT NULL CHECK(score BETWEEN 0 AND 1),
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    reason TEXT NOT NULL,
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(import_id, legacy_section_id)
+);
+
+CREATE TABLE canonical_route_visual_variants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id TEXT NOT NULL REFERENCES canonical_route_imports(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    reference_pdf_page INTEGER NOT NULL CHECK(reference_pdf_page > 0),
+    region TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    output_json TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    activated INTEGER NOT NULL DEFAULT 0 CHECK(activated IN (0, 1)),
+    review_state TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE canonical_route_audits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    import_id TEXT NOT NULL REFERENCES canonical_route_imports(id) ON DELETE CASCADE,
+    operation_id TEXT NOT NULL UNIQUE,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    before_json TEXT NOT NULL,
+    after_json TEXT NOT NULL,
+    comment TEXT,
+    reverts_audit_id INTEGER REFERENCES canonical_route_audits(id),
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX ix_canonical_topics_route
+    ON canonical_topics(import_id, theme_number);
+CREATE INDEX ix_canonical_outline_topic
+    ON canonical_outline_nodes(canonical_topic_id, sort_key);
+CREATE INDEX ix_canonical_legacy_route
+    ON canonical_legacy_mappings(import_id, mapping_status, legacy_section_id);
+CREATE INDEX ix_canonical_audits_target
+    ON canonical_route_audits(import_id, target_type, target_id, created_at);
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -648,27 +798,47 @@ class LibraryDatabase:
                 if current == 3:
                     self._backup_before_v4(connection)
                 self._apply_migration(connection, 4, _MIGRATION_0004)
+                current = 4
+            if current < 5:
+                if current == 4:
+                    self._backup_before_v5(connection)
+                self._apply_migration(connection, 5, _MIGRATION_0005)
             return self._current_version(connection)
 
     def _backup_before_v4(self, connection: sqlite3.Connection) -> Path | None:
+        return self._backup_before_schema(connection, 3)
+
+    def _backup_before_v5(self, connection: sqlite3.Connection) -> Path | None:
+        return self._backup_before_schema(connection, 4)
+
+    def _backup_before_schema(
+        self, connection: sqlite3.Connection, schema_version: int
+    ) -> Path | None:
         if not self.path.exists() or self.path.stat().st_size == 0:
             return None
         required = self.path.stat().st_size * 2 + 10 * 1024 * 1024
         if shutil.disk_usage(self.path.parent).free < required:
-            raise RuntimeError("insufficient space for library schema 3 backup")
+            raise RuntimeError(f"insufficient space for library schema {schema_version} backup")
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         backup_directory = self.path.parent / "backups"
         backup_directory.mkdir(parents=True, exist_ok=True)
-        target = backup_directory / f"{self.path.name}.schema3-{stamp}.bak"
+        target = backup_directory / f"{self.path.name}.schema{schema_version}-{stamp}.bak"
         partial = target.with_suffix(f"{target.suffix}.partial")
         try:
             with sqlite3.connect(partial) as backup:
                 connection.backup(backup)
                 if backup.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-                    raise RuntimeError("library schema 3 backup failed SQLite quick_check")
+                    raise RuntimeError(
+                        f"library schema {schema_version} backup failed SQLite quick_check"
+                    )
+                backup.execute("PRAGMA journal_mode=DELETE")
+            partial.with_name(f"{partial.name}-wal").unlink(missing_ok=True)
+            partial.with_name(f"{partial.name}-shm").unlink(missing_ok=True)
             partial.replace(target)
         except Exception:
             partial.unlink(missing_ok=True)
+            partial.with_name(f"{partial.name}-wal").unlink(missing_ok=True)
+            partial.with_name(f"{partial.name}-shm").unlink(missing_ok=True)
             raise
         return target
 

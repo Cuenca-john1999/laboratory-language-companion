@@ -509,7 +509,7 @@ async def test_teacher_answer_repairs_once_and_second_failure_is_safe(
     assert broken_provider.answer_calls == 2
 
 
-def test_library_schema_upgrades_v1_to_v4_without_main_migration(tmp_path: Path):
+def test_library_schema_upgrades_v1_to_v5_without_main_migration(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     connection = sqlite3.connect(path, isolation_level=None)
     try:
@@ -521,16 +521,16 @@ def test_library_schema_upgrades_v1_to_v4_without_main_migration(tmp_path: Path)
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 4
+    assert database.migrate() == 5
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 4
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 5
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE name='teacher_queries'"
         ).fetchone()
     assert database.integrity() == ("ok", [])
 
 
-def test_library_schema_upgrades_v2_to_v4_without_rebuilding_data(tmp_path: Path):
+def test_library_schema_upgrades_v2_to_v5_without_rebuilding_data(tmp_path: Path):
     path = tmp_path / "library-v2.sqlite3"
     connection = sqlite3.connect(path, isolation_level=None)
     try:
@@ -545,9 +545,9 @@ def test_library_schema_upgrades_v2_to_v4_without_rebuilding_data(tmp_path: Path
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 4
+    assert database.migrate() == 5
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 4
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 5
         assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name='page_quality'").fetchone()
     assert database.integrity() == ("ok", [])
 

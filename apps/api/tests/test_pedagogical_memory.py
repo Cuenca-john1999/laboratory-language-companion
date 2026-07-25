@@ -157,7 +157,7 @@ def _insert_query(library: EducationalLibraryService, *, status: str = "complete
     return query_id
 
 
-def test_schema_v3_to_v4_is_backed_up_atomic_and_integral(tmp_path: Path):
+def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     connection = sqlite3.connect(path, isolation_level=None)
     try:
@@ -170,11 +170,15 @@ def test_schema_v3_to_v4_is_backed_up_atomic_and_integral(tmp_path: Path):
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 4
+    assert database.migrate() == 5
     backups = list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as backup:
         assert backup.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 3
+    route_backups = list((tmp_path / "backups").glob("library.sqlite3.schema4-*.bak"))
+    assert len(route_backups) == 1
+    with sqlite3.connect(route_backups[0]) as backup:
+        assert backup.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 4
     with database.connect() as migrated:
         tables = {
             row[0] for row in migrated.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -185,10 +189,14 @@ def test_schema_v3_to_v4_is_backed_up_atomic_and_integral(tmp_path: Path):
         "pedagogical_evidence_locations",
         "pedagogical_memory_reviews",
         "pedagogical_memory_audit",
+        "canonical_route_imports",
+        "canonical_topics",
     } <= tables
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 4
+    assert database.migrate() == 5
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))) == 1
+    assert len(list((tmp_path / "backups").glob("library.sqlite3.schema4-*.bak"))) == 1
+    assert not list((tmp_path / "backups").glob("*.partial*"))
 
 
 def test_completed_query_derives_a_prudent_target_only_from_repeated_plan_terms(

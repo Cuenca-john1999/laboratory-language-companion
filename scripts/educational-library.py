@@ -15,6 +15,14 @@ from deutschos_api.core.config import get_settings  # noqa: E402
 from deutschos_api.educational_library.knowledge import (  # noqa: E402
     EducationalKnowledgeService,
 )
+from deutschos_api.educational_library.canonical_route import (  # noqa: E402
+    CanonicalRouteService,
+)
+from deutschos_api.educational_library.canonical_route_visual import (  # noqa: E402
+    HerderIndexVisualExtractor,
+    load_canonical_index,
+    load_visual_bundle,
+)
 from deutschos_api.educational_library.document_intelligence import (  # noqa: E402
     DocumentIntelligenceService,
 )
@@ -108,6 +116,20 @@ def parser() -> argparse.ArgumentParser:
     memory_import = sub.add_parser("memory-import")
     memory_import.add_argument("--operation-id", default="verified-memory-import-v1")
     memory_import.add_argument("--confirm-herder-akkusativ-pdf-89", action="store_true")
+    route_import = sub.add_parser("import-herder-index")
+    route_import.add_argument("reference", type=Path)
+    route_import.add_argument("--bundle", type=Path)
+    route_import.add_argument("--canonical-json", type=Path)
+    route_import.add_argument("--source-id")
+    sub.add_parser("canonical-route")
+    route_mappings = sub.add_parser("canonical-route-mappings")
+    route_mappings.add_argument(
+        "--status", choices=("exact", "probable", "ambiguous", "unmatched", "rejected")
+    )
+    route_reconcile = sub.add_parser("canonical-route-reconcile")
+    route_reconcile.add_argument(
+        "--operation-id", default="canonical-route-reconcile-v1"
+    )
     return command
 
 
@@ -297,6 +319,58 @@ async def run(args: argparse.Namespace) -> object:
             )
             .model_dump(mode="json")
         )
+    if args.command == "import-herder-index":
+        settings = get_settings()
+        route = CanonicalRouteService(service.database)
+        if args.bundle and args.canonical_json:
+            raise RuntimeError("Usa --bundle o --canonical-json, no ambos.")
+        if args.canonical_json:
+            pages = load_canonical_index(args.canonical_json.expanduser())
+            model = "editorial-transcription+user-verified"
+            parser_version = "herder-canonical-corrected.v1"
+            visual_seconds = None
+        elif args.bundle:
+            pages = load_visual_bundle(args.bundle.expanduser())
+            model = "qwen3-vl:8b+selective-visual-review"
+            parser_version = "herder-reference-index.v1+curated-bundle.v1"
+            visual_seconds = None
+        else:
+            extractor = HerderIndexVisualExtractor(
+                settings.ollama_base_url,
+                model=settings.educational_library_vision_model,
+                keep_alive=settings.educational_library_model_keep_alive,
+            )
+            pages = await extractor.extract(args.reference.expanduser())
+            model = extractor.model
+            parser_version = extractor.parser_version
+            visual_seconds = extractor.total_seconds
+        return route.import_reference(
+            args.reference.expanduser(),
+            pages,
+            model=model,
+            parser_version=parser_version,
+            source_id=args.source_id,
+            visual_seconds=visual_seconds,
+        ).model_dump(mode="json")
+    if args.command == "canonical-route":
+        route = CanonicalRouteService(service.database)
+        payload = route.status().model_dump(mode="json")
+        payload["topics"] = [
+            topic.model_dump(mode="json") for topic in route.list_topics()
+        ]
+        return payload
+    if args.command == "canonical-route-mappings":
+        return [
+            item.model_dump(mode="json")
+            for item in CanonicalRouteService(service.database).mappings(args.status)
+        ]
+    if args.command == "canonical-route-reconcile":
+        return [
+            item.model_dump(mode="json")
+            for item in CanonicalRouteService(service.database).reconcile_legacy(
+                args.operation_id
+            )
+        ]
     raise AssertionError(args.command)
 
 

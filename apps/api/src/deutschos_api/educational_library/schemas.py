@@ -1284,3 +1284,175 @@ class QueryMemoryRead(APIModel):
     locations: list[EvidenceLocationRead]
     response_feedback: MemoryFeedbackVerdict | None
     memory_used: bool
+
+
+class ReferenceIndexEntry(APIModel):
+    hierarchy_level: Literal[
+        "top_level_theme", "section", "subsection", "item", "front_matter", "back_matter"
+    ]
+    theme_number: int | None = Field(default=None, ge=1, le=51)
+    local_number: str | None = Field(default=None, max_length=30)
+    parent_path: list[str] = Field(default_factory=list, max_length=12)
+    title_es: str | None = Field(default=None, max_length=1_000)
+    title_de: str | None = Field(default=None, max_length=1_000)
+    printed_page_label: str | None = Field(default=None, max_length=30)
+    raw_visible_text: str = Field(min_length=1, max_length=4_000)
+    confidence: float = Field(ge=0, le=1)
+    visual_region: Literal["top", "middle", "bottom", "unknown"] = "unknown"
+    notes: str | None = Field(default=None, max_length=2_000)
+    parse_status: Literal["verified", "uncertain", "cropped"]
+    editorial_status: Literal["verified", "user_confirmed", "needs_review"] = "verified"
+
+
+class ReferenceIndexPage(APIModel):
+    reference_pdf_page: int = Field(ge=1)
+    physical_index_page: int | None = Field(default=None, ge=1)
+    entries: list[ReferenceIndexEntry] = Field(max_length=250)
+
+
+class CanonicalRouteValidationRead(APIModel):
+    valid: bool
+    theme_count: int = Field(ge=0)
+    missing_theme_numbers: list[int]
+    duplicate_theme_numbers: list[int]
+    sequence_monotonic: bool
+    printed_pages_monotonic: bool
+    canonical_checks: dict[str, bool]
+    errors: list[str]
+    warnings: list[str]
+
+
+class CanonicalOutlineNodeRead(APIModel):
+    id: int
+    parent_id: int | None
+    hierarchy_level: str
+    local_number: str | None
+    title_es: str | None
+    title_de: str | None
+    printed_page: int | None
+    reference_pdf_page: int
+    visual_region: str
+    parse_status: str
+    manual_pdf_page: int | None
+    manual_scan_layout: str | None
+    manual_region: str | None
+    editorial_status: str
+    confidence: float
+
+
+class CanonicalTopicRead(APIModel):
+    id: int
+    stable_key: str
+    theme_number: int
+    title_es: str
+    title_de: str | None
+    printed_start: int
+    printed_end: int | None
+    printed_end_origin: str
+    reference_pdf_page: int
+    reference_visual_region: str
+    manual_pdf_start: int | None
+    manual_pdf_end: int | None
+    manual_scan_layout: str | None
+    manual_region: str | None
+    editorial_status: str
+    origin: str
+    confidence: float
+    outline: list[CanonicalOutlineNodeRead] = Field(default_factory=list)
+
+
+class CanonicalLegacyMappingRead(APIModel):
+    id: int
+    legacy_section_id: int
+    legacy_stable_key: str
+    legacy_title: str
+    canonical_topic_id: int | None
+    theme_number: int | None
+    mapping_status: Literal["exact", "probable", "ambiguous", "unmatched", "rejected"]
+    score: float
+    evidence: list[str]
+    reason: str
+    reviewed_at: datetime | None
+
+
+class CanonicalRouteImportRead(APIModel):
+    id: str
+    source_id: str
+    source_version_id: int
+    route_version: int
+    reference_name: str
+    reference_sha256_prefix: str
+    reference_size_bytes: int
+    reference_page_count: int
+    model: str
+    parser_version: str
+    status: str
+    editorial_status: str
+    origin: str
+    active: bool
+    validation: CanonicalRouteValidationRead
+    warnings: list[str]
+    statistics: dict[str, JsonValue]
+    imported_at: datetime
+    validated_at: datetime | None
+    idempotent_replay: bool = False
+
+
+class CanonicalRouteStatusRead(APIModel):
+    available: bool
+    active_import: CanonicalRouteImportRead | None
+    topic_count: int = Field(ge=0)
+    outline_count: int = Field(ge=0)
+    mapping_counts: dict[str, int]
+    pending_reviews: int = Field(ge=0)
+
+
+class CanonicalTopicReviewRequest(APIModel):
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    action: Literal["confirm", "correct", "incorrect", "unknown"]
+    title_es: str | None = Field(default=None, min_length=1, max_length=1_000)
+    title_de: str | None = Field(default=None, max_length=1_000)
+    printed_start: int | None = Field(default=None, ge=1)
+    printed_end: int | None = Field(default=None, ge=1)
+    manual_pdf_start: int | None = Field(default=None, ge=1)
+    manual_pdf_end: int | None = Field(default=None, ge=1)
+    manual_scan_layout: Literal["single_page", "double_page", "mixed", "unknown"] | None = None
+    manual_region: Literal["full", "left", "right", "both", "unknown"] | None = None
+    comment: str | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def correction_has_payload(self):
+        if self.action == "correct" and all(
+            value is None
+            for value in (
+                self.title_es,
+                self.title_de,
+                self.printed_start,
+                self.printed_end,
+                self.manual_pdf_start,
+                self.manual_pdf_end,
+                self.manual_scan_layout,
+                self.manual_region,
+            )
+        ):
+            raise ValueError("a correction requires at least one changed field")
+        return self
+
+
+class CanonicalRouteRevertRequest(APIModel):
+    operation_id: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    audit_id: int = Field(ge=1)
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class CanonicalRouteAuditRead(APIModel):
+    id: int
+    operation_id: str
+    action: str
+    target_type: str
+    target_id: str
+    before: dict[str, JsonValue]
+    after: dict[str, JsonValue]
+    comment: str | None
+    reverts_audit_id: int | None
+    created_at: datetime
