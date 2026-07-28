@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Literal
+from uuid import UUID, uuid4
 
 from pydantic import Field, model_validator
 
@@ -44,6 +45,7 @@ class ChatTurn(APIModel):
 
 
 class ChatRequest(APIModel):
+    request_id: UUID = Field(default_factory=uuid4)
     message: str = Field(min_length=1, max_length=10000)
     role: Literal["teacher", "deep_teacher"] = "teacher"
     history: list[ChatTurn] = Field(default_factory=list, max_length=12)

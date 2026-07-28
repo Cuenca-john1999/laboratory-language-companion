@@ -7,7 +7,7 @@ import type {
   TeacherRole,
 } from "@deutschos/shared";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { streamNdjson } from "../lib/api";
 import {
@@ -92,6 +92,8 @@ export function Chat() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [waitingForFirstToken, setWaitingForFirstToken] = useState(false);
+  const [retryPayload, setRetryPayload] = useState<ChatRequest | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const roleAvailable = Boolean(
     roleStatus.data?.lm_studio_available &&
@@ -99,23 +101,18 @@ export function Chat() {
         ?.available,
   );
 
-  async function send(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const prompt = text.trim();
-    if (!prompt || !roleAvailable || busy) {
-      return;
-    }
-
-    const payload: ChatRequest = {
-      message: prompt,
-      role,
-      history: boundedHistory(messages),
-      session_id: sessionId,
-    };
-
-    setText("");
+  async function runRequest(payload: ChatRequest, appendUserMessage: boolean) {
+    const controller = new AbortController();
+    abortRef.current = controller;
     setError("");
-    setMessages((current) => [...current, { role: "user", text: prompt }]);
+    setRetryPayload(null);
+    if (appendUserMessage) {
+      setText("");
+      setMessages((current) => [
+        ...current,
+        { role: "user", text: payload.message },
+      ]);
+    }
     setBusy(true);
     setWaitingForFirstToken(true);
 
@@ -128,6 +125,7 @@ export function Chat() {
         {
           method: "POST",
           body: JSON.stringify(payload),
+          signal: controller.signal,
         },
       )) {
         if (streamEvent.type === "token") {
@@ -168,6 +166,9 @@ export function Chat() {
         }
 
         if (streamEvent.type === "error") {
+          if (streamEvent.retryable) {
+            setRetryPayload(payload);
+          }
           throw new Error(
             streamEvent.detail || "Falló la respuesta del modelo local.",
           );
@@ -183,13 +184,39 @@ export function Chat() {
         throw new Error("El modelo local no devolvió contenido.");
       }
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Ocurrió un error inesperado.",
-      );
+      if (!controller.signal.aborted) {
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Ocurrió un error inesperado.",
+        );
+      }
     } finally {
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
       setBusy(false);
       setWaitingForFirstToken(false);
     }
+  }
+
+  function send(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const prompt = text.trim();
+    if (!prompt || !roleAvailable || busy) {
+      return;
+    }
+
+    void runRequest(
+      {
+        request_id: crypto.randomUUID(),
+        message: prompt,
+        role,
+        history: boundedHistory(messages),
+        session_id: sessionId,
+      },
+      true,
+    );
   }
 
   const placeholder =
@@ -263,6 +290,22 @@ export function Chat() {
         {error && (
           <div className="error" role="alert">
             {error}
+            {retryPayload && !busy ? (
+              <button
+                type="button"
+                onClick={() =>
+                  void runRequest(
+                    {
+                      ...retryPayload,
+                      request_id: crypto.randomUUID(),
+                    },
+                    false,
+                  )
+                }
+              >
+                Volver a intentar
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -276,12 +319,19 @@ export function Chat() {
           disabled={!roleAvailable || busy}
           maxLength={10_000}
         />
-        <button
-          aria-label="Enviar"
-          disabled={!text.trim() || !roleAvailable || busy}
-        >
-          →
-        </button>
+        {busy ? (
+          <button
+            aria-label="Cancelar"
+            type="button"
+            onClick={() => abortRef.current?.abort()}
+          >
+            Cancelar
+          </button>
+        ) : (
+          <button aria-label="Enviar" disabled={!text.trim() || !roleAvailable}>
+            →
+          </button>
+        )}
       </form>
       <p className="privacy">
         El historial de esta conversación solo vive en esta pestaña. La base de

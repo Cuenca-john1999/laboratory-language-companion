@@ -6,6 +6,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from deutschos_api.providers.base import (
+    EmptyVisibleContentError,
     MalformedStructuredOutputError,
     ProviderResponseError,
     ProviderUnavailableError,
@@ -145,6 +146,113 @@ async def test_streaming_response_is_decoupled_into_text_chunks():
         async for chunk in provider.stream_chat("model", [{"role": "user", "content": "Hallo"}])
     ]
     assert chunks == ["Guten ", "Tag"]
+
+
+async def test_streaming_separates_reasoning_finish_reason_and_usage_from_visible_text():
+    private_reasoning = "contenido interno privado"
+    content = "\n".join(
+        [
+            "data: "
+            + json.dumps(
+                {
+                    "model": "model",
+                    "choices": [
+                        {"delta": {"reasoning_content": private_reasoning}, "finish_reason": None}
+                    ],
+                }
+            ),
+            "data: "
+            + json.dumps(
+                {
+                    "model": "model",
+                    "choices": [{"delta": {"content": "Sí."}, "finish_reason": None}],
+                }
+            ),
+            "data: "
+            + json.dumps(
+                {
+                    "model": "model",
+                    "choices": [{"delta": {}, "finish_reason": "stop"}],
+                }
+            ),
+            "data: "
+            + json.dumps(
+                {
+                    "choices": [],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 20,
+                        "total_tokens": 30,
+                    },
+                }
+            ),
+            "data: [DONE]",
+        ]
+    )
+    provider = provider_with(lambda _request: httpx.Response(200, text=content))
+
+    events = [
+        event
+        async for event in provider.stream_chat_events(
+            "model", [{"role": "user", "content": "Hallo"}]
+        )
+    ]
+    visible_chunks = [
+        chunk
+        async for chunk in provider.stream_chat("model", [{"role": "user", "content": "Hallo"}])
+    ]
+
+    assert events[0].reasoning_present is True
+    assert events[0].content == ""
+    assert events[1].content == "Sí."
+    assert events[2].finish_reason == "stop"
+    assert events[3].usage == {
+        "prompt_tokens": 10,
+        "completion_tokens": 20,
+        "total_tokens": 30,
+    }
+    assert visible_chunks == ["Sí."]
+    assert private_reasoning not in "".join(visible_chunks)
+
+
+@pytest.mark.parametrize("content", ["", " \n", "<think></think>", "<|end|>"])
+async def test_non_streaming_rejects_only_empty_visible_content(content):
+    provider = provider_with(
+        lambda _request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": content,
+                            "reasoning_content": "contenido interno privado",
+                        },
+                        "finish_reason": "length",
+                    }
+                ],
+                "usage": {"completion_tokens": 2048},
+            },
+        )
+    )
+
+    with pytest.raises(EmptyVisibleContentError) as raised:
+        await provider.chat("model", [{"role": "user", "content": "Hallo"}])
+
+    assert raised.value.reasoning_present is True
+    assert raised.value.finish_reason == "length"
+    assert raised.value.usage == {"completion_tokens": 2048}
+
+
+@pytest.mark.parametrize("content", ["Sí.", "Gut", "$x$", "**Ja.**"])
+async def test_non_streaming_accepts_short_visible_content(content):
+    provider = provider_with(
+        lambda _request: httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}, "finish_reason": "stop"}]},
+        )
+    )
+
+    assert await provider.chat("model", [{"role": "user", "content": "Hallo"}]) == content
 
 
 class StructuredResult(BaseModel):

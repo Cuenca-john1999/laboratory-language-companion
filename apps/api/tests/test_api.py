@@ -1,16 +1,20 @@
+import asyncio
+import json
+import logging
 from collections.abc import AsyncIterator
 
 import httpx
 import pytest
 from sqlalchemy import select
 
+from deutschos_api.api.routes import EMPTY_RESPONSE_RETRY_INSTRUCTION, stream_chat
 from deutschos_api.core.model_roles import DEEP_TEACHER_MODEL, TEACHER_MODEL
 from deutschos_api.main import app
 from deutschos_api.models import LearningSession
-from deutschos_api.providers.base import ProviderUnavailableError
+from deutschos_api.providers.base import ProviderStreamEvent, ProviderUnavailableError
 from deutschos_api.providers.dependencies import get_model_provider
 from deutschos_api.providers.lm_studio import LMStudioProvider
-from deutschos_api.schemas.api import ModelInfo
+from deutschos_api.schemas.api import ChatRequest, ModelInfo
 
 pytestmark = pytest.mark.anyio
 
@@ -39,6 +43,32 @@ class WorkingProvider:
     async def stream_chat(self, model, messages) -> AsyncIterator[str]:
         yield "Guten "
         yield "Tag"
+
+
+class ScriptedStreamingProvider(WorkingProvider):
+    def __init__(self, attempts: list[list[ProviderStreamEvent]]) -> None:
+        self.attempts = attempts
+        self.calls: list[tuple[str, list[dict[str, str]]]] = []
+
+    async def stream_chat_events(self, model, messages) -> AsyncIterator[ProviderStreamEvent]:
+        self.calls.append((model, messages))
+        index = len(self.calls) - 1
+        for event in self.attempts[index] if index < len(self.attempts) else []:
+            yield event
+
+
+class BlockingStreamingProvider(WorkingProvider):
+    def __init__(self, block_on_attempt: int) -> None:
+        self.block_on_attempt = block_on_attempt
+        self.calls = 0
+        self.blocking = asyncio.Event()
+
+    async def stream_chat_events(self, model, messages) -> AsyncIterator[ProviderStreamEvent]:
+        self.calls += 1
+        yield ProviderStreamEvent(reasoning_present=True)
+        if self.calls == self.block_on_attempt:
+            self.blocking.set()
+            await asyncio.Future()
 
 
 def lm_studio_provider_with_tags(payload: dict) -> LMStudioProvider:
@@ -251,3 +281,186 @@ async def test_streaming_chat_reuses_one_session(client, db_session_factory):
         sessions = db.scalars(select(LearningSession)).all()
         assert len(sessions) == 1
         assert sessions[0].id == session_id
+
+
+@pytest.mark.parametrize("answer", ["Sí.", "Korrekt", "**Gut.**"])
+async def test_streaming_short_visible_answers_never_retry(client, answer):
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content=answer),
+                ProviderStreamEvent(finish_reason="stop"),
+            ]
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Kurz", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert [event["content"] for event in events if event["type"] == "token"] == [answer]
+    assert events[-1]["attempt_count"] == 1
+    assert events[-1]["finish_reason"] == "stop"
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "first_attempt",
+    [
+        [],
+        [ProviderStreamEvent(reasoning_present=True, finish_reason="length")],
+        [ProviderStreamEvent(content=" \n\t"), ProviderStreamEvent(finish_reason="stop")],
+        [ProviderStreamEvent(content="<think></think><|end|>")],
+    ],
+)
+async def test_empty_stream_retries_once_without_exposing_or_persisting_failed_turn(
+    client, db_session_factory, caplog, first_attempt
+):
+    private_reasoning = "razonamiento-que-no-debe-salir"
+    if first_attempt and first_attempt[0].reasoning_present:
+        first_attempt.insert(
+            0,
+            ProviderStreamEvent(reasoning_present=True),
+        )
+    provider = ScriptedStreamingProvider(
+        [
+            first_attempt,
+            [
+                ProviderStreamEvent(reasoning_present=True),
+                ProviderStreamEvent(content="**Respuesta**"),
+                ProviderStreamEvent(
+                    finish_reason="stop",
+                    usage={"completion_tokens": 17, "total_tokens": 29},
+                ),
+            ],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={
+            "message": "Original",
+            "role": "teacher",
+            "history": [{"role": "assistant", "content": "Contexto válido"}],
+        },
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert [event["content"] for event in events if event["type"] == "token"] == ["**Respuesta**"]
+    assert events[-1]["attempt_count"] == 2
+    assert events[-1]["recovery"] == "empty_visible_content"
+    assert events[-1]["finish_reason"] == "stop"
+    assert len(provider.calls) == 2
+    assert provider.calls[0][0] == provider.calls[1][0] == TEACHER_MODEL
+    assert provider.calls[0][1][-1] == {"role": "user", "content": "Original"}
+    assert provider.calls[1][1][:-1] == provider.calls[0][1]
+    assert provider.calls[1][1][-1] == {
+        "role": "system",
+        "content": EMPTY_RESPONSE_RETRY_INSTRUCTION,
+    }
+    assert private_reasoning not in response.text
+    assert private_reasoning not in caplog.text
+    assert "reasoning_content" not in response.text
+    with db_session_factory() as db:
+        assert len(db.scalars(select(LearningSession)).all()) == 1
+
+
+@pytest.mark.parametrize(
+    ("role", "expected_model"),
+    [("teacher", TEACHER_MODEL), ("deep_teacher", DEEP_TEACHER_MODEL)],
+)
+async def test_empty_recovery_preserves_resolved_role_without_fallback(
+    client, role, expected_model
+):
+    provider = ScriptedStreamingProvider(
+        [[], [ProviderStreamEvent(content="Erholt."), ProviderStreamEvent(finish_reason="stop")]]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Hallo", "role": role, "history": []},
+    )
+
+    assert response.status_code == 200
+    assert [model for model, _messages in provider.calls] == [
+        expected_model,
+        expected_model,
+    ]
+
+
+async def test_two_empty_attempts_return_retryable_error_without_session(
+    client, db_session_factory
+):
+    provider = ScriptedStreamingProvider(
+        [
+            [ProviderStreamEvent(reasoning_present=True, finish_reason="length")],
+            [ProviderStreamEvent(content=" \n"), ProviderStreamEvent(finish_reason="stop")],
+            [ProviderStreamEvent(content="No debe ejecutarse")],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Hallo", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert events == [
+        {
+            "type": "error",
+            "detail": (
+                "El profesor no pudo generar una respuesta visible. Puedes volver a intentarlo."
+            ),
+            "retryable": True,
+        }
+    ]
+    assert len(provider.calls) == 2
+    with db_session_factory() as db:
+        assert db.scalar(select(LearningSession)) is None
+
+
+@pytest.mark.parametrize("block_on_attempt", [1, 2])
+async def test_cancellation_stops_active_attempt_and_prevents_further_retry(
+    db_session_factory, caplog, block_on_attempt
+):
+    provider = BlockingStreamingProvider(block_on_attempt)
+    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+    with db_session_factory() as db:
+        response = await stream_chat(
+            ChatRequest(message="Hallo", role="teacher"),
+            db=db,
+            model_provider=provider,
+        )
+        next_event = asyncio.create_task(anext(response.body_iterator))
+        await asyncio.wait_for(provider.blocking.wait(), timeout=1)
+        next_event.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await next_event
+        assert db.scalar(select(LearningSession)) is None
+
+    assert provider.calls == block_on_attempt
+    cancellation_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "generation_cancelled"
+    ]
+    started_records = [
+        record
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "generation_started"
+    ]
+    assert len(cancellation_records) == 1
+    assert cancellation_records[0].generation["attempt"] == block_on_attempt
+    assert len(started_records) == block_on_attempt
+    assert len({record.generation["request_id"] for record in started_records}) == block_on_attempt
+    assert (
+        cancellation_records[0].generation["request_id"]
+        == started_records[-1].generation["request_id"]
+    )

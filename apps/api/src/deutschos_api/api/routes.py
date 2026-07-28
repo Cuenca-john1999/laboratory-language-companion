@@ -1,6 +1,10 @@
+import asyncio
 import json
+import logging
+import time
 from collections.abc import AsyncIterator
 from datetime import datetime
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -18,10 +22,13 @@ from deutschos_api.core.version import APPLICATION_VERSION, SCHEMA_REVISION
 from deutschos_api.db.session import get_db
 from deutschos_api.models import LearningSession, Mistake, StudentProfile
 from deutschos_api.providers.base import (
+    EmptyVisibleContentError,
     ModelNotFoundError,
     ModelProvider,
     ProviderResponseError,
+    ProviderStreamEvent,
     ProviderUnavailableError,
+    has_visible_content,
 )
 from deutschos_api.providers.dependencies import get_model_provider
 from deutschos_api.schemas.api import (
@@ -44,7 +51,16 @@ from deutschos_api.services.chat import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 PRIVATE_CHAT_SUMMARY = "Conversación local completada; contenido no almacenado."
+EMPTY_RESPONSE_RETRY_INSTRUCTION = (
+    "Responde directamente con la respuesta final visible. "
+    "No consumas la salida en razonamiento interno. No menciones este reintento."
+)
+EMPTY_RESPONSE_ERROR = (
+    "El profesor no pudo generar una respuesta visible. Puedes volver a intentarlo."
+)
 
 
 def serialize_profile(row: StudentProfile) -> ProfileRead:
@@ -124,6 +140,58 @@ def record_chat_session(
 
 def ndjson_event(event_type: str, **payload: object) -> str:
     return json.dumps({"type": event_type, **payload}, ensure_ascii=False) + "\n"
+
+
+def retry_messages(messages: list[dict[str, str]]) -> list[dict[str, str]]:
+    return [
+        *messages,
+        {"role": "system", "content": EMPTY_RESPONSE_RETRY_INSTRUCTION},
+    ]
+
+
+def generation_log(
+    event: str,
+    *,
+    request_id: UUID,
+    model: str,
+    role: str,
+    attempt: int,
+    started_at: float,
+    visible_characters: int = 0,
+    reasoning_present: bool = False,
+    finish_reason: str | None = None,
+    usage: dict[str, int] | None = None,
+) -> None:
+    metadata = {
+        "event": event,
+        "request_id": str(request_id),
+        "model": model,
+        "role": role,
+        "attempt": attempt,
+        "duration_ms": round((time.monotonic() - started_at) * 1000),
+        "visible_characters": visible_characters,
+        "reasoning_present": reasoning_present,
+        "finish_reason": finish_reason,
+        "usage": usage or {},
+    }
+    logger.info(
+        json.dumps(metadata, ensure_ascii=False, separators=(",", ":")),
+        extra={"generation": metadata},
+    )
+
+
+async def provider_stream_events(
+    model_provider: ModelProvider,
+    model: str,
+    messages: list[dict[str, str]],
+) -> AsyncIterator[ProviderStreamEvent]:
+    event_stream = getattr(model_provider, "stream_chat_events", None)
+    if callable(event_stream):
+        async for event in event_stream(model, messages):
+            yield event
+        return
+    async for content in model_provider.stream_chat(model, messages):
+        yield ProviderStreamEvent(content=content)
 
 
 async def ensure_model_available(model_provider: ModelProvider, model: str) -> None:
@@ -298,14 +366,87 @@ async def chat(
         )
     started_at = learning_session.started_at if learning_session else utc_now()
     await ensure_model_available(model_provider, model)
-    try:
-        answer = await model_provider.chat(model, messages)
-    except ModelNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ProviderUnavailableError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ProviderResponseError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    answer = ""
+    recovery = False
+    for attempt in (1, 2):
+        attempt_request_id = payload.request_id if attempt == 1 else uuid4()
+        generation_started_at = time.monotonic()
+        generation_log(
+            "generation_started",
+            request_id=attempt_request_id,
+            model=model,
+            role=payload.role,
+            attempt=attempt,
+            started_at=generation_started_at,
+        )
+        if attempt == 2:
+            generation_log(
+                "retry_started",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+            )
+        try:
+            answer = await model_provider.chat(
+                model, messages if attempt == 1 else retry_messages(messages)
+            )
+            if not has_visible_content(answer):
+                raise EmptyVisibleContentError()
+        except EmptyVisibleContentError as exc:
+            generation_log(
+                "empty_visible_content_detected",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+                reasoning_present=exc.reasoning_present,
+                finish_reason=exc.finish_reason,
+                usage=exc.usage,
+            )
+            if attempt == 1:
+                recovery = True
+                continue
+            generation_log(
+                "retry_failed",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+                reasoning_present=exc.reasoning_present,
+                finish_reason=exc.finish_reason,
+                usage=exc.usage,
+            )
+            raise HTTPException(status_code=502, detail=EMPTY_RESPONSE_ERROR) from exc
+        except ModelNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ProviderUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ProviderResponseError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        generation_log(
+            "visible_content_started",
+            request_id=attempt_request_id,
+            model=model,
+            role=payload.role,
+            attempt=attempt,
+            started_at=generation_started_at,
+            visible_characters=len(answer),
+        )
+        if recovery:
+            generation_log(
+                "retry_succeeded",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+                visible_characters=len(answer),
+            )
+        break
     learning_session = record_chat_session(db, model, started_at, learning_session)
     return ChatResponse(response=answer, model=model, session_id=learning_session.id)
 
@@ -332,14 +473,132 @@ async def stream_chat(
     await ensure_model_available(model_provider, model)
 
     async def generate() -> AsyncIterator[str]:
-        try:
-            async for chunk in model_provider.stream_chat(model, messages):
-                yield ndjson_event("token", content=chunk)
-        except (ModelNotFoundError, ProviderUnavailableError, ProviderResponseError) as exc:
-            yield ndjson_event("error", detail=str(exc))
+        recovery: str | None = None
+        for attempt in (1, 2):
+            attempt_request_id = payload.request_id if attempt == 1 else uuid4()
+            generation_started_at = time.monotonic()
+            visible_started = False
+            buffered_content = ""
+            visible_characters = 0
+            reasoning_present = False
+            finish_reason: str | None = None
+            usage: dict[str, int] = {}
+            generation_log(
+                "generation_started",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+            )
+            if attempt == 2:
+                generation_log(
+                    "retry_started",
+                    request_id=attempt_request_id,
+                    model=model,
+                    role=payload.role,
+                    attempt=attempt,
+                    started_at=generation_started_at,
+                )
+            try:
+                attempt_messages = messages if attempt == 1 else retry_messages(messages)
+                async for event in provider_stream_events(model_provider, model, attempt_messages):
+                    reasoning_present = reasoning_present or event.reasoning_present
+                    finish_reason = event.finish_reason or finish_reason
+                    usage.update(event.usage)
+                    if not event.content:
+                        continue
+                    if not visible_started:
+                        buffered_content += event.content
+                        if not has_visible_content(buffered_content):
+                            continue
+                        visible_started = True
+                        visible_characters = len(buffered_content)
+                        generation_log(
+                            "visible_content_started",
+                            request_id=attempt_request_id,
+                            model=model,
+                            role=payload.role,
+                            attempt=attempt,
+                            started_at=generation_started_at,
+                            visible_characters=visible_characters,
+                            reasoning_present=reasoning_present,
+                        )
+                        yield ndjson_event("token", content=buffered_content)
+                        buffered_content = ""
+                    else:
+                        visible_characters += len(event.content)
+                        yield ndjson_event("token", content=event.content)
+            except asyncio.CancelledError:
+                generation_log(
+                    "generation_cancelled",
+                    request_id=attempt_request_id,
+                    model=model,
+                    role=payload.role,
+                    attempt=attempt,
+                    started_at=generation_started_at,
+                    visible_characters=visible_characters,
+                    reasoning_present=reasoning_present,
+                    finish_reason=finish_reason,
+                    usage=usage,
+                )
+                raise
+            except (ModelNotFoundError, ProviderUnavailableError, ProviderResponseError) as exc:
+                yield ndjson_event("error", detail=str(exc))
+                return
+
+            if visible_started:
+                if attempt == 2:
+                    generation_log(
+                        "retry_succeeded",
+                        request_id=attempt_request_id,
+                        model=model,
+                        role=payload.role,
+                        attempt=attempt,
+                        started_at=generation_started_at,
+                        visible_characters=visible_characters,
+                        reasoning_present=reasoning_present,
+                        finish_reason=finish_reason,
+                        usage=usage,
+                    )
+                saved_session = record_chat_session(db, model, started_at, learning_session)
+                yield ndjson_event(
+                    "done",
+                    model=model,
+                    session_id=saved_session.id,
+                    attempt_count=attempt,
+                    recovery=recovery,
+                    finish_reason=finish_reason,
+                )
+                return
+
+            generation_log(
+                "empty_visible_content_detected",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+                reasoning_present=reasoning_present,
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            if attempt == 1:
+                recovery = "empty_visible_content"
+                continue
+            generation_log(
+                "retry_failed",
+                request_id=attempt_request_id,
+                model=model,
+                role=payload.role,
+                attempt=attempt,
+                started_at=generation_started_at,
+                reasoning_present=reasoning_present,
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            yield ndjson_event("error", detail=EMPTY_RESPONSE_ERROR, retryable=True)
             return
-        saved_session = record_chat_session(db, model, started_at, learning_session)
-        yield ndjson_event("done", model=model, session_id=saved_session.id)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 

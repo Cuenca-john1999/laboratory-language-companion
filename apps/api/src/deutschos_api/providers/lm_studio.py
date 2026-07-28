@@ -8,12 +8,15 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from deutschos_api.providers.base import (
+    EmptyVisibleContentError,
     MalformedStructuredOutputError,
     ModelNotFoundError,
     ModelProvider,
     ProviderResponseError,
+    ProviderStreamEvent,
     ProviderUnavailableError,
     StructuredModel,
+    has_visible_content,
 )
 from deutschos_api.schemas.api import ModelInfo
 
@@ -132,6 +135,17 @@ class LMStudioProvider(ModelProvider):
                     metrics[key] = usage[key]
         self.last_request_metrics = metrics
 
+    @staticmethod
+    def _usage(payload: dict[str, Any]) -> dict[str, int]:
+        usage = payload.get("usage")
+        if not isinstance(usage, dict):
+            return {}
+        return {
+            key: value
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+            if isinstance((value := usage.get(key)), int)
+        }
+
     async def chat(self, model: str, messages: list[dict[str, str]]) -> str:
         try:
             async with self.client() as client:
@@ -152,15 +166,30 @@ class LMStudioProvider(ModelProvider):
                 "No se pudo conectar con el servidor local de LM Studio."
             ) from exc
         try:
-            content = payload["choices"][0]["message"]["content"]
+            choice = payload["choices"][0]
+            message = choice["message"]
+            content = message["content"]
             self._capture_metrics(model, payload)
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderResponseError("LM Studio devolvió una respuesta malformada.") from exc
-        if not isinstance(content, str) or not content.strip():
-            raise ProviderResponseError("LM Studio devolvió una respuesta sin contenido.")
+        if not isinstance(content, str) or not has_visible_content(content):
+            reasoning = message.get("reasoning_content") or message.get("reasoning")
+            finish_reason = choice.get("finish_reason")
+            raise EmptyVisibleContentError(
+                reasoning_present=isinstance(reasoning, str) and bool(reasoning),
+                finish_reason=finish_reason if isinstance(finish_reason, str) else None,
+                usage=self._usage(payload),
+            )
         return content
 
     async def stream_chat(self, model: str, messages: list[dict[str, str]]) -> AsyncIterator[str]:
+        async for event in self.stream_chat_events(model, messages):
+            if event.content:
+                yield event.content
+
+    async def stream_chat_events(
+        self, model: str, messages: list[dict[str, str]]
+    ) -> AsyncIterator[ProviderStreamEvent]:
         try:
             async with self.client() as client:
                 async with client.stream(
@@ -178,13 +207,34 @@ class LMStudioProvider(ModelProvider):
                             )
                         try:
                             payload = json.loads(line[6:])
-                            content = payload["choices"][0]["delta"].get("content")
+                            usage = self._usage(payload)
+                            choices = payload.get("choices")
+                            if isinstance(choices, list) and not choices and usage:
+                                yield ProviderStreamEvent(usage=usage)
+                                continue
+                            choice = choices[0]
+                            delta = choice["delta"]
+                            content = delta.get("content")
+                            reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                            finish_reason = choice.get("finish_reason")
                         except (ValueError, KeyError, IndexError, TypeError) as exc:
                             raise ProviderResponseError(
                                 "LM Studio devolvió un fragmento SSE malformado."
                             ) from exc
-                        if isinstance(content, str) and content:
-                            yield content
+                        if (
+                            isinstance(content, str)
+                            or isinstance(reasoning, str)
+                            or isinstance(finish_reason, str)
+                            or usage
+                        ):
+                            yield ProviderStreamEvent(
+                                content=content if isinstance(content, str) else "",
+                                reasoning_present=isinstance(reasoning, str) and bool(reasoning),
+                                finish_reason=(
+                                    finish_reason if isinstance(finish_reason, str) else None
+                                ),
+                                usage=usage,
+                            )
         except ProviderResponseError:
             raise
         except httpx.HTTPStatusError as exc:

@@ -267,6 +267,7 @@ export type ChatHistoryMessage = {
 };
 
 export type ChatRequest = {
+  request_id: string;
   message: string;
   role: TeacherRole;
   history: ChatHistoryMessage[];
@@ -275,8 +276,15 @@ export type ChatRequest = {
 
 export type ChatStreamEvent =
   | { type: "token"; content: string }
-  | { type: "done"; model: string; session_id: number }
-  | { type: "error"; detail: string };
+  | {
+      type: "done";
+      model: string;
+      session_id: number;
+      attempt_count: number;
+      recovery: "empty_visible_content" | null;
+      finish_reason: string | null;
+    }
+  | { type: "error"; detail: string; retryable?: boolean };
 
 export type CefrHint = "pre-A1" | "A1";
 

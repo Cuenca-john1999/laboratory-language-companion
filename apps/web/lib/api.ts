@@ -101,6 +101,9 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
       headers,
     });
   } catch (cause) {
+    if (cause instanceof DOMException && cause.name === "AbortError") {
+      throw cause;
+    }
     throw new Error(
       "No se pudo conectar con la API local. Comprueba que esté iniciada.",
       { cause },
