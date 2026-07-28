@@ -17,6 +17,10 @@ import {
 import { TeacherMarkdown } from "./TeacherMarkdown";
 
 type Message = { role: "user" | "teacher"; text: string };
+type RequestOptions = {
+  appendUserMessage: boolean;
+  appendToTeacher: boolean;
+};
 
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_HISTORY_CHARACTERS = 12_000;
@@ -92,8 +96,12 @@ export function Chat() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [waitingForFirstToken, setWaitingForFirstToken] = useState(false);
+  const [continuing, setContinuing] = useState(false);
   const [retryPayload, setRetryPayload] = useState<ChatRequest | null>(null);
+  const [manualContinuation, setManualContinuation] =
+    useState<ChatRequest | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const teacherTextRef = useRef("");
 
   const roleAvailable = Boolean(
     roleStatus.data?.lm_studio_available &&
@@ -101,12 +109,16 @@ export function Chat() {
         ?.available,
   );
 
-  async function runRequest(payload: ChatRequest, appendUserMessage: boolean) {
+  async function runRequest(payload: ChatRequest, options: RequestOptions) {
     const controller = new AbortController();
     abortRef.current = controller;
     setError("");
     setRetryPayload(null);
-    if (appendUserMessage) {
+    if (!payload.manual_continuation) {
+      setManualContinuation(null);
+    }
+    if (options.appendUserMessage) {
+      teacherTextRef.current = "";
       setText("");
       setMessages((current) => [
         ...current,
@@ -114,9 +126,10 @@ export function Chat() {
       ]);
     }
     setBusy(true);
-    setWaitingForFirstToken(true);
+    setContinuing(Boolean(payload.manual_continuation));
+    setWaitingForFirstToken(!options.appendToTeacher);
 
-    let teacherMessageStarted = false;
+    let teacherMessageStarted = options.appendToTeacher;
     let streamCompleted = false;
 
     try {
@@ -136,11 +149,13 @@ export function Chat() {
           if (!teacherMessageStarted) {
             teacherMessageStarted = true;
             setWaitingForFirstToken(false);
+            teacherTextRef.current = streamEvent.content;
             setMessages((current) => [
               ...current,
               { role: "teacher", text: streamEvent.content },
             ]);
           } else {
+            teacherTextRef.current += streamEvent.content;
             setMessages((current) => {
               const next = [...current];
               const last = next.at(-1);
@@ -156,11 +171,34 @@ export function Chat() {
           continue;
         }
 
+        if (streamEvent.type === "continuation") {
+          setWaitingForFirstToken(false);
+          setContinuing(streamEvent.active);
+          continue;
+        }
+
         if (streamEvent.type === "done") {
           if (typeof streamEvent.session_id !== "number") {
             throw new Error("La API no confirmó una sesión válida.");
           }
           setSessionId(streamEvent.session_id);
+          setContinuing(false);
+          if (streamEvent.continuation_available) {
+            setManualContinuation({
+              ...payload,
+              request_id: crypto.randomUUID(),
+              logical_generation_id: streamEvent.logical_generation_id,
+              session_id: streamEvent.session_id,
+              continuation_from: teacherTextRef.current,
+              manual_continuation: true,
+              prior_segment_count: streamEvent.segment_count,
+              automatic_continuation_count:
+                streamEvent.automatic_continuation_count,
+              manual_continuation_count: streamEvent.manual_continuation_count,
+            });
+          } else {
+            setManualContinuation(null);
+          }
           streamCompleted = true;
           continue;
         }
@@ -196,6 +234,7 @@ export function Chat() {
         abortRef.current = null;
       }
       setBusy(false);
+      setContinuing(false);
       setWaitingForFirstToken(false);
     }
   }
@@ -207,15 +246,17 @@ export function Chat() {
       return;
     }
 
+    const logicalGenerationId = crypto.randomUUID();
     void runRequest(
       {
         request_id: crypto.randomUUID(),
+        logical_generation_id: logicalGenerationId,
         message: prompt,
         role,
         history: boundedHistory(messages),
         session_id: sessionId,
       },
-      true,
+      { appendUserMessage: true, appendToTeacher: false },
     );
   }
 
@@ -287,6 +328,32 @@ export function Chat() {
             El profesor está pensando localmente…
           </div>
         ) : null}
+        {continuing ? (
+          <div className="muted continuation-status">
+            Continuando respuesta…
+          </div>
+        ) : null}
+        {manualContinuation ? (
+          <div className="continuation-actions chat-continuation-actions">
+            <span>La respuesta ha alcanzado su límite de longitud.</span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                void runRequest(
+                  {
+                    ...manualContinuation,
+                    request_id: crypto.randomUUID(),
+                    continuation_from: teacherTextRef.current,
+                  },
+                  { appendUserMessage: false, appendToTeacher: true },
+                )
+              }
+            >
+              Continuar
+            </button>
+          </div>
+        ) : null}
         {error && (
           <div className="error" role="alert">
             {error}
@@ -299,7 +366,10 @@ export function Chat() {
                       ...retryPayload,
                       request_id: crypto.randomUUID(),
                     },
-                    false,
+                    {
+                      appendUserMessage: false,
+                      appendToTeacher: false,
+                    },
                   )
                 }
               >

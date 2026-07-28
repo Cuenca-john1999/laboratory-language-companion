@@ -1512,6 +1512,16 @@ details summary {
   color: var(--red);
   border: 1px solid var(--red);
 }
+.continuation-status {
+  align-self: flex-start;
+  font-size: 0.9rem;
+}
+.chat-continuation-actions {
+  align-items: center;
+  align-self: flex-start;
+  color: #625d52;
+  font-size: 0.9rem;
+}
 .composer {
   display: flex;
   border: 1px solid #918c80;

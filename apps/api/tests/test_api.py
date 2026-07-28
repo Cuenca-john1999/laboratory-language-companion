@@ -7,7 +7,12 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from deutschos_api.api.routes import EMPTY_RESPONSE_RETRY_INSTRUCTION, stream_chat
+from deutschos_api.api.routes import (
+    CONTINUATION_INSTRUCTION,
+    EMPTY_RESPONSE_RETRY_INSTRUCTION,
+    exact_overlap_size,
+    stream_chat,
+)
 from deutschos_api.core.model_roles import DEEP_TEACHER_MODEL, TEACHER_MODEL
 from deutschos_api.main import app
 from deutschos_api.models import LearningSession
@@ -69,6 +74,48 @@ class BlockingStreamingProvider(WorkingProvider):
         if self.calls == self.block_on_attempt:
             self.blocking.set()
             await asyncio.Future()
+
+
+class ContinuationBlockingProvider(WorkingProvider):
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, list[dict[str, str]]]] = []
+        self.blocking = asyncio.Event()
+
+    async def stream_chat_events(self, model, messages) -> AsyncIterator[ProviderStreamEvent]:
+        self.calls.append((model, messages))
+        if len(self.calls) == 1:
+            yield ProviderStreamEvent(content="Respuesta parcial.")
+            yield ProviderStreamEvent(finish_reason="length")
+            return
+        yield ProviderStreamEvent(reasoning_present=True)
+        self.blocking.set()
+        await asyncio.Future()
+
+
+class StreamingContinuationProvider(WorkingProvider):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.blocking = asyncio.Event()
+
+    async def stream_chat_events(self, model, messages) -> AsyncIterator[ProviderStreamEvent]:
+        self.calls += 1
+        if self.calls == 1:
+            yield ProviderStreamEvent(content="Respuesta anterior.")
+            yield ProviderStreamEvent(finish_reason="length")
+            return
+        yield ProviderStreamEvent(content="Nuevo contenido visible.")
+        self.blocking.set()
+        await asyncio.Future()
+
+
+class FailingStreamingProvider(WorkingProvider):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def stream_chat_events(self, model, messages) -> AsyncIterator[ProviderStreamEvent]:
+        self.calls += 1
+        yield ProviderStreamEvent(content="Parcial")
+        raise ProviderUnavailableError("Conexión interrumpida")
 
 
 def lm_studio_provider_with_tags(payload: dict) -> LMStudioProvider:
@@ -426,6 +473,359 @@ async def test_two_empty_attempts_return_retryable_error_without_session(
         assert db.scalar(select(LearningSession)) is None
 
 
+@pytest.mark.parametrize(
+    ("previous", "continuation", "expected"),
+    [
+        ("cambia de der a", "der a den. En plural…", 5),
+        ("Grüße aus Köln: groß", "großartig mit ß.", 4),
+        ("**Regla:** texto", "Una regla parecida, pero nueva.", 0),
+        ("```python\nprint('a')", "\nprint('b')\n```", 0),
+    ],
+)
+def test_exact_overlap_is_conservative_unicode_safe_and_not_semantic(
+    previous, continuation, expected
+):
+    assert exact_overlap_size(previous, continuation) == expected
+
+
+@pytest.mark.parametrize(
+    ("role", "expected_model"),
+    [("teacher", TEACHER_MODEL), ("deep_teacher", DEEP_TEACHER_MODEL)],
+)
+async def test_visible_length_continues_once_with_same_role_and_one_session(
+    client, db_session_factory, caplog, role, expected_model
+):
+    private_reasoning = "razonamiento privado nunca visible"
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content="El acusativo se usa cuando"),
+                ProviderStreamEvent(
+                    reasoning_present=True,
+                    finish_reason="length",
+                    usage={"completion_tokens": 2048},
+                ),
+            ],
+            [
+                ProviderStreamEvent(reasoning_present=True),
+                ProviderStreamEvent(content="cuando el verbo tiene un objeto directo."),
+                ProviderStreamEvent(finish_reason="stop"),
+            ],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={
+            "message": "Explica el acusativo",
+            "role": role,
+            "history": [{"role": "assistant", "content": "Contexto anterior"}],
+        },
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+    visible = "".join(event["content"] for event in events if event["type"] == "token")
+    done = events[-1]
+
+    assert visible == "El acusativo se usa cuando el verbo tiene un objeto directo."
+    assert [event for event in events if event["type"] == "continuation"] == [
+        {"type": "continuation", "active": True},
+        {"type": "continuation", "active": False},
+    ]
+    assert [model for model, _messages in provider.calls] == [
+        expected_model,
+        expected_model,
+    ]
+    assert provider.calls[1][1][:-2] == provider.calls[0][1]
+    assert provider.calls[1][1][-2] == {
+        "role": "assistant",
+        "content": "El acusativo se usa cuando",
+    }
+    assert provider.calls[1][1][-1] == {
+        "role": "system",
+        "content": CONTINUATION_INSTRUCTION,
+    }
+    assert done["attempt_count"] == 2
+    assert done["segment_count"] == 2
+    assert done["automatic_continuation_count"] == 1
+    assert done["manual_continuation_count"] == 0
+    assert done["visible_character_count"] == len(visible)
+    assert done["finish_reason"] == "stop"
+    assert done["continuation_available"] is False
+    assert private_reasoning not in response.text
+    assert private_reasoning not in caplog.text
+    with db_session_factory() as db:
+        sessions = db.scalars(select(LearningSession)).all()
+        assert len(sessions) == 1
+        assert sessions[0].model_used == expected_model
+
+    segment_logs = [
+        record.generation
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "generation_segment_started"
+    ]
+    assert len({item["request_id"] for item in segment_logs}) == 2
+    assert len({item["logical_generation_id"] for item in segment_logs}) == 1
+    overlap_logs = [
+        record.generation
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "overlap_removed"
+    ]
+    assert overlap_logs[0]["overlap_characters"] == len("cuando")
+    completion_log = next(
+        record.generation
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "generation_completed"
+    )
+    assert completion_log["reasoning_present"] is True
+    assert completion_log["usage"] == {"completion_tokens": 2048}
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        ("1. Eins\n2. Zwei", "\n3. Drei", "1. Eins\n2. Zwei\n3. Drei"),
+        (
+            "| Caso | Forma |\n|---|---|\n| Nom.",
+            " | der |\n| Akk. | den |",
+            "| Caso | Forma |\n|---|---|\n| Nom. | der |\n| Akk. | den |",
+        ),
+        ("```python\nprint(", "'Hallo')\n```", "```python\nprint('Hallo')\n```"),
+        ("La fórmula es $x", "^2 + y^2$.", "La fórmula es $x^2 + y^2$."),
+    ],
+)
+async def test_continuation_preserves_split_markdown_without_artificial_closures(
+    client, first, second, expected
+):
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content=first),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [
+                ProviderStreamEvent(content=second),
+                ProviderStreamEvent(finish_reason="stop"),
+            ],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Markdown", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert "".join(event["content"] for event in events if event["type"] == "token") == expected
+    assert len(provider.calls) == 2
+
+
+async def test_second_visible_length_stops_automatic_chain_and_offers_continue(client):
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content="Primera parte. "),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [
+                ProviderStreamEvent(content="Segunda parte."),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [ProviderStreamEvent(content="No debe ejecutarse")],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Largo", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert "".join(event["content"] for event in events if event["type"] == "token") == (
+        "Primera parte. Segunda parte."
+    )
+    assert len(provider.calls) == 2
+    assert events[-1]["finish_reason"] == "length"
+    assert events[-1]["continuation_available"] is True
+    assert events[-1]["automatic_continuation_count"] == 1
+
+
+async def test_empty_continuation_retries_same_continuation_with_hard_call_limit(client):
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content="Parte visible."),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [ProviderStreamEvent(reasoning_present=True, finish_reason="stop")],
+            [
+                ProviderStreamEvent(content=" Final."),
+                ProviderStreamEvent(finish_reason="stop"),
+            ],
+            [ProviderStreamEvent(content="Cuarta llamada prohibida")],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Continúa", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert "".join(event["content"] for event in events if event["type"] == "token") == (
+        "Parte visible. Final."
+    )
+    assert len(provider.calls) == 3
+    assert provider.calls[1][1][-2]["content"] == "Parte visible."
+    assert provider.calls[2][1][-3]["content"] == "Parte visible."
+    assert provider.calls[2][1][-1] == {
+        "role": "system",
+        "content": EMPTY_RESPONSE_RETRY_INSTRUCTION,
+    }
+    assert events[-1]["recovery"] == "empty_visible_content"
+    assert events[-1]["segment_count"] == 2
+
+
+async def test_initial_empty_then_truncated_retry_uses_exactly_three_calls(client):
+    provider = ScriptedStreamingProvider(
+        [
+            [ProviderStreamEvent(reasoning_present=True, finish_reason="length")],
+            [
+                ProviderStreamEvent(content="Recuperada y cortada. "),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [
+                ProviderStreamEvent(content="Completada."),
+                ProviderStreamEvent(finish_reason="stop"),
+            ],
+            [ProviderStreamEvent(content="No")],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Secuencia máxima", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert len(provider.calls) == 3
+    assert events[-1]["attempt_count"] == 3
+    assert events[-1]["automatic_continuation_count"] == 1
+    assert events[-1]["recovery"] == "empty_visible_content"
+
+
+async def test_manual_continuation_never_chains_automatically(client):
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content=" previa. Nueva parte."),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [ProviderStreamEvent(content="No debe ejecutarse")],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={
+            "message": "Respuesta larga",
+            "role": "teacher",
+            "history": [],
+            "session_id": None,
+            "manual_continuation": True,
+            "continuation_from": "Parte previa.",
+            "prior_segment_count": 2,
+            "automatic_continuation_count": 1,
+            "manual_continuation_count": 0,
+        },
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert [event["content"] for event in events if event["type"] == "token"] == [" Nueva parte."]
+    assert len(provider.calls) == 1
+    assert provider.calls[0][1][-2]["content"] == "Parte previa."
+    assert events[-1]["segment_count"] == 3
+    assert events[-1]["manual_continuation_count"] == 1
+    assert events[-1]["continuation_available"] is True
+
+
+async def test_manual_continuation_reuses_the_same_logical_session(client, db_session_factory):
+    provider = ScriptedStreamingProvider(
+        [
+            [
+                ProviderStreamEvent(content="Uno. "),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [
+                ProviderStreamEvent(content="Dos."),
+                ProviderStreamEvent(finish_reason="length"),
+            ],
+            [
+                ProviderStreamEvent(content=" Tres."),
+                ProviderStreamEvent(finish_reason="stop"),
+            ],
+        ]
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    first_response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Respuesta larga", "role": "teacher", "history": []},
+    )
+    first_events = [json.loads(line) for line in first_response.text.splitlines()]
+    first_done = first_events[-1]
+    partial = "".join(event["content"] for event in first_events if event["type"] == "token")
+    manual_response = await client.post(
+        "/api/chat/stream",
+        json={
+            "message": "Respuesta larga",
+            "role": "teacher",
+            "history": [],
+            "session_id": first_done["session_id"],
+            "logical_generation_id": first_done["logical_generation_id"],
+            "manual_continuation": True,
+            "continuation_from": partial,
+            "prior_segment_count": first_done["segment_count"],
+            "automatic_continuation_count": first_done["automatic_continuation_count"],
+            "manual_continuation_count": first_done["manual_continuation_count"],
+        },
+    )
+    manual_events = [json.loads(line) for line in manual_response.text.splitlines()]
+
+    assert manual_events[-1]["session_id"] == first_done["session_id"]
+    assert manual_events[-1]["logical_generation_id"] == first_done["logical_generation_id"]
+    assert manual_events[-1]["segment_count"] == 3
+    assert manual_events[-1]["manual_continuation_count"] == 1
+    assert manual_events[-1]["continuation_available"] is False
+    with db_session_factory() as db:
+        sessions = db.scalars(select(LearningSession)).all()
+        assert len(sessions) == 1
+        assert CONTINUATION_INSTRUCTION not in sessions[0].summary
+
+
+async def test_transport_failure_after_visible_content_is_not_treated_as_length(client):
+    provider = FailingStreamingProvider()
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.post(
+        "/api/chat/stream",
+        json={"message": "Falla", "role": "teacher", "history": []},
+    )
+    events = [json.loads(line) for line in response.text.splitlines()]
+
+    assert events == [
+        {"type": "token", "content": "Parcial"},
+        {"type": "error", "detail": "Conexión interrumpida"},
+    ]
+    assert provider.calls == 1
+
+
 @pytest.mark.parametrize("block_on_attempt", [1, 2])
 async def test_cancellation_stops_active_attempt_and_prevents_further_retry(
     db_session_factory, caplog, block_on_attempt
@@ -454,7 +854,7 @@ async def test_cancellation_stops_active_attempt_and_prevents_further_retry(
     started_records = [
         record
         for record in caplog.records
-        if getattr(record, "generation", {}).get("event") == "generation_started"
+        if getattr(record, "generation", {}).get("event") == "generation_segment_started"
     ]
     assert len(cancellation_records) == 1
     assert cancellation_records[0].generation["attempt"] == block_on_attempt
@@ -464,3 +864,89 @@ async def test_cancellation_stops_active_attempt_and_prevents_further_retry(
         cancellation_records[0].generation["request_id"]
         == started_records[-1].generation["request_id"]
     )
+
+
+async def test_cancellation_between_segments_prevents_continuation(db_session_factory):
+    provider = ContinuationBlockingProvider()
+    with db_session_factory() as db:
+        response = await stream_chat(
+            ChatRequest(message="Hallo", role="teacher"),
+            db=db,
+            model_provider=provider,
+        )
+        assert json.loads(await anext(response.body_iterator)) == {
+            "type": "token",
+            "content": "Respuesta parcial.",
+        }
+        assert json.loads(await anext(response.body_iterator)) == {
+            "type": "continuation",
+            "active": True,
+        }
+        await response.body_iterator.aclose()
+        assert db.scalar(select(LearningSession)) is None
+
+    assert len(provider.calls) == 1
+
+
+async def test_cancellation_during_automatic_continuation_uses_active_request_id(
+    db_session_factory, caplog
+):
+    provider = ContinuationBlockingProvider()
+    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+    with db_session_factory() as db:
+        response = await stream_chat(
+            ChatRequest(message="Hallo", role="teacher"),
+            db=db,
+            model_provider=provider,
+        )
+        await anext(response.body_iterator)
+        await anext(response.body_iterator)
+        blocked = asyncio.create_task(anext(response.body_iterator))
+        await asyncio.wait_for(provider.blocking.wait(), timeout=1)
+        blocked.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await blocked
+        assert db.scalar(select(LearningSession)) is None
+
+    started = [
+        record.generation
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "generation_segment_started"
+    ]
+    cancelled = [
+        record.generation
+        for record in caplog.records
+        if getattr(record, "generation", {}).get("event") == "continuation_cancelled"
+    ]
+    assert len(provider.calls) == 2
+    assert len(started) == 2
+    assert len(cancelled) == 1
+    assert started[0]["request_id"] != started[1]["request_id"]
+    assert started[0]["logical_generation_id"] == started[1]["logical_generation_id"]
+    assert cancelled[0]["request_id"] == started[1]["request_id"]
+
+
+async def test_continuation_starts_streaming_before_its_segment_finishes(
+    db_session_factory,
+):
+    provider = StreamingContinuationProvider()
+    with db_session_factory() as db:
+        response = await stream_chat(
+            ChatRequest(message="Hallo", role="teacher"),
+            db=db,
+            model_provider=provider,
+        )
+        assert json.loads(await anext(response.body_iterator))["content"] == ("Respuesta anterior.")
+        assert json.loads(await anext(response.body_iterator)) == {
+            "type": "continuation",
+            "active": True,
+        }
+        assert json.loads(await asyncio.wait_for(anext(response.body_iterator), timeout=1)) == {
+            "type": "token",
+            "content": "Nuevo contenido visible.",
+        }
+        blocked = asyncio.create_task(anext(response.body_iterator))
+        await asyncio.wait_for(provider.blocking.wait(), timeout=1)
+        blocked.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await blocked

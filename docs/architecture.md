@@ -6,6 +6,20 @@ La API es la autoridad para datos de aprendizaje. El historial del LLM no es mem
 
 Los errores de proveedor son visibles como disponibilidad falsa o HTTP 503. La generación estructurada valida con Pydantic, permite una sola reparación controlada y falla sin persistir si sigue siendo inválida.
 
+El chat docente trata cada respuesta como una generación lógica que puede
+contener segmentos efímeros. Una salida visible terminada por `length` conserva
+su texto y admite una sola continuación automática con el mismo rol, modelo,
+temperatura y límite de 2048 tokens por llamada. La continuación recibe el
+contexto original y el texto parcial como turno `assistant` temporal; nunca
+recibe reasoning previo. El servidor elimina únicamente el solapamiento exacto
+sufijo/prefijo más largo, limitado a 512 caracteres y con un mínimo conservador
+de cuatro. Los presupuestos de recuperación vacía y continuación son
+independientes, pero una acción original nunca supera tres llamadas al
+proveedor. Si la continuación vuelve a terminar por `length`, la interfaz
+conserva una sola burbuja y ofrece una continuación manual, sin encadenar otra
+automáticamente. Los segmentos, instrucciones internas y contenido privado no
+se persisten: solo se actualiza una sesión lógica con metadatos seguros.
+
 La biblioteca educativa usa una segunda SQLite reconstruible y versionada,
 separada deliberadamente de la base de progreso. `educational_library` contiene
 el escáner incremental, extractores, chunker, FTS5, embeddings locales con

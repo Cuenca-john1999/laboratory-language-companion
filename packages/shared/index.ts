@@ -268,14 +268,21 @@ export type ChatHistoryMessage = {
 
 export type ChatRequest = {
   request_id: string;
+  logical_generation_id: string;
   message: string;
   role: TeacherRole;
   history: ChatHistoryMessage[];
   session_id: number | null;
+  continuation_from?: string;
+  manual_continuation?: boolean;
+  prior_segment_count?: number;
+  automatic_continuation_count?: number;
+  manual_continuation_count?: number;
 };
 
 export type ChatStreamEvent =
   | { type: "token"; content: string }
+  | { type: "continuation"; active: boolean }
   | {
       type: "done";
       model: string;
@@ -283,6 +290,12 @@ export type ChatStreamEvent =
       attempt_count: number;
       recovery: "empty_visible_content" | null;
       finish_reason: string | null;
+      logical_generation_id: string;
+      segment_count: number;
+      automatic_continuation_count: number;
+      manual_continuation_count: number;
+      visible_character_count: number;
+      continuation_available: boolean;
     }
   | { type: "error"; detail: string; retryable?: boolean };
 

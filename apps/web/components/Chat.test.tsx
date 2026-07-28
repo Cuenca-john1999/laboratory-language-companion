@@ -183,3 +183,162 @@ describe("Chat empty-response recovery", () => {
     expect(vi.mocked(streamNdjson)).toHaveBeenCalledTimes(1);
   });
 });
+
+function completed(overrides: Record<string, unknown> = {}) {
+  return {
+    type: "done",
+    model: "teacher",
+    session_id: 11,
+    attempt_count: 1,
+    recovery: null,
+    finish_reason: "stop",
+    logical_generation_id: "11111111-1111-4111-8111-111111111111",
+    segment_count: 1,
+    automatic_continuation_count: 0,
+    manual_continuation_count: 0,
+    visible_character_count: 0,
+    continuation_available: false,
+    ...overrides,
+  };
+}
+
+describe("Chat truncated-response continuation", () => {
+  it("keeps one bubble while an automatic continuation streams", async () => {
+    let releaseContinuation = () => {};
+    const continuationGate = new Promise<void>((resolve) => {
+      releaseContinuation = resolve;
+    });
+    vi.mocked(streamNdjson).mockReturnValue(
+      (async function* () {
+        yield { type: "token", content: "**Primera parte" };
+        yield { type: "continuation", active: true };
+        await continuationGate;
+        yield { type: "token", content: " completada.**" };
+        yield { type: "continuation", active: false };
+        yield completed({
+          attempt_count: 2,
+          segment_count: 2,
+          automatic_continuation_count: 1,
+          visible_character_count: 29,
+        });
+      })() as ReturnType<typeof streamNdjson>,
+    );
+    const { container } = render(<Chat />);
+    const textarea = await screen.findByPlaceholderText("Schreib etwas…");
+
+    fireEvent.change(textarea, { target: { value: "Respuesta larga" } });
+    fireEvent.submit(textarea.closest("form")!);
+
+    await screen.findByText("Continuando respuesta…");
+    expect(container.querySelectorAll(".bubble.teacher")).toHaveLength(1);
+    expect(container.querySelector(".bubble.teacher")).toHaveTextContent(
+      "Primera parte",
+    );
+
+    releaseContinuation();
+
+    await screen.findByText("Primera parte completada.");
+    expect(container.querySelectorAll(".bubble.teacher")).toHaveLength(1);
+    expect(screen.queryByText("Continuando respuesta…")).toBeNull();
+  });
+
+  it("offers manual Continue after a second truncation and appends in place", async () => {
+    let releaseManual = () => {};
+    const manualGate = new Promise<void>((resolve) => {
+      releaseManual = resolve;
+    });
+    vi.mocked(streamNdjson)
+      .mockReturnValueOnce(
+        events(
+          { type: "token", content: "Parte inicial. Continuación automática." },
+          completed({
+            finish_reason: "length",
+            attempt_count: 2,
+            segment_count: 2,
+            automatic_continuation_count: 1,
+            visible_character_count: 38,
+            continuation_available: true,
+          }),
+        ) as ReturnType<typeof streamNdjson>,
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield { type: "continuation", active: true };
+          await manualGate;
+          yield { type: "token", content: " Continuación manual." };
+          yield { type: "continuation", active: false };
+          yield completed({
+            finish_reason: "length",
+            segment_count: 3,
+            automatic_continuation_count: 1,
+            manual_continuation_count: 1,
+            visible_character_count: 58,
+            continuation_available: true,
+          });
+        })() as ReturnType<typeof streamNdjson>,
+      );
+    const { container } = render(<Chat />);
+    const textarea = await screen.findByPlaceholderText("Schreib etwas…");
+
+    fireEvent.change(textarea, { target: { value: "Respuesta larga" } });
+    fireEvent.submit(textarea.closest("form")!);
+
+    const continueButton = await screen.findByRole("button", {
+      name: "Continuar",
+    });
+    fireEvent.click(continueButton);
+
+    await waitFor(() => expect(continueButton).toBeDisabled());
+    expect(await screen.findByText("Continuando respuesta…")).toBeVisible();
+    const secondInit = vi.mocked(streamNdjson).mock.calls[1]?.[1];
+    const secondPayload = JSON.parse(String(secondInit?.body));
+    expect(secondPayload).toMatchObject({
+      logical_generation_id: "11111111-1111-4111-8111-111111111111",
+      manual_continuation: true,
+      prior_segment_count: 2,
+      automatic_continuation_count: 1,
+      continuation_from: "Parte inicial. Continuación automática.",
+    });
+
+    releaseManual();
+
+    await screen.findByText(
+      "Parte inicial. Continuación automática. Continuación manual.",
+    );
+    expect(container.querySelectorAll(".bubble.teacher")).toHaveLength(1);
+    expect(container.querySelectorAll(".bubble.user")).toHaveLength(1);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled(),
+    );
+    expect(vi.mocked(streamNdjson)).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels during automatic continuation and preserves partial text", async () => {
+    vi.mocked(streamNdjson).mockImplementation(async function* (_path, init) {
+      yield { type: "token", content: "Texto parcial." };
+      yield { type: "continuation", active: true };
+      await new Promise<void>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("Aborted", "AbortError"));
+        });
+      });
+    });
+    const { container } = render(<Chat />);
+    const textarea = await screen.findByPlaceholderText("Schreib etwas…");
+
+    fireEvent.change(textarea, { target: { value: "Cancela" } });
+    fireEvent.submit(textarea.closest("form")!);
+    await screen.findByText("Continuando respuesta…");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    await waitFor(() =>
+      expect(screen.queryByText("Continuando respuesta…")).toBeNull(),
+    );
+    expect(container.querySelector(".bubble.teacher")).toHaveTextContent(
+      "Texto parcial.",
+    );
+    expect(container.querySelectorAll(".bubble.teacher")).toHaveLength(1);
+    expect(container.querySelector(".error")).toBeNull();
+    expect(vi.mocked(streamNdjson)).toHaveBeenCalledTimes(1);
+  });
+});

@@ -46,15 +46,27 @@ class ChatTurn(APIModel):
 
 class ChatRequest(APIModel):
     request_id: UUID = Field(default_factory=uuid4)
+    logical_generation_id: UUID = Field(default_factory=uuid4)
     message: str = Field(min_length=1, max_length=10000)
     role: Literal["teacher", "deep_teacher"] = "teacher"
     history: list[ChatTurn] = Field(default_factory=list, max_length=12)
     session_id: int | None = Field(default=None, gt=0)
+    continuation_from: str | None = Field(default=None, max_length=100_000)
+    manual_continuation: bool = False
+    prior_segment_count: int = Field(default=0, ge=0, le=100)
+    automatic_continuation_count: int = Field(default=0, ge=0, le=1)
+    manual_continuation_count: int = Field(default=0, ge=0, le=100)
 
     @model_validator(mode="after")
     def limit_ephemeral_context(self) -> "ChatRequest":
         if sum(len(turn.content) for turn in self.history) > 30_000:
             raise ValueError("history exceeds the 30000 character limit")
+        if self.manual_continuation != bool(
+            self.continuation_from and self.continuation_from.strip()
+        ):
+            raise ValueError(
+                "manual_continuation requires non-empty continuation_from and vice versa"
+            )
         return self
 
 

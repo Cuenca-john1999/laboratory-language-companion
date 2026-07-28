@@ -148,6 +148,35 @@ async def test_streaming_response_is_decoupled_into_text_chunks():
     assert chunks == ["Guten ", "Tag"]
 
 
+async def test_streaming_keeps_generation_budget_and_temperature_per_call():
+    captured: dict[str, object] = {}
+
+    def handler(request):
+        captured.update(json.loads(request.content))
+        content = "\n".join(
+            [
+                "data: "
+                + json.dumps(
+                    {"choices": [{"delta": {"content": "Antwort"}, "finish_reason": "stop"}]}
+                ),
+                "data: [DONE]",
+            ]
+        )
+        return httpx.Response(200, text=content)
+
+    provider = provider_with(handler)
+    events = [
+        event
+        async for event in provider.stream_chat_events(
+            "model", [{"role": "user", "content": "Hallo"}]
+        )
+    ]
+
+    assert events[0].content == "Antwort"
+    assert captured["max_tokens"] == 2048
+    assert captured["temperature"] == 0.2
+
+
 async def test_streaming_separates_reasoning_finish_reason_and_usage_from_visible_text():
     private_reasoning = "contenido interno privado"
     content = "\n".join(
