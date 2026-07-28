@@ -8,6 +8,16 @@ struct ScriptResult: Equatable, Sendable {
   var succeeded: Bool { exitCode == 0 }
 }
 
+protocol CommandRunning: AnyObject {
+  func run(
+    executable: URL,
+    arguments: [String],
+    currentDirectory: URL,
+    environment additions: [String: String]
+  ) async -> ScriptResult
+  func cancel()
+}
+
 private final class ProcessBox: @unchecked Sendable {
   private let lock = NSLock()
   private var process: Process?
@@ -34,7 +44,7 @@ private final class ProcessBox: @unchecked Sendable {
   }
 }
 
-final class ScriptExecutor: @unchecked Sendable {
+final class ScriptExecutor: CommandRunning, @unchecked Sendable {
   private let processBox = ProcessBox()
 
   func run(
@@ -43,12 +53,26 @@ final class ScriptExecutor: @unchecked Sendable {
     projectRoot: URL,
     environment additions: [String: String] = [:]
   ) async -> ScriptResult {
+    await run(
+      executable: URL(fileURLWithPath: "/bin/bash"),
+      arguments: [script.path] + arguments,
+      currentDirectory: projectRoot,
+      environment: additions
+    )
+  }
+
+  func run(
+    executable: URL,
+    arguments: [String] = [],
+    currentDirectory: URL,
+    environment additions: [String: String] = [:]
+  ) async -> ScriptResult {
     let process = Process()
     let output = Pipe()
     let error = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = [script.path] + arguments
-    process.currentDirectoryURL = projectRoot
+    process.executableURL = executable
+    process.arguments = arguments
+    process.currentDirectoryURL = currentDirectory
     process.standardOutput = output
     process.standardError = error
     process.qualityOfService = .utility

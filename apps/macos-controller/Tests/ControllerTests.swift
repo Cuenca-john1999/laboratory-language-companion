@@ -1,6 +1,9 @@
 import Foundation
 
 private final class MockWorkspace: WorkspaceOpening {
+  var installedApplicationURL: URL?
+  var applicationRunning = false
+  var markRunningAfterOpen = true
   var shouldActivate = false
   var openApplicationError: Error?
   var shouldOpenURL = true
@@ -9,6 +12,14 @@ private final class MockWorkspace: WorkspaceOpening {
   private(set) var openedURLs: [URL] = []
   var stopOutcomes: [String: ApplicationStopOutcome] = [:]
   private(set) var stoppedBundleIdentifiers: [String] = []
+
+  func applicationURL(bundleIdentifier: String) -> URL? {
+    installedApplicationURL
+  }
+
+  func isApplicationRunning(bundleIdentifier: String) -> Bool {
+    applicationRunning
+  }
 
   func activateApplication(bundleIdentifier: String, at url: URL) async throws -> Bool {
     activatedBundleIdentifiers.append(bundleIdentifier)
@@ -19,6 +30,9 @@ private final class MockWorkspace: WorkspaceOpening {
     openedApplications.append(url)
     if let openApplicationError {
       throw openApplicationError
+    }
+    if markRunningAfterOpen {
+      applicationRunning = true
     }
   }
 
@@ -31,8 +45,68 @@ private final class MockWorkspace: WorkspaceOpening {
     -> ApplicationStopOutcome
   {
     stoppedBundleIdentifiers.append(bundleIdentifier)
+    applicationRunning = false
     return stopOutcomes[bundleIdentifier] ?? .notRunning
   }
+}
+
+private struct MockFileChecker: FileChecking {
+  var executablePaths: Set<String>
+
+  func isExecutableFile(atPath path: String) -> Bool {
+    executablePaths.contains(path)
+  }
+}
+
+private final class MockProbe: LMStudioProbing {
+  var responses: [Bool]
+  var fallback: Bool
+  private(set) var calls = 0
+
+  init(_ responses: [Bool], fallback: Bool = false) {
+    self.responses = responses
+    self.fallback = fallback
+  }
+
+  func modelsEndpointIsReady() async -> Bool {
+    calls += 1
+    if !responses.isEmpty { return responses.removeFirst() }
+    return fallback
+  }
+}
+
+private struct MockCommandCall: Equatable {
+  let executable: String
+  let arguments: [String]
+}
+
+private final class MockCommandRunner: CommandRunning {
+  var results: [ScriptResult]
+  private(set) var calls: [MockCommandCall] = []
+  private(set) var cancelled = false
+
+  init(results: [ScriptResult] = [ScriptResult(exitCode: 0, standardOutput: "", standardError: "")]) {
+    self.results = results
+  }
+
+  func run(
+    executable: URL,
+    arguments: [String],
+    currentDirectory: URL,
+    environment additions: [String: String]
+  ) async -> ScriptResult {
+    calls.append(MockCommandCall(executable: executable.path, arguments: arguments))
+    if !results.isEmpty { return results.removeFirst() }
+    return ScriptResult(exitCode: 0, standardOutput: "", standardError: "")
+  }
+
+  func cancel() {
+    cancelled = true
+  }
+}
+
+private struct ImmediateSleeper: Sleeping {
+  func sleep(nanoseconds: UInt64) async throws {}
 }
 
 private enum MockOpenError: Error {
@@ -71,6 +145,16 @@ struct ControllerTests {
     try await webAppStopTargetsExactBundle()
     try await lmStudioStopTargetsExactBundle()
     try await absentApplicationsStopIdempotently()
+    try await lmStudioClosedOpensAndStartsServer()
+    try await lmStudioRunningDoesNotOpenAgain()
+    try await readyServerSkipsApplicationAndCLI()
+    try await lmStudioCLIResolvesWithoutPATH()
+    try await missingLMStudioApplicationIsClear()
+    try await missingLMStudioCLIIsClear()
+    try await lmStudioOpenFailureStopsFlow()
+    try await lmStudioTimeoutDoesNotAcceptExitZero()
+    try await lmStudioFailureCleansOnlyOwnedComponents()
+    try controllerStartingPhasesAreBusyAndStoppable()
     if let integrationRoot = ProcessInfo.processInfo.environment[
       "DEUTSCHOS_CONTROLLER_INTEGRATION_ROOT"
     ] {
@@ -221,7 +305,7 @@ struct ControllerTests {
       "stopped state requested confirmation"
     )
     try expect(
-      TerminationPolicy.requiresConfirmation(phase: .starting, snapshot: value),
+      TerminationPolicy.requiresConfirmation(phase: .openingLMStudio, snapshot: value),
       "starting state did not request confirmation"
     )
     value.lm_studioActive = true
@@ -383,6 +467,255 @@ struct ControllerTests {
     try expect(secondWeb == .notRunning, "second web app stop was not idempotent")
     try expect(firstLMStudio == .notRunning, "closed LM Studio produced an error")
     try expect(secondLMStudio == .notRunning, "second LM Studio stop was not idempotent")
+    passed += 1
+  }
+
+  private static func lmStudioClosedOpensAndStartsServer() async throws {
+    let home = URL(fileURLWithPath: "/private/tmp/lm-home")
+    let app = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    let cli = home.appendingPathComponent(".lmstudio/bin/lms")
+    let workspace = MockWorkspace()
+    workspace.installedApplicationURL = app
+    let runner = MockCommandRunner()
+    let probe = MockProbe([false, false, true])
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: [cli.path]),
+      commandExecutor: runner,
+      probe: probe,
+      sleeper: ImmediateSleeper(),
+      homeDirectory: home,
+      environment: [:],
+      applicationTimeoutNanoseconds: 2,
+      serverTimeoutNanoseconds: 2,
+      pollIntervalNanoseconds: 1
+    )
+    var stages: [LMStudioStartupStage] = []
+    try await coordinator.ensureReady(
+      stageChanged: { stages.append($0) },
+      log: { _ in }
+    )
+
+    try expect(workspace.openedApplications == [app], "closed LM Studio was not opened")
+    try expect(
+      runner.calls.first?.arguments
+        == ["server", "start", "--port", "1234", "--bind", "127.0.0.1"],
+      "LM Studio server command was not exact"
+    )
+    try expect(
+      stages == [.openingApplication, .startingServer, .waitingForServer],
+      "LM Studio startup stages were out of order"
+    )
+    passed += 1
+  }
+
+  private static func lmStudioRunningDoesNotOpenAgain() async throws {
+    let home = URL(fileURLWithPath: "/private/tmp/lm-running-home")
+    let app = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    let cli = home.appendingPathComponent(".lmstudio/bin/lms")
+    let workspace = MockWorkspace()
+    workspace.installedApplicationURL = app
+    workspace.applicationRunning = true
+    let runner = MockCommandRunner()
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: [cli.path]),
+      commandExecutor: runner,
+      probe: MockProbe([false, false, true]),
+      sleeper: ImmediateSleeper(),
+      homeDirectory: home,
+      environment: [:],
+      serverTimeoutNanoseconds: 2,
+      pollIntervalNanoseconds: 1
+    )
+    try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+
+    try expect(workspace.openedApplications.isEmpty, "running LM Studio was opened again")
+    try expect(runner.calls.count == 1, "inactive server was not started exactly once")
+    passed += 1
+  }
+
+  private static func readyServerSkipsApplicationAndCLI() async throws {
+    let workspace = MockWorkspace()
+    let runner = MockCommandRunner()
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: []),
+      commandExecutor: runner,
+      probe: MockProbe([true]),
+      sleeper: ImmediateSleeper(),
+      environment: [:]
+    )
+    try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+    try expect(workspace.openedApplications.isEmpty, "ready server opened LM Studio")
+    try expect(runner.calls.isEmpty, "ready server ran lms server start")
+    passed += 1
+  }
+
+  private static func lmStudioCLIResolvesWithoutPATH() async throws {
+    let home = URL(fileURLWithPath: "/private/tmp/pathless-home")
+    let app = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    let bundled = app.appendingPathComponent("Contents/Resources/app/.webpack/lms")
+    let coordinator = LMStudioCoordinator(
+      workspace: MockWorkspace(),
+      fileChecker: MockFileChecker(executablePaths: [bundled.path]),
+      commandExecutor: MockCommandRunner(),
+      probe: MockProbe([]),
+      sleeper: ImmediateSleeper(),
+      homeDirectory: home,
+      environment: ["PATH": "/usr/bin:/bin"]
+    )
+    let resolution = coordinator.resolveCLI(applicationURL: app)
+    try expect(resolution?.url.path == bundled.path, "bundle CLI was not resolved explicitly")
+    passed += 1
+  }
+
+  private static func missingLMStudioApplicationIsClear() async throws {
+    let coordinator = LMStudioCoordinator(
+      workspace: MockWorkspace(),
+      fileChecker: MockFileChecker(executablePaths: []),
+      commandExecutor: MockCommandRunner(),
+      probe: MockProbe([false]),
+      sleeper: ImmediateSleeper(),
+      environment: [:]
+    )
+    do {
+      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      throw TestFailure.expectation("missing LM Studio application was accepted")
+    } catch let error as LMStudioStartupError {
+      try expect(error == .applicationMissing, "wrong missing-app error")
+    }
+    passed += 1
+  }
+
+  private static func missingLMStudioCLIIsClear() async throws {
+    let workspace = MockWorkspace()
+    workspace.installedApplicationURL = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    workspace.applicationRunning = true
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: []),
+      commandExecutor: MockCommandRunner(),
+      probe: MockProbe([false, false]),
+      sleeper: ImmediateSleeper(),
+      environment: [:]
+    )
+    do {
+      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      throw TestFailure.expectation("missing lms CLI was accepted")
+    } catch let error as LMStudioStartupError {
+      try expect(error == .cliMissing, "wrong missing-CLI error")
+    }
+    passed += 1
+  }
+
+  private static func lmStudioOpenFailureStopsFlow() async throws {
+    let workspace = MockWorkspace()
+    workspace.installedApplicationURL = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    workspace.openApplicationError = MockOpenError.refused
+    let runner = MockCommandRunner()
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: []),
+      commandExecutor: runner,
+      probe: MockProbe([false]),
+      sleeper: ImmediateSleeper(),
+      environment: [:]
+    )
+    do {
+      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      throw TestFailure.expectation("LM Studio open failure was accepted")
+    } catch let error as LMStudioStartupError {
+      guard case .applicationOpenFailed = error else {
+        throw TestFailure.expectation("wrong open-failure error")
+      }
+    }
+    try expect(runner.calls.isEmpty, "CLI ran after app open failure")
+    passed += 1
+  }
+
+  private static func lmStudioTimeoutDoesNotAcceptExitZero() async throws {
+    let home = URL(fileURLWithPath: "/private/tmp/lm-timeout-home")
+    let app = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    let cli = home.appendingPathComponent(".lmstudio/bin/lms")
+    let workspace = MockWorkspace()
+    workspace.installedApplicationURL = app
+    workspace.applicationRunning = true
+    let runner = MockCommandRunner(results: [
+      ScriptResult(exitCode: 0, standardOutput: "ok", standardError: ""),
+      ScriptResult(exitCode: 0, standardOutput: "", standardError: ""),
+    ])
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: [cli.path]),
+      commandExecutor: runner,
+      probe: MockProbe([], fallback: false),
+      sleeper: ImmediateSleeper(),
+      homeDirectory: home,
+      environment: [:],
+      serverTimeoutNanoseconds: 2,
+      pollIntervalNanoseconds: 1
+    )
+    do {
+      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      throw TestFailure.expectation("CLI exit zero was accepted without /v1/models")
+    } catch let error as LMStudioStartupError {
+      try expect(error == .serverTimedOut, "wrong server-timeout error")
+    }
+    try expect(
+      runner.calls.map(\.arguments) == [
+        ["server", "start", "--port", "1234", "--bind", "127.0.0.1"],
+        ["server", "stop"],
+      ],
+      "timeout did not trigger focused server cleanup"
+    )
+    passed += 1
+  }
+
+  private static func lmStudioFailureCleansOnlyOwnedComponents() async throws {
+    let home = URL(fileURLWithPath: "/private/tmp/lm-cleanup-home")
+    let app = URL(fileURLWithPath: "/Applications/LM Studio.app")
+    let cli = home.appendingPathComponent(".lmstudio/bin/lms")
+    let workspace = MockWorkspace()
+    workspace.installedApplicationURL = app
+    workspace.stopOutcomes[LMStudioCoordinator.bundleIdentifier] = .terminated
+    let runner = MockCommandRunner(results: [
+      ScriptResult(exitCode: 0, standardOutput: "", standardError: ""),
+      ScriptResult(exitCode: 0, standardOutput: "", standardError: ""),
+    ])
+    let coordinator = LMStudioCoordinator(
+      workspace: workspace,
+      fileChecker: MockFileChecker(executablePaths: [cli.path]),
+      commandExecutor: runner,
+      probe: MockProbe([], fallback: false),
+      sleeper: ImmediateSleeper(),
+      homeDirectory: home,
+      environment: [:],
+      serverTimeoutNanoseconds: 1,
+      pollIntervalNanoseconds: 1
+    )
+    do {
+      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+    } catch {}
+    try expect(
+      workspace.stoppedBundleIdentifiers == [LMStudioCoordinator.bundleIdentifier],
+      "app opened by failed run was not cleaned exactly"
+    )
+    passed += 1
+  }
+
+  private static func controllerStartingPhasesAreBusyAndStoppable() throws {
+    for phase in [
+      ControllerPhase.openingLMStudio,
+      .startingLMStudioServer,
+      .waitingLMStudio,
+      .startingAPI,
+      .startingWeb,
+      .openingWeb,
+    ] {
+      try expect(phase.isBusy, "\(phase.title) was not busy")
+      try expect(phase.isStarting, "\(phase.title) was not a startup phase")
+    }
     passed += 1
   }
 

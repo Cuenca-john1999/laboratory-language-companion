@@ -145,12 +145,26 @@ fi
 if lm_studio_ready; then
   launcher_log "LM Studio está activo; se reutiliza sin reiniciarlo."
 else
-  [[ -x "$LMS_BIN" ]] \
+  if [[ "${DEUTSCHOS_LM_STUDIO_READY:-0}" == "1" ]]; then
+    fail_launcher "LM Studio dejó de responder después de la verificación nativa."
+  fi
+  if port_is_busy "$LM_STUDIO_PORT"; then
+    fail_launcher \
+      "El puerto $LM_STUDIO_PORT está ocupado por un servicio que no responde como LM Studio."
+  fi
+  resolve_lms_bin \
     || fail_launcher "LM Studio no está instalado o no se encontró el comando lms."
+  launcher_log "CLI de LM Studio resuelto: $LMS_BIN_DISPLAY"
   launcher_log "LM Studio está inactivo; iniciando su servidor local en loopback."
+  set +e
   "$LMS_BIN" server start --port "$LM_STUDIO_PORT" --bind 127.0.0.1 \
-    >>"$LAUNCHER_LOG" 2>&1 \
+    >>"$LAUNCHER_LOG" 2>&1
+  LMS_START_STATUS=$?
+  set -e
+  launcher_log "lms server start finalizó con código $LMS_START_STATUS."
+  ((LMS_START_STATUS == 0)) \
     || fail_launcher "LM Studio no pudo iniciar su servidor local."
+  launcher_log "Esperando una respuesta válida de /v1/models."
   wait_for_probe "LM Studio" lm_studio_ready "" "$START_TIMEOUT" \
     || fail_launcher "LM Studio no arrancó antes del tiempo límite."
 fi

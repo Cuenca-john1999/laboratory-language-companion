@@ -3,7 +3,12 @@ import Foundation
 enum ControllerPhase: Equatable {
   case checking
   case stopped
-  case starting
+  case openingLMStudio
+  case startingLMStudioServer
+  case waitingLMStudio
+  case startingAPI
+  case startingWeb
+  case openingWeb
   case running
   case stopping
   case partial
@@ -14,8 +19,13 @@ enum ControllerPhase: Equatable {
     switch self {
     case .checking: "Comprobando…"
     case .stopped: "Detenido"
-    case .starting: "Iniciando…"
-    case .running: "En ejecución"
+    case .openingLMStudio: "Abriendo LM Studio"
+    case .startingLMStudioServer: "Iniciando servidor de LM Studio"
+    case .waitingLMStudio: "Esperando LM Studio"
+    case .startingAPI: "Iniciando API"
+    case .startingWeb: "Iniciando Web"
+    case .openingWeb: "Abriendo DeutschOS"
+    case .running: "Activo"
     case .stopping: "Deteniendo…"
     case .partial: "Estado parcial"
     case .error: "Error"
@@ -24,7 +34,17 @@ enum ControllerPhase: Equatable {
   }
 
   var isBusy: Bool {
-    self == .checking || self == .starting || self == .stopping
+    self == .checking || isStarting || self == .stopping
+  }
+
+  var isStarting: Bool {
+    switch self {
+    case .openingLMStudio, .startingLMStudioServer, .waitingLMStudio, .startingAPI,
+      .startingWeb, .openingWeb:
+      true
+    default:
+      false
+    }
   }
 }
 
@@ -162,7 +182,7 @@ enum TerminationPolicy {
     phase: ControllerPhase,
     snapshot: ServiceSnapshot
   ) -> Bool {
-    phase == .checking || phase == .starting || phase == .stopping
+    phase == .checking || phase.isStarting || phase == .stopping
       || snapshot.anyServiceActive || snapshot.anyManagedProcess
   }
 }

@@ -92,9 +92,24 @@ struct ControllerView: View {
           .accessibilityIdentifier("stop")
         exitButton
       }
-    case .starting, .checking:
+    case .openingLMStudio, .startingLMStudioServer, .waitingLMStudio, .startingAPI,
+      .startingWeb, .openingWeb:
       VStack(spacing: 10) {
-        Button("Iniciando…") {}
+        Button(controller.phase.title) {}
+          .buttonStyle(.borderedProminent)
+          .controlSize(.large)
+          .frame(maxWidth: .infinity)
+          .disabled(true)
+        Button("Detener") { controller.stopRequested() }
+          .controlSize(.large)
+          .frame(maxWidth: .infinity)
+          .disabled(!controller.canStop)
+          .accessibilityIdentifier("stop-during-start")
+        exitButton.disabled(true)
+      }
+    case .checking:
+      VStack(spacing: 10) {
+        Button("Comprobando…") {}
           .buttonStyle(.borderedProminent)
           .controlSize(.large)
           .frame(maxWidth: .infinity)
@@ -162,7 +177,9 @@ struct ControllerView: View {
   private var statusColor: Color {
     switch controller.phase {
     case .running: .green
-    case .starting, .stopping, .checking: .orange
+    case .openingLMStudio, .startingLMStudioServer, .waitingLMStudio, .startingAPI,
+      .startingWeb, .openingWeb, .stopping, .checking:
+      .orange
     case .stopped: .secondary
     case .partial, .error, .ssdUnavailable: .red
     }
@@ -182,7 +199,9 @@ struct ControllerView: View {
   private func serviceText(active: Bool, feminine: Bool) -> String {
     if active { return feminine ? "activa" : "activo" }
     switch controller.phase {
-    case .starting, .checking: return "esperando"
+    case .openingLMStudio, .startingLMStudioServer, .waitingLMStudio, .startingAPI,
+      .startingWeb, .openingWeb, .checking:
+      return "esperando"
     case .stopping: return "deteniendo"
     default: return feminine ? "inactiva" : "inactivo"
     }

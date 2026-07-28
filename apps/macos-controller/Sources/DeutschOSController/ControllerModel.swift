@@ -14,21 +14,25 @@ final class ControllerModel: ObservableObject {
   private let projectRoot: URL?
   private let webAppLauncher: WebAppLauncher
   private let lmStudioApplication: LMStudioApplication
+  private let lmStudioCoordinator: LMStudioCoordinator
   private var monitorTask: Task<Void, Never>?
   private var actionTask: Task<Void, Never>?
   private var activeExecutor: ScriptExecutor?
   private var refreshInProgress = false
   private var terminationInProgress = false
   private var lastLoggedStatus: String?
+  private var actionIdentifier = UUID()
 
   init(
     projectRoot: URL? = ProjectLocator.locate(),
     webAppLauncher: WebAppLauncher = WebAppLauncher(),
-    lmStudioApplication: LMStudioApplication = LMStudioApplication()
+    lmStudioApplication: LMStudioApplication = LMStudioApplication(),
+    lmStudioCoordinator: LMStudioCoordinator = LMStudioCoordinator()
   ) {
     self.projectRoot = projectRoot
     self.webAppLauncher = webAppLauncher
     self.lmStudioApplication = lmStudioApplication
+    self.lmStudioCoordinator = lmStudioCoordinator
     if projectRoot == nil {
       phase = .ssdUnavailable
       snapshot.ssdAvailable = false
@@ -44,7 +48,7 @@ final class ControllerModel: ObservableObject {
   }
 
   var canStop: Bool {
-    !phase.isBusy
+    phase != .checking && phase != .stopping
   }
 
   var canOpenWeb: Bool {
@@ -71,21 +75,54 @@ final class ControllerModel: ObservableObject {
 
   func startRequested() {
     guard canStart, actionTask == nil else { return }
-    phase = .starting
+    phase = .openingLMStudio
     alertMessage = nil
     appendOperationalLog("acción iniciar solicitada")
+    let identifier = UUID()
+    actionIdentifier = identifier
     actionTask = Task { [weak self] in
-      await self?.performStart()
+      guard let self else { return }
+      await performStart()
+      if actionIdentifier == identifier {
+        actionTask = nil
+      }
     }
   }
 
   func stopRequested() {
-    guard canStop, actionTask == nil else { return }
+    guard canStop else { return }
+    if let currentAction = actionTask, phase.isStarting {
+      appendOperationalLog("cancelación solicitada durante el arranque")
+      phase = .stopping
+      alertMessage = nil
+      lmStudioCoordinator.cancel()
+      activeExecutor?.cancel()
+      currentAction.cancel()
+      let identifier = UUID()
+      actionIdentifier = identifier
+      actionTask = Task { [weak self] in
+        guard let self else { return }
+        await currentAction.value
+        appendOperationalLog("flujo de arranque cancelado; iniciando limpieza completa")
+        await performStop(showFailure: true)
+        if actionIdentifier == identifier {
+          actionTask = nil
+        }
+      }
+      return
+    }
+    guard actionTask == nil else { return }
     phase = .stopping
     alertMessage = nil
     appendOperationalLog("acción detener solicitada")
+    let identifier = UUID()
+    actionIdentifier = identifier
     actionTask = Task { [weak self] in
-      await self?.performStop(showFailure: true)
+      guard let self else { return }
+      await performStop(showFailure: true)
+      if actionIdentifier == identifier {
+        actionTask = nil
+      }
     }
   }
 
@@ -132,6 +169,8 @@ final class ControllerModel: ObservableObject {
     monitorTask = nil
 
     if let actionTask {
+      actionIdentifier = UUID()
+      lmStudioCoordinator.cancel()
       activeExecutor?.cancel()
       actionTask.cancel()
       await actionTask.value
@@ -196,32 +235,85 @@ final class ControllerModel: ObservableObject {
   private func performStart() async {
     guard let projectRoot else {
       phase = .ssdUnavailable
-      actionTask = nil
       return
     }
+    do {
+      try await lmStudioCoordinator.ensureReady(
+        stageChanged: { [weak self] stage in
+          guard let self else { return }
+          switch stage {
+          case .openingApplication:
+            phase = .openingLMStudio
+          case .startingServer:
+            phase = .startingLMStudioServer
+          case .waitingForServer:
+            phase = .waitingLMStudio
+          }
+        },
+        log: { [weak self] message in
+          self?.appendOperationalLog(message)
+        }
+      )
+    } catch is CancellationError {
+      appendOperationalLog("arranque cancelado durante la preparación de LM Studio")
+      return
+    } catch {
+      guard !Task.isCancelled else {
+        appendOperationalLog("arranque cancelado durante la preparación de LM Studio")
+        return
+      }
+      phase = .error
+      alertMessage = error.localizedDescription + " Revisa los logs para obtener más información."
+      appendOperationalLog("arranque detenido en LM Studio: \(error.localizedDescription)")
+      return
+    }
+    guard !Task.isCancelled else { return }
+
+    phase = .startingAPI
     let executor = ScriptExecutor()
     activeExecutor = executor
+    let progressTask = Task { [weak self] in
+      guard let self else { return }
+      while activeExecutor === executor && !Task.isCancelled {
+        await refreshStatus(preserveActionPhase: true)
+        guard phase != .stopping else { continue }
+        if snapshot.apiActive && !snapshot.webActive {
+          phase = .startingWeb
+        } else if !snapshot.apiActive {
+          phase = .startingAPI
+        }
+        try? await Task.sleep(nanoseconds: 250_000_000)
+      }
+    }
     let result = await executor.run(
       script: projectRoot.appendingPathComponent("scripts/start.sh"),
       projectRoot: projectRoot,
       environment: [
         "DEUTSCHOS_APP_WRAPPER": "1",
         "DEUTSCHOS_LAUNCHER_NO_ALERT": "1",
+        "DEUTSCHOS_LM_STUDIO_READY": "1",
       ]
     )
     activeExecutor = nil
-    actionTask = nil
+    await progressTask.value
+    guard !Task.isCancelled else { return }
     await refreshStatus()
 
-    guard !Task.isCancelled else { return }
     if !result.succeeded || !snapshot.allServicesActive {
       phase = .error
       alertMessage = UserFacingError.message(action: "el arranque", result: result)
       appendOperationalLog("arranque fallido (código \(result.exitCode))")
       return
     }
-    appendOperationalLog("API y Web listas; abriendo aplicación web")
+    phase = .openingWeb
+    appendOperationalLog("LM Studio, API y Web listas; abriendo aplicación web")
     await launchWebApplication()
+    guard alertMessage == nil else {
+      phase = .error
+      return
+    }
+    phase = .running
+    appendOperationalLog("arranque completo; DeutschOS activo")
   }
 
   private func launchWebApplication() async {
@@ -246,7 +338,6 @@ final class ControllerModel: ObservableObject {
   private func performStop(showFailure: Bool) async {
     guard let projectRoot else {
       phase = .ssdUnavailable
-      actionTask = nil
       return
     }
     appendOperationalLog("inicio del apagado completo")
@@ -292,7 +383,6 @@ final class ControllerModel: ObservableObject {
       projectRoot: projectRoot,
       environment: ["DEUTSCHOS_LAUNCHER_NO_ALERT": "1"]
     )
-    actionTask = nil
     await refreshStatus()
 
     if (!result.succeeded || !verificationResult.succeeded || !nativeFailures.isEmpty

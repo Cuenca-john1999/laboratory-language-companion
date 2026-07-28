@@ -114,7 +114,6 @@ def test_start_reports_missing_model_without_downloading(tmp_path):
     assert "No se descargará ninguno" in result.stderr
 
 
-@pytest.mark.skip(reason="LM Studio is an external service")
 def test_start_rejects_lm_studio_port_owned_by_external_process(tmp_path):
     class NonLMStudioHandler(BaseHTTPRequestHandler):
         def do_GET(self):
@@ -144,6 +143,63 @@ def test_start_rejects_lm_studio_port_owned_by_external_process(tmp_path):
 
     assert result.returncode == 1
     assert "ocupado por un servicio que no responde como LM Studio" in result.stderr
+
+
+def test_lm_studio_probe_rejects_noncompatible_http_200(tmp_path):
+    class WrongServiceHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), WrongServiceHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = launcher_environment(tmp_path)
+    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
+    try:
+        result = run_launcher_helper("lm_studio_ready", environment)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert result.returncode != 0
+
+
+def test_cli_exit_zero_without_models_endpoint_is_not_success(tmp_path):
+    environment = launcher_environment(tmp_path)
+    environment["DEUTSCHOS_LAUNCHER_LMS_BIN"] = "/usr/bin/true"
+
+    result = run_script("start.sh", environment)
+
+    assert result.returncode == 1
+    assert "LM Studio no arrancó antes del tiempo límite" in result.stderr
+    assert "lms server start finalizó con código 0" in result.stdout
+    assert "Iniciando FastAPI" not in result.stdout
+
+
+def test_lms_resolution_is_absolute_and_does_not_depend_on_path(tmp_path):
+    fake_home = tmp_path / "home"
+    cli = fake_home / ".lmstudio" / "bin" / "lms"
+    cli.parent.mkdir(parents=True)
+    cli.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+    cli.chmod(0o700)
+    environment = launcher_environment(tmp_path)
+    environment["HOME"] = str(fake_home)
+    environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+    result = run_launcher_helper(
+        'resolve_lms_bin; printf "%s\\n%s\\n" "$LMS_BIN" "$LMS_BIN_DISPLAY"',
+        environment,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == [str(cli), "~/.lmstudio/bin/lms"]
 
 
 def test_status_reports_and_stop_cleans_stale_pid_without_signalling(tmp_path):
@@ -486,7 +542,7 @@ def test_native_controller_build_reuses_launcher_scripts():
     assert 'appendingPathComponent("scripts/stop.sh")' in source
     assert 'appendingPathComponent("scripts/status.sh")' in source
     assert "Process()" in source
-    assert 'process.executableURL = URL(fileURLWithPath: "/bin/bash")' in source
+    assert 'executable: URL(fileURLWithPath: "/bin/bash")' in source
     assert "Terminal" not in source
     assert 'APP_PATH="$DIST_DIR/DeutschOS.app"' in build_script
     assert "/usr/bin/codesign" in build_script
@@ -504,5 +560,31 @@ def test_launcher_targets_web_app_exactly_and_never_uses_ambiguous_app_name():
     assert '$HOME/Applications/DeutschOS.app' in start_script
     assert "open -a DeutschOS" not in start_script
     assert "open -a DeutschOS" not in controller_source
+    assert 'open -a "LM Studio"' not in controller_source
     assert "NSWorkspace.shared.openApplication" in controller_source
     assert "homeDirectoryForCurrentUser" in controller_source
+
+
+def test_native_startup_order_and_cancellation_are_explicit():
+    controller = (
+        PROJECT_ROOT
+        / "apps/macos-controller/Sources/DeutschOSController/ControllerModel.swift"
+    ).read_text(encoding="utf-8")
+    coordinator = (
+        PROJECT_ROOT
+        / "apps/macos-controller/Sources/DeutschOSController/LMStudioCoordinator.swift"
+    ).read_text(encoding="utf-8")
+
+    assert controller.index("lmStudioCoordinator.ensureReady") < controller.index(
+        'appendingPathComponent("scripts/start.sh")'
+    )
+    assert controller.index("phase = .startingAPI") < controller.index(
+        "phase = .openingWeb"
+    )
+    assert "stop-during-start" in (
+        PROJECT_ROOT
+        / "apps/macos-controller/Sources/DeutschOSController/ControllerView.swift"
+    ).read_text(encoding="utf-8")
+    assert "currentAction.cancel()" in controller
+    assert "cleanupAfterFailure" in coordinator
+    assert '["server", "stop"]' in coordinator

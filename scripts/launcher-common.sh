@@ -32,7 +32,39 @@ LM_STUDIO_URL="http://127.0.0.1:$LM_STUDIO_PORT"
 API_URL="http://127.0.0.1:$API_PORT"
 WEB_URL="http://127.0.0.1:$WEB_PORT"
 LAUNCHER_LOG="$LOG_DIR/launcher.log"
-LMS_BIN="${DEUTSCHOS_LAUNCHER_LMS_BIN:-${DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN:-$HOME/.lmstudio/bin/lms}}"
+LMS_BIN=""
+LMS_BIN_DISPLAY=""
+
+resolve_lms_bin() {
+  local configured candidate
+  configured="${DEUTSCHOS_LAUNCHER_LMS_BIN:-${DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN:-}}"
+  if [[ -n "$configured" ]]; then
+    if [[ -x "$configured" && ! -d "$configured" ]]; then
+      LMS_BIN="$configured"
+      LMS_BIN_DISPLAY="$configured"
+      case "$LMS_BIN_DISPLAY" in
+        "$HOME"/*) LMS_BIN_DISPLAY="~/${LMS_BIN_DISPLAY#"$HOME"/}" ;;
+      esac
+      return 0
+    fi
+    return 1
+  fi
+  for candidate in \
+    "$HOME/.lmstudio/bin/lms" \
+    "/Applications/LM Studio.app/Contents/Resources/app/.webpack/lms" \
+    "$HOME/.local/bin/lms"
+  do
+    if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+      LMS_BIN="$candidate"
+      LMS_BIN_DISPLAY="$candidate"
+      case "$LMS_BIN_DISPLAY" in
+        "$HOME"/*) LMS_BIN_DISPLAY="~/${LMS_BIN_DISPLAY#"$HOME"/}" ;;
+      esac
+      return 0
+    fi
+  done
+  return 1
+}
 
 ensure_launcher_directories() {
   umask 077
@@ -196,7 +228,29 @@ port_is_busy() {
 }
 
 lm_studio_ready() {
-  curl --silent --fail --connect-timeout 1 --max-time 3 "$LM_STUDIO_URL/v1/models" >/dev/null 2>&1
+  local payload
+  [[ -x "$PYTHON" ]] || return 1
+  payload="$(
+    curl --silent --fail --connect-timeout 1 --max-time 3 \
+      "$LM_STUDIO_URL/v1/models" 2>/dev/null
+  )" || return 1
+  printf '%s' "$payload" | "$PYTHON" -c '
+import json, sys
+try:
+    payload = json.load(sys.stdin)
+except (json.JSONDecodeError, UnicodeDecodeError):
+    raise SystemExit(1)
+models = payload.get("data") if isinstance(payload, dict) else None
+if not isinstance(models, list):
+    raise SystemExit(1)
+if not all(
+    isinstance(item, dict)
+    and isinstance(item.get("id"), str)
+    and bool(item["id"].strip())
+    for item in models
+):
+    raise SystemExit(1)
+' >/dev/null 2>&1
 }
 
 api_ready() {

@@ -29,7 +29,7 @@ for ROLE in api web; do
 done
 
 if port_is_busy "$LM_STUDIO_PORT"; then
-  if [[ -x "$LMS_BIN" ]]; then
+  if resolve_lms_bin; then
     launcher_log "Cierre limpio del servidor local de LM Studio mediante lms server stop."
     if ! "$LMS_BIN" server stop >>"$LAUNCHER_LOG" 2>&1; then
       launcher_log "ERROR: lms server stop no pudo completar el cierre."

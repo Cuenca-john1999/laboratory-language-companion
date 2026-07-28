@@ -60,17 +60,41 @@ no añade dependencias y firma el bundle localmente de forma ad hoc. Usa el SDK
 CLT 26.6 distribuyen un compilador y un SDK 26.5 con revisiones Swift
 incompatibles. `DEUTSCHOS_MACOS_SDK` permite seleccionar otro SDK.
 
-La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal:
+La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal. Al
+pulsar **Iniciar** aplica esta secuencia:
 
-- `scripts/start.sh` al pulsar **Iniciar**;
+- localiza LM Studio mediante el bundle exacto `ai.elementlabs.lmstudio`;
+- si no está ejecutándose, abre la URL devuelta por `NSWorkspace` y espera a
+  que exista la aplicación en ejecución;
+- resuelve un CLI ejecutable por ruta absoluta, en este orden: configuración
+  explícita, `~/.lmstudio/bin/lms`, CLI incluido en el bundle localizado y
+  `~/.local/bin/lms`;
+- reutiliza un servidor válido o ejecuta `lms server start` y espera una
+  respuesta JSON compatible de `http://127.0.0.1:1234/v1/models`;
+- solo entonces ejecuta `scripts/start.sh`, que prepara/reutiliza FastAPI,
+  espera `/health`, prepara/reutiliza Next.js y espera su página;
+- abre o activa la aplicación web exacta cuando los tres servicios están
+  disponibles;
 - `scripts/stop.sh` al pulsar **Detener** o **Salir**;
 - `scripts/status.sh --machine` al abrir y cada cuatro segundos.
 
-Después de confirmar que API y web responden, **Iniciar** abre mediante
+La resolución no usa `lms` por nombre ni depende del PATH de Finder. Cada ruta
+se valida como archivo ejecutable antes de crear el proceso. Después de
+confirmar que LM Studio, API y web responden, **Iniciar** abre mediante
 `NSWorkspace` el bundle exacto `~/Applications/DeutschOS.app`. Si su bundle
 identifier ya está ejecutándose, lo activa sin crear otra instancia. Safari
 solo recibe `http://127.0.0.1:3000` como respaldo cuando la web app falta o
 macOS devuelve un error al abrirla.
+
+La interfaz muestra por separado **Abriendo LM Studio**, **Iniciando servidor
+de LM Studio**, **Esperando LM Studio**, **Iniciando API**, **Iniciando Web**,
+**Abriendo DeutschOS**, **Activo** y **Error**. Durante el arranque, **Iniciar**
+queda bloqueado y **Detener** cancela el proceso en curso, impide abrir la web y
+ejecuta la limpieza normal. Si falla LM Studio, no se inicia API ni web. La
+limpieza cierra el servidor o la aplicación únicamente cuando esa parte fue
+iniciada por el intento fallido; una aplicación LM Studio preexistente se
+conserva. Si falla después FastAPI o Next.js, `start.sh` retira solo los
+procesos parciales que creó y conserva servicios saludables preexistentes.
 
 El protocolo `deutschos-status-v1` informa SSD, modelos, disponibilidad de
 LM Studio/API/web, disponibilidad y cantidad de fuentes de la biblioteca, y
@@ -123,16 +147,9 @@ sin adquirir su propiedad y nunca reciben señales sin una identidad demostrada.
 Un puerto ocupado por una respuesta que no corresponde al servicio esperado se
 trata como error y nunca se mata ese proceso.
 
-LM Studio se inicia únicamente cuando no responde ya en loopback, con:
-
-```bash
-LM_STUDIO_MODELS=/Volumes/Juegos/DeutschOS/LM Studio/models
-LM_STUDIO_HOST=127.0.0.1:1234
-LM_STUDIO_NO_CLOUD=1
-LM_STUDIO_NOHISTORY=1
-```
-
-El launcher no descarga modelos y exige al menos un manifiesto local. Para la
+LM Studio se inicia únicamente cuando `/v1/models` no devuelve un objeto JSON
+con una lista `data` válida. Un HTTP 200 de otro servicio no se acepta. El
+launcher no descarga modelos ni modifica la configuración de LM Studio. Para la
 preparación de la base reutiliza `dev.sh --prepare-only`, que realiza las mismas
 comprobaciones y migraciones seguras sin iniciar servidores. FastAPI y Next.js
 se ejecutan sin `--reload` de Python y sin telemetría, con salida persistida en
@@ -145,6 +162,14 @@ Comandos operativos:
 ./scripts/status.sh
 ./scripts/stop.sh
 ```
+
+Si no aparece LM Studio, comprueba que la aplicación oficial esté instalada y
+que macOS registre el bundle `ai.elementlabs.lmstudio`. Si falta la aplicación,
+el controlador muestra “No se encontró LM Studio en este Mac.” Si existe la
+aplicación pero ninguna ruta admitida contiene un CLI ejecutable, muestra “No
+se encontró el comando local de LM Studio.” En ambos casos conserva los detalles
+técnicos en `logs/controller.log`, mantiene el controlador abierto y no inicia
+API, web ni una interfaz rota.
 
 `stop.sh` envía primero SIGTERM y reserva SIGKILL para el último recurso sobre
 FastAPI y Next.js. Solo actúa sobre procesos cuyo PID file, hora de inicio y

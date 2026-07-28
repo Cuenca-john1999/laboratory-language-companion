@@ -15,6 +15,8 @@ enum ApplicationStopOutcome: Equatable {
 }
 
 protocol WorkspaceOpening {
+  func applicationURL(bundleIdentifier: String) -> URL?
+  func isApplicationRunning(bundleIdentifier: String) -> Bool
   func activateApplication(bundleIdentifier: String, at url: URL) async throws -> Bool
   func openApplication(at url: URL) async throws
   func openURL(_ url: URL) -> Bool
@@ -23,6 +25,15 @@ protocol WorkspaceOpening {
 }
 
 struct SystemWorkspace: WorkspaceOpening {
+  func applicationURL(bundleIdentifier: String) -> URL? {
+    NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
+  }
+
+  func isApplicationRunning(bundleIdentifier: String) -> Bool {
+    NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+      .contains { !$0.isTerminated }
+  }
+
   func activateApplication(bundleIdentifier: String, at url: URL) async throws -> Bool {
     guard
       let application = NSRunningApplication.runningApplications(
@@ -165,7 +176,7 @@ struct WebAppLauncher {
 }
 
 struct LMStudioApplication {
-  static let bundleIdentifier = "ai.elementlabs.lmstudio"
+  static let bundleIdentifier = LMStudioCoordinator.bundleIdentifier
 
   let workspace: WorkspaceOpening
 
