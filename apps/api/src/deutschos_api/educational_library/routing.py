@@ -96,6 +96,9 @@ class LibraryModelRouter:
             installed = []
             available = False
         installed_set = set(installed)
+        authorized_models = {
+            self.policy.configured(role) for role in ModelRole if self.policy.configured(role)
+        }
         roles = []
         for role in ModelRole:
             candidates = self.candidates(role)
@@ -111,7 +114,7 @@ class LibraryModelRouter:
             )
         return ModelRoutingRead(
             lm_studio_available=available,
-            installed_models=installed,
+            installed_models=sorted(installed_set & authorized_models),
             roles=roles,
             policy_version=ROUTING_POLICY_VERSION,
         )

@@ -10,7 +10,6 @@ import type {
   LibrarySource,
   LibrarySourceVersion,
   LibrarySummary,
-  LibraryModelRouting,
   PageQuality,
   PedagogicalConcept,
   PedagogicalConceptSummary,
@@ -42,7 +41,6 @@ import {
   getLibrarySummary,
   getLibrarySections,
   getLibraryPageQuality,
-  getLibraryModelRoles,
   getMemoryAudit,
   getMemoryReviewQueue,
   getPedagogicalConcept,
@@ -64,6 +62,7 @@ import {
   sendTeacherLocationFeedback,
   sendTeacherResponseFeedback,
 } from "../lib/api";
+import { useModelAvailability } from "../lib/modelAvailability";
 
 const EXAMPLE_QUESTIONS = [
   '¿Qué significa "die" en alemán?',
@@ -179,9 +178,8 @@ export function LibraryWorkspace() {
   const [knowledge, setKnowledge] = useState<KnowledgeUnit[]>([]);
   const [history, setHistory] = useState<TeacherConversationSummary[]>([]);
   const [core, setCore] = useState<CoreSourcePair | null>(null);
-  const [modelRouting, setModelRouting] = useState<LibraryModelRouting | null>(
-    null,
-  );
+  const modelAvailability = useModelAvailability();
+  const modelRouting = modelAvailability.data;
   const [selectedSource, setSelectedSource] = useState<LibrarySource | null>(
     null,
   );
@@ -234,7 +232,6 @@ export function LibraryWorkspace() {
       nextKnowledge,
       nextHistory,
       nextCore,
-      nextRouting,
       nextMemory,
       nextConcepts,
       nextQueue,
@@ -245,7 +242,6 @@ export function LibraryWorkspace() {
       getLibraryKnowledge(),
       getTeacherConversations(),
       getLibraryCore(),
-      getLibraryModelRoles(),
       getPedagogicalMemorySummary(),
       getPedagogicalConcepts(),
       getMemoryReviewQueue(),
@@ -256,7 +252,6 @@ export function LibraryWorkspace() {
     setKnowledge(nextKnowledge);
     setHistory(nextHistory);
     setCore(nextCore);
-    setModelRouting(nextRouting);
     setMemorySummary(nextMemory);
     setConcepts(nextConcepts);
     setReviewQueue(nextQueue);

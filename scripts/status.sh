@@ -21,7 +21,14 @@ if [[ "${1:-}" == "--machine" ]]; then
     MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
   fi
 
-  MODEL_NAMES="$(active_model_names || true)"
+  MODEL_NAMES=""
+  if MODEL_NAMES="$(active_model_names)"; then
+    printf 'lm_studio=active\n'
+    ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
+  else
+    printf 'lm_studio=inactive\n'
+    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  fi
   if [[ -n "$MODEL_NAMES" ]]; then
     printf 'model_count=%s\n' "$(printf '%s\n' "$MODEL_NAMES" | awk -F', ' '{print NF}')"
   else
@@ -46,13 +53,6 @@ if [[ "${1:-}" == "--machine" ]]; then
   esac
   printf 'library_source_count=%s\n' "$LIBRARY_SOURCE_COUNT"
 
-  if lm_studio_ready; then
-    printf 'lm_studio=active\n'
-    ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
-  else
-    printf 'lm_studio=inactive\n'
-    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
-  fi
   printf 'pid_lm_studio=absent\n'
   if api_ready; then
     printf 'api=active\n'
@@ -118,8 +118,8 @@ else
   printf '! Biblioteca educativa no disponible (%s)\n' "$LIBRARY_MATERIALS_DIR"
 fi
 
-if lm_studio_ready; then
-  MODEL_NAMES="$(active_model_names || true)"
+MODEL_NAMES=""
+if MODEL_NAMES="$(active_model_names)"; then
   printf '✓ LM Studio activo%s\n' "${MODEL_NAMES:+ — $MODEL_NAMES}"
 else
   printf '✗ LM Studio inactivo (%s)\n' "$LM_STUDIO_URL"

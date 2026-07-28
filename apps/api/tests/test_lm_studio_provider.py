@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 import httpx
@@ -53,6 +54,28 @@ async def test_empty_model_list_is_valid():
     provider = provider_with(lambda _request: httpx.Response(200, json={"data": []}))
 
     assert await provider.list_models() == []
+
+
+async def test_concurrent_and_cached_model_lists_share_one_lm_studio_request():
+    calls = 0
+
+    async def handler(_request):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return httpx.Response(200, json=LM_STUDIO_MODELS)
+
+    provider = LMStudioProvider(
+        "http://lm_studio.test",
+        transport=httpx.MockTransport(handler),
+        model_cache_ttl_seconds=60,
+    )
+
+    first, second = await asyncio.gather(provider.list_models(), provider.list_models())
+    third = await provider.list_models()
+
+    assert first == second == third
+    assert calls == 1
 
 
 async def test_unknown_external_model_fields_are_not_exposed():
@@ -111,8 +134,8 @@ async def test_malformed_chat_response_is_normalized():
 async def test_streaming_response_is_decoupled_into_text_chunks():
     content = "\n".join(
         [
-            'data: ' + json.dumps({"choices": [{"delta": {"content": "Guten "}}]}),
-            'data: ' + json.dumps({"choices": [{"delta": {"content": "Tag"}}]}),
+            "data: " + json.dumps({"choices": [{"delta": {"content": "Guten "}}]}),
+            "data: " + json.dumps({"choices": [{"delta": {"content": "Tag"}}]}),
             "data: [DONE]",
         ]
     )
@@ -162,9 +185,7 @@ async def test_structured_generation_repairs_once_then_fails():
         nonlocal calls
         calls += 1
         requests.append(json.loads(request.content))
-        return httpx.Response(
-            200, json={"choices": [{"message": {"content": '{"wrong": true}'}}]}
-        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"wrong": true}'}}]})
 
     provider = provider_with(handler)
     with pytest.raises(MalformedStructuredOutputError):

@@ -891,13 +891,7 @@ export type LibraryModelRouting = {
   lm_studio_available: boolean;
   installed_models: string[];
   roles: {
-    role:
-      | "planner"
-      | "embedding"
-      | "teacher"
-      | "fallback"
-      | "vision"
-      | "repair";
+    role: "planner" | "embedding" | "teacher" | "deep" | "vision" | "repair";
     configured_model: string;
     available: boolean;
     selected_model: string | null;

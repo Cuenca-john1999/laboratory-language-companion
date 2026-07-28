@@ -213,15 +213,23 @@ web_ready() {
 active_model_names() {
   local payload
   [[ -x "$PYTHON" ]] || return 1
-  payload="$(curl --silent --fail --connect-timeout 1 --max-time 3 "$LM_STUDIO_URL/v1/models" 2>/dev/null)" || return 1
+  payload="$(
+    curl --silent --fail --connect-timeout 1 --max-time 3 "$API_URL/api/models" 2>/dev/null
+  )" || payload="$(
+    curl --silent --fail --connect-timeout 1 --max-time 3 "$LM_STUDIO_URL/v1/models" 2>/dev/null
+  )" || return 1
   printf '%s' "$payload" | "$PYTHON" -c '
 import json, sys
 payload = json.load(sys.stdin)
-models = payload.get("data", [])
+models = payload.get("models")
+name_key = "name"
+if not isinstance(models, list):
+    models = payload.get("data", [])
+    name_key = "id"
 names = []
 for item in models if isinstance(models, list) else []:
     if isinstance(item, dict):
-        name = item.get("id")
+        name = item.get(name_key)
         if isinstance(name, str) and name.strip():
             names.append(name.strip())
 print(", ".join(names))

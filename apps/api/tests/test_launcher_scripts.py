@@ -197,6 +197,101 @@ def test_status_machine_output_is_stable_and_parseable(tmp_path):
     }
 
 
+def test_status_machine_queries_lm_studio_models_once(tmp_path):
+    requests = 0
+
+    class LMStudioHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            nonlocal requests
+            requests += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"data":[{"id":"google/gemma-4-12b-qat"}]}')
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), LMStudioHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = launcher_environment(tmp_path)
+    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
+
+    try:
+        result = subprocess.run(
+            [str(SCRIPTS / "status.sh"), "--machine"],
+            cwd=PROJECT_ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    fields = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert requests == 1
+    assert fields["lm_studio"] == "active"
+    assert fields["model_count"] == "1"
+
+
+def test_status_machine_reuses_api_model_snapshot_when_api_is_running(tmp_path):
+    model_requests = 0
+
+    class DeutschOSAPIHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            nonlocal model_requests
+            if self.path == "/api/models":
+                model_requests += 1
+                payload = (
+                    b'{"provider":"lm_studio","available":true,'
+                    b'"models":[{"name":"google/gemma-4-12b-qat"}],"error":null}'
+                )
+            elif self.path == "/health":
+                payload = b'{"status":"ok","service":"deutschos-api"}'
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), DeutschOSAPIHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = launcher_environment(tmp_path)
+    environment["DEUTSCHOS_LAUNCHER_API_PORT"] = str(server.server_port)
+
+    try:
+        result = subprocess.run(
+            [str(SCRIPTS / "status.sh"), "--machine"],
+            cwd=PROJECT_ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=20,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    fields = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    assert model_requests == 1
+    assert fields["lm_studio"] == "active"
+    assert fields["model_count"] == "1"
+
+
 def test_process_start_token_is_independent_of_caller_timezone(tmp_path):
     environment = launcher_environment(tmp_path)
     environment["TARGET_PID"] = str(os.getpid())

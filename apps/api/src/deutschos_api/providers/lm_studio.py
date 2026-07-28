@@ -1,4 +1,6 @@
+import asyncio
 import json
+import time
 from collections.abc import AsyncIterator
 from typing import Any, NoReturn
 
@@ -37,6 +39,7 @@ class LMStudioProvider(ModelProvider):
         context_length: int = 8192,
         temperature: float = 0.2,
         max_tokens: int = 2048,
+        model_cache_ttl_seconds: float = 15,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
@@ -45,6 +48,10 @@ class LMStudioProvider(ModelProvider):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.transport = transport
+        self.model_cache_ttl_seconds = model_cache_ttl_seconds
+        self._models_cache: tuple[ModelInfo, ...] | None = None
+        self._models_cache_expires_at = 0.0
+        self._models_lock = asyncio.Lock()
         self.last_request_metrics: dict[str, int | str] = {}
 
     def client(self, timeout: float | None = None) -> httpx.AsyncClient:
@@ -59,6 +66,19 @@ class LMStudioProvider(ModelProvider):
             return False
 
     async def list_models(self) -> list[ModelInfo]:
+        now = time.monotonic()
+        if self._models_cache is not None and now < self._models_cache_expires_at:
+            return list(self._models_cache)
+        async with self._models_lock:
+            now = time.monotonic()
+            if self._models_cache is not None and now < self._models_cache_expires_at:
+                return list(self._models_cache)
+            models = await self._fetch_models()
+            self._models_cache = tuple(models)
+            self._models_cache_expires_at = now + self.model_cache_ttl_seconds
+            return list(models)
+
+    async def _fetch_models(self) -> list[ModelInfo]:
         try:
             async with self.client(5) as client:
                 response = await client.get(f"{self.base_url}/models")
@@ -100,8 +120,7 @@ class LMStudioProvider(ModelProvider):
                 f"El modelo local '{model}' no está disponible en LM Studio."
             ) from exc
         raise ProviderResponseError(
-            f"LM Studio rechazó la solicitud ({status})"
-            + (f": {detail}" if detail else ".")
+            f"LM Studio rechazó la solicitud ({status})" + (f": {detail}" if detail else ".")
         ) from exc
 
     def _capture_metrics(self, model: str, payload: dict[str, Any]) -> None:
@@ -141,9 +160,7 @@ class LMStudioProvider(ModelProvider):
             raise ProviderResponseError("LM Studio devolvió una respuesta sin contenido.")
         return content
 
-    async def stream_chat(
-        self, model: str, messages: list[dict[str, str]]
-    ) -> AsyncIterator[str]:
+    async def stream_chat(self, model: str, messages: list[dict[str, str]]) -> AsyncIterator[str]:
         try:
             async with self.client() as client:
                 async with client.stream(
@@ -252,16 +269,14 @@ class LMStudioProvider(ModelProvider):
         except httpx.HTTPStatusError as exc:
             self._raise_status(exc, model)
         except httpx.HTTPError as exc:
-            raise ProviderUnavailableError(
-                "LM Studio no pudo generar embeddings."
-            ) from exc
+            raise ProviderUnavailableError("LM Studio no pudo generar embeddings.") from exc
         try:
             ordered = sorted(payload["data"], key=lambda item: item["index"])
             vectors = [item["embedding"] for item in ordered]
         except (KeyError, TypeError) as exc:
-            raise ProviderResponseError(
-                "LM Studio devolvió embeddings malformados."
-            ) from exc
-        if len(vectors) != len(texts) or any(not isinstance(item, list) or not item for item in vectors):
+            raise ProviderResponseError("LM Studio devolvió embeddings malformados.") from exc
+        if len(vectors) != len(texts) or any(
+            not isinstance(item, list) or not item for item in vectors
+        ):
             raise ProviderResponseError("LM Studio devolvió un número inválido de embeddings.")
         return [[float(value) for value in vector] for vector in vectors]

@@ -5,12 +5,15 @@ import type {
   ChatRequest,
   ChatStreamEvent,
   TeacherRole,
-  TeacherRolesResponse,
 } from "@deutschos/shared";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { getTeacherRoles, streamNdjson } from "../lib/api";
+import { streamNdjson } from "../lib/api";
+import {
+  refreshModelAvailability,
+  useModelAvailability,
+} from "../lib/modelAvailability";
 import { TeacherMarkdown } from "./TeacherMarkdown";
 
 type Message = { role: "user" | "teacher"; text: string };
@@ -56,18 +59,32 @@ const TEACHER_ROLES: { role: TeacherRole; label: string }[] = [
   { role: "deep_teacher", label: "Profesor profundo" },
 ];
 
-function roleError(status: TeacherRolesResponse, role: TeacherRole): string {
-  if (!status.available) {
+function routingRole(role: TeacherRole): "teacher" | "deep" {
+  return role === "deep_teacher" ? "deep" : "teacher";
+}
+
+function roleError(
+  status: ReturnType<typeof useModelAvailability>,
+  role: TeacherRole,
+): string {
+  if (status.status === "error") {
     return status.error ?? "LM Studio no está disponible.";
   }
-  if (!status.roles.find((item) => item.role === role)?.available) {
+  if (status.status !== "ready") return "";
+  if (!status.data?.lm_studio_available) {
+    return "LM Studio no está disponible.";
+  }
+  if (
+    !status.data.roles.find((item) => item.role === routingRole(role))
+      ?.available
+  ) {
     return "El profesor seleccionado no está disponible en LM Studio.";
   }
   return "";
 }
 
 export function Chat() {
-  const [roleStatus, setRoleStatus] = useState<TeacherRolesResponse | null>();
+  const roleStatus = useModelAvailability();
   const [role, setRole] = useState<TeacherRole>("teacher");
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -77,25 +94,10 @@ export function Chat() {
   const [waitingForFirstToken, setWaitingForFirstToken] = useState(false);
 
   const roleAvailable = Boolean(
-    roleStatus?.available &&
-      roleStatus.roles.find((item) => item.role === role)?.available,
+    roleStatus.data?.lm_studio_available &&
+      roleStatus.data.roles.find((item) => item.role === routingRole(role))
+        ?.available,
   );
-
-  useEffect(() => {
-    getTeacherRoles()
-      .then((value) => {
-        setRoleStatus(value);
-        setError(roleError(value, "teacher"));
-      })
-      .catch((cause: unknown) => {
-        setRoleStatus(null);
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "No se pudo comprobar el estado de LM Studio.",
-        );
-      });
-  }, []);
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -191,11 +193,11 @@ export function Chat() {
   }
 
   const placeholder =
-    roleStatus === undefined
+    roleStatus.status === "loading"
       ? "Comprobando LM Studio…"
-      : roleStatus === null
+      : roleStatus.status === "error"
         ? "La API local debe estar activa para conversar"
-        : !roleStatus.available
+        : !roleStatus.data?.lm_studio_available
           ? "LM Studio debe estar activo para conversar"
           : !roleAvailable
             ? "El profesor seleccionado no está disponible"
@@ -219,7 +221,8 @@ export function Chat() {
             onChange={(event) => {
               const nextRole = event.target.value as TeacherRole;
               setRole(nextRole);
-              if (roleStatus) setError(roleError(roleStatus, nextRole));
+              setError(roleError(roleStatus, nextRole));
+              void refreshModelAvailability(0);
             }}
             disabled={busy || sessionId !== null}
           >

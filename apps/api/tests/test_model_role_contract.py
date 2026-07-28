@@ -19,6 +19,7 @@ from deutschos_api.educational_library.schemas import (
     GroundedGenerationRequest,
     KnowledgeGenerationRequest,
 )
+from deutschos_api.schemas.api import ModelInfo
 
 
 def test_role_contract_resolves_only_authorized_models():
@@ -87,3 +88,25 @@ def test_normal_interfaces_expose_human_roles_without_physical_model_options():
     assert "Motor semántico: EmbeddingGemma 300M" in library
     assert "setEmbeddingModel" not in library
     assert 'aria-label="Modelo de embeddings"' not in library
+
+
+@pytest.mark.anyio
+async def test_library_status_does_not_expose_unauthorized_installed_models():
+    class Provider:
+        async def list_models(self):
+            return [
+                ModelInfo(name=TEACHER_MODEL),
+                ModelInfo(name=DEEP_TEACHER_MODEL),
+                ModelInfo(name=EMBEDDING_MODEL),
+                ModelInfo(name="nomic-embed-text-v1.5"),
+            ]
+
+    router = get_library_model_router(model_provider=Provider(), settings=Settings())
+    status = await router.status()
+
+    assert status.installed_models == [
+        TEACHER_MODEL,
+        DEEP_TEACHER_MODEL,
+        EMBEDDING_MODEL,
+    ]
+    assert "nomic-embed-text-v1.5" not in status.installed_models
