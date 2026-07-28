@@ -26,6 +26,18 @@ class ModelsResponse(APIModel):
     error: str | None = None
 
 
+class TeacherRoleStatus(APIModel):
+    role: Literal["teacher", "deep_teacher"]
+    available: bool
+
+
+class TeacherRolesResponse(APIModel):
+    provider: Literal["lm_studio"]
+    available: bool
+    roles: list[TeacherRoleStatus]
+    error: str | None = None
+
+
 class ChatTurn(APIModel):
     role: Literal["user", "assistant"]
     content: str = Field(min_length=1, max_length=10000)
@@ -33,7 +45,7 @@ class ChatTurn(APIModel):
 
 class ChatRequest(APIModel):
     message: str = Field(min_length=1, max_length=10000)
-    model: str = Field(min_length=1, max_length=200)
+    role: Literal["teacher", "deep_teacher"] = "teacher"
     history: list[ChatTurn] = Field(default_factory=list, max_length=12)
     session_id: int | None = Field(default=None, gt=0)
 

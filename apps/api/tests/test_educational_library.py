@@ -648,7 +648,7 @@ async def test_api_library_vertical_and_main_progress_is_untouched(
 
         learned = await client.post(
             "/api/library/knowledge/generate",
-            json={"query": "Artikel", "model": "test-qwen", "max_chunks": 2},
+            json={"query": "Artikel", "max_chunks": 2},
         )
         assert learned.status_code == 200
         assert learned.json()["status"] == "candidate"
@@ -667,7 +667,6 @@ async def test_api_library_vertical_and_main_progress_is_untouched(
                 "objective": "micro_lesson",
                 "explanation_language": "es",
                 "max_sources": 3,
-                "model": "test-qwen",
             },
         )
         assert generated.status_code == 200

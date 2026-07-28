@@ -535,7 +535,6 @@ class GroundedGenerationRequest(APIModel):
     objective: Literal["explanation", "micro_lesson", "exercises", "answer", "error_explanation"]
     explanation_language: Literal["es", "de"] = "es"
     max_sources: int = Field(default=5, ge=1, le=8)
-    model: str | None = Field(default=None, max_length=200)
 
 
 class GroundedClaim(APIModel):
@@ -888,7 +887,6 @@ class SourceUpdateRequest(APIModel):
 
 class KnowledgeGenerationRequest(APIModel):
     query: str = Field(min_length=2, max_length=1_000)
-    model: str | None = Field(default=None, max_length=200)
     max_chunks: int = Field(default=4, ge=1, le=8)
 
 

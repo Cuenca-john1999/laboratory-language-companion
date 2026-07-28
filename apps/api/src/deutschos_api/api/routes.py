@@ -9,6 +9,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from deutschos_api.core.config import Settings, get_settings
+from deutschos_api.core.model_roles import (
+    DeutschOSModelRole,
+    model_for_role,
+)
 from deutschos_api.core.time import utc_now
 from deutschos_api.core.version import APPLICATION_VERSION, SCHEMA_REVISION
 from deutschos_api.db.session import get_db
@@ -28,6 +32,8 @@ from deutschos_api.schemas.api import (
     MistakeRead,
     ModelsResponse,
     SessionRead,
+    TeacherRolesResponse,
+    TeacherRoleStatus,
 )
 from deutschos_api.schemas.profile import ProfileRead, ProfileUpdate
 from deutschos_api.services.chat import (
@@ -171,6 +177,30 @@ async def models(
         return ModelsResponse(provider="lm_studio", available=False, models=[], error=str(exc))
 
 
+@router.get("/api/teacher/roles", response_model=TeacherRolesResponse)
+async def teacher_roles(
+    model_provider: ModelProvider = Depends(get_model_provider),
+) -> TeacherRolesResponse:
+    roles = (DeutschOSModelRole.TEACHER, DeutschOSModelRole.DEEP_TEACHER)
+    try:
+        installed = {item.name for item in await model_provider.list_models()}
+        return TeacherRolesResponse(
+            provider="lm_studio",
+            available=True,
+            roles=[
+                TeacherRoleStatus(role=role, available=model_for_role(role) in installed)
+                for role in roles
+            ],
+        )
+    except (ProviderUnavailableError, ProviderResponseError) as exc:
+        return TeacherRolesResponse(
+            provider="lm_studio",
+            available=False,
+            roles=[TeacherRoleStatus(role=role, available=False) for role in roles],
+            error=str(exc),
+        )
+
+
 @router.get("/api/profile", response_model=ProfileRead)
 def get_profile(db: Session = Depends(get_db)) -> ProfileRead:
     row = db.scalar(select(StudentProfile).limit(1))
@@ -233,7 +263,9 @@ async def dashboard(
         installed_models = []
         lm_studio_available = False
     installed_names = {item.name for item in installed_models}
-    configured_model = settings.lm_studio_model if settings.lm_studio_model in installed_names else None
+    configured_model = (
+        settings.lm_studio_model if settings.lm_studio_model in installed_names else None
+    )
     return DashboardResponse(
         preferred_name=profile.preferred_name if profile else "Estudiante",
         immediate_goal=goals[0]
@@ -252,29 +284,30 @@ async def chat(
     db: Session = Depends(get_db),
     model_provider: ModelProvider = Depends(get_model_provider),
 ) -> ChatResponse:
+    model = model_for_role(DeutschOSModelRole(payload.role))
     messages = teacher_messages(db, payload)
     learning_session = existing_chat_session(db, payload.session_id)
     if (
         learning_session is not None
         and learning_session.model_used is not None
-        and learning_session.model_used != payload.model
+        and learning_session.model_used != model
     ):
         raise HTTPException(
             status_code=409,
             detail="Una conversación existente no puede cambiar de modelo.",
         )
     started_at = learning_session.started_at if learning_session else utc_now()
-    await ensure_model_available(model_provider, payload.model)
+    await ensure_model_available(model_provider, model)
     try:
-        answer = await model_provider.chat(payload.model, messages)
+        answer = await model_provider.chat(model, messages)
     except ModelNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ProviderUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ProviderResponseError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    learning_session = record_chat_session(db, payload.model, started_at, learning_session)
-    return ChatResponse(response=answer, model=payload.model, session_id=learning_session.id)
+    learning_session = record_chat_session(db, model, started_at, learning_session)
+    return ChatResponse(response=answer, model=model, session_id=learning_session.id)
 
 
 @router.post("/api/chat/stream")
@@ -283,29 +316,30 @@ async def stream_chat(
     db: Session = Depends(get_db),
     model_provider: ModelProvider = Depends(get_model_provider),
 ) -> StreamingResponse:
+    model = model_for_role(DeutschOSModelRole(payload.role))
     messages = teacher_messages(db, payload)
     learning_session = existing_chat_session(db, payload.session_id)
     if (
         learning_session is not None
         and learning_session.model_used is not None
-        and learning_session.model_used != payload.model
+        and learning_session.model_used != model
     ):
         raise HTTPException(
             status_code=409,
             detail="Una conversación existente no puede cambiar de modelo.",
         )
     started_at = learning_session.started_at if learning_session else utc_now()
-    await ensure_model_available(model_provider, payload.model)
+    await ensure_model_available(model_provider, model)
 
     async def generate() -> AsyncIterator[str]:
         try:
-            async for chunk in model_provider.stream_chat(payload.model, messages):
+            async for chunk in model_provider.stream_chat(model, messages):
                 yield ndjson_event("token", content=chunk)
         except (ModelNotFoundError, ProviderUnavailableError, ProviderResponseError) as exc:
             yield ndjson_event("error", detail=str(exc))
             return
-        saved_session = record_chat_session(db, payload.model, started_at, learning_session)
-        yield ndjson_event("done", model=payload.model, session_id=saved_session.id)
+        saved_session = record_chat_session(db, model, started_at, learning_session)
+        yield ndjson_event("done", model=model, session_id=saved_session.id)
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 

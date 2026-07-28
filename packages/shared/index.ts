@@ -11,6 +11,15 @@ export type ModelsResponse = {
   error: string | null;
 };
 
+export type TeacherRole = "teacher" | "deep_teacher";
+
+export type TeacherRolesResponse = {
+  provider: "lm_studio";
+  available: boolean;
+  roles: { role: TeacherRole; available: boolean }[];
+  error: string | null;
+};
+
 export type Session = {
   id: number;
   session_type: string;
@@ -259,7 +268,7 @@ export type ChatHistoryMessage = {
 
 export type ChatRequest = {
   message: string;
-  model: string;
+  role: TeacherRole;
   history: ChatHistoryMessage[];
   session_id: number | null;
 };

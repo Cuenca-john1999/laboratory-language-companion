@@ -8,16 +8,22 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
+from deutschos_api.core.model_roles import (
+    DEEP_TEACHER_MODEL,
+    EMBEDDING_MODEL,
+    TEACHER_MODEL,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
 
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/deutschos.sqlite3"
     lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
-    lm_studio_model: str = "google/gemma-4-12b-qat"
-    lm_studio_deep_model: str = "google/gemma-4-26b-a4b-qat"
-    lm_studio_vision_model: str = "google/gemma-4-12b-qat"
-    lm_studio_embedding_model: str = "text-embedding-embeddinggemma-300m"
+    lm_studio_model: str = TEACHER_MODEL
+    lm_studio_deep_model: str = DEEP_TEACHER_MODEL
+    lm_studio_vision_model: str = TEACHER_MODEL
+    lm_studio_embedding_model: str = EMBEDDING_MODEL
     lm_studio_timeout_seconds: float = 180
     lm_studio_context_length: int = 8192
     lm_studio_temperature: float = 0.2
@@ -28,12 +34,12 @@ class Settings(BaseSettings):
     educational_library_runtime_dir: Path = PROJECT_ROOT / "var" / "educational-library"
     educational_library_scan_on_startup: bool = True
     educational_library_scan_interval_seconds: int = 900
-    educational_library_embedding_model: str = "text-embedding-embeddinggemma-300m"
-    educational_library_planner_model: str = "google/gemma-4-12b-qat"
-    educational_library_teacher_model: str = "google/gemma-4-12b-qat"
-    educational_library_fallback_model: str = "google/gemma-4-26b-a4b-qat"
-    educational_library_vision_model: str = "google/gemma-4-12b-qat"
-    educational_library_repair_model: str = "google/gemma-4-12b-qat"
+    educational_library_embedding_model: str = EMBEDDING_MODEL
+    educational_library_planner_model: str = TEACHER_MODEL
+    educational_library_teacher_model: str = TEACHER_MODEL
+    educational_library_fallback_model: str = DEEP_TEACHER_MODEL
+    educational_library_vision_model: str = TEACHER_MODEL
+    educational_library_repair_model: str = TEACHER_MODEL
     educational_library_planner_timeout_seconds: float = 45
     educational_library_teacher_timeout_seconds: float = 180
     educational_library_embedding_timeout_seconds: float = 120

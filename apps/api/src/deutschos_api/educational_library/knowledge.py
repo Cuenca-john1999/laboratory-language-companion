@@ -71,7 +71,7 @@ class EducationalKnowledgeService:
         self.default_model = default_model
 
     async def generate_knowledge(self, request: KnowledgeGenerationRequest) -> KnowledgeUnitRead:
-        model = request.model or self.default_model
+        model = self.default_model
         if not model:
             raise LibraryProviderUnavailableError("No hay un modelo local configurado.")
         search = await self.search.search(
@@ -329,7 +329,7 @@ class EducationalKnowledgeService:
         return self.get_knowledge(unit_id)
 
     async def grounded_generate(self, request: GroundedGenerationRequest) -> GroundedGenerationRead:
-        model = request.model or self.default_model
+        model = self.default_model
         if not model:
             raise LibraryProviderUnavailableError("No hay un modelo local configurado.")
         search = await self.search.search(

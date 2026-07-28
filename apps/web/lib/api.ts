@@ -34,6 +34,7 @@ import type {
   TeacherConversationSummary,
   TeacherQuery,
   TeacherStreamEvent,
+  TeacherRolesResponse,
   StudyDashboard,
   StudyMissionType,
   StudyNote,
@@ -364,6 +365,8 @@ export async function* streamSse<T>(
 
 export const getDashboard = () => api<Dashboard>("/api/dashboard");
 export const getModels = () => api<ModelsResponse>("/api/models");
+export const getTeacherRoles = () =>
+  api<TeacherRolesResponse>("/api/teacher/roles");
 export const getProfile = () => api<Profile>("/api/profile");
 export const getSessions = () => api<Session[]>("/api/sessions");
 export const getMistakes = () => api<Mistake[]>("/api/mistakes");
@@ -515,7 +518,6 @@ export const generateGroundedDraft = (payload: {
     | "exercises"
     | "answer"
     | "error_explanation";
-  model: string | null;
 }) =>
   api<GroundedDraft>("/api/library/grounded/generate", {
     method: "POST",

@@ -4,12 +4,13 @@ import type {
   ChatHistoryMessage,
   ChatRequest,
   ChatStreamEvent,
-  ModelsResponse,
+  TeacherRole,
+  TeacherRolesResponse,
 } from "@deutschos/shared";
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
-import { getModels, streamNdjson } from "../lib/api";
+import { getTeacherRoles, streamNdjson } from "../lib/api";
 
 type Message = { role: "user" | "teacher"; text: string };
 
@@ -49,19 +50,24 @@ function boundedHistory(messages: Message[]): ChatHistoryMessage[] {
   return history;
 }
 
-function modelError(models: ModelsResponse): string {
-  if (!models.available) {
-    return models.error ?? "LM Studio no está disponible.";
+const TEACHER_ROLES: { role: TeacherRole; label: string }[] = [
+  { role: "teacher", label: "Profesor" },
+  { role: "deep_teacher", label: "Profesor profundo" },
+];
+
+function roleError(status: TeacherRolesResponse, role: TeacherRole): string {
+  if (!status.available) {
+    return status.error ?? "LM Studio no está disponible.";
   }
-  if (models.models.length === 0) {
-    return "LM Studio está activo, pero no hay modelos instalados.";
+  if (!status.roles.find((item) => item.role === role)?.available) {
+    return "El profesor seleccionado no está disponible en LM Studio.";
   }
   return "";
 }
 
 export function Chat() {
-  const [models, setModels] = useState<ModelsResponse | null>();
-  const [model, setModel] = useState("");
+  const [roleStatus, setRoleStatus] = useState<TeacherRolesResponse | null>();
+  const [role, setRole] = useState<TeacherRole>("teacher");
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [text, setText] = useState("");
@@ -69,17 +75,19 @@ export function Chat() {
   const [busy, setBusy] = useState(false);
   const [waitingForFirstToken, setWaitingForFirstToken] = useState(false);
 
-  const hasModels = Boolean(models?.available && models.models.length > 0);
+  const roleAvailable = Boolean(
+    roleStatus?.available &&
+      roleStatus.roles.find((item) => item.role === role)?.available,
+  );
 
   useEffect(() => {
-    getModels()
+    getTeacherRoles()
       .then((value) => {
-        setModels(value);
-        setModel(value.models[0]?.name ?? "");
-        setError(modelError(value));
+        setRoleStatus(value);
+        setError(roleError(value, "teacher"));
       })
       .catch((cause: unknown) => {
-        setModels(null);
+        setRoleStatus(null);
         setError(
           cause instanceof Error
             ? cause.message
@@ -91,13 +99,13 @@ export function Chat() {
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const prompt = text.trim();
-    if (!prompt || !model || busy) {
+    if (!prompt || !roleAvailable || busy) {
       return;
     }
 
     const payload: ChatRequest = {
       message: prompt,
-      model,
+      role,
       history: boundedHistory(messages),
       session_id: sessionId,
     };
@@ -182,14 +190,14 @@ export function Chat() {
   }
 
   const placeholder =
-    models === undefined
+    roleStatus === undefined
       ? "Comprobando LM Studio…"
-      : models === null
+      : roleStatus === null
         ? "La API local debe estar activa para conversar"
-        : !models.available
+        : !roleStatus.available
           ? "LM Studio debe estar activo para conversar"
-          : models.models.length === 0
-            ? "Instala un modelo local para conversar"
+          : !roleAvailable
+            ? "El profesor seleccionado no está disponible"
             : "Schreib etwas…";
 
   return (
@@ -202,23 +210,23 @@ export function Chat() {
         <div>
           <span
             aria-hidden="true"
-            className={models?.available ? "dot online" : "dot"}
+            className={roleAvailable ? "dot online" : "dot"}
           />
           <select
-            aria-label="Modelo"
-            value={model}
-            onChange={(event) => setModel(event.target.value)}
-            disabled={!hasModels || busy || sessionId !== null}
+            aria-label="Rol del profesor"
+            value={role}
+            onChange={(event) => {
+              const nextRole = event.target.value as TeacherRole;
+              setRole(nextRole);
+              if (roleStatus) setError(roleError(roleStatus, nextRole));
+            }}
+            disabled={busy || sessionId !== null}
           >
-            {models?.models.length ? (
-              models.models.map((item) => (
-                <option key={item.name} value={item.name}>
-                  {item.name}
-                </option>
-              ))
-            ) : (
-              <option value="">Sin modelos disponibles</option>
-            )}
+            {TEACHER_ROLES.map((item) => (
+              <option key={item.role} value={item.role}>
+                {item.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -257,10 +265,13 @@ export function Chat() {
           value={text}
           onChange={(event) => setText(event.target.value)}
           placeholder={placeholder}
-          disabled={!hasModels || busy}
+          disabled={!roleAvailable || busy}
           maxLength={10_000}
         />
-        <button aria-label="Enviar" disabled={!text.trim() || !model || busy}>
+        <button
+          aria-label="Enviar"
+          disabled={!text.trim() || !roleAvailable || busy}
+        >
           →
         </button>
       </form>

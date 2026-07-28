@@ -4,6 +4,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from deutschos_api.core.model_roles import DEEP_TEACHER_MODEL, TEACHER_MODEL
 from deutschos_api.main import app
 from deutschos_api.models import LearningSession
 from deutschos_api.providers.base import ProviderUnavailableError
@@ -27,7 +28,7 @@ class OfflineProvider:
 
 class WorkingProvider:
     async def list_models(self):
-        return [ModelInfo(name="local-test")]
+        return [ModelInfo(name=TEACHER_MODEL), ModelInfo(name=DEEP_TEACHER_MODEL)]
 
     async def health_check(self):
         return True
@@ -75,7 +76,9 @@ async def test_profile_rejects_unknown_fields(client):
     assert any(error["type"] == "extra_forbidden" for error in response.json()["detail"])
 
 
-async def test_lm_studio_unavailable_is_visible_and_does_not_write_session(client, db_session_factory):
+async def test_lm_studio_unavailable_is_visible_and_does_not_write_session(
+    client, db_session_factory
+):
     app.dependency_overrides[get_model_provider] = lambda: OfflineProvider()
     models = await client.get("/api/models")
     dashboard = await client.get("/api/dashboard")
@@ -83,7 +86,9 @@ async def test_lm_studio_unavailable_is_visible_and_does_not_write_session(clien
     assert models.json()["available"] is False
     assert dashboard.status_code == 200
     assert dashboard.json()["lm_studio_available"] is False
-    chat = await client.post("/api/chat", json={"message": "Hallo", "model": "test", "history": []})
+    chat = await client.post(
+        "/api/chat", json={"message": "Hallo", "role": "teacher", "history": []}
+    )
     assert chat.status_code == 503
     assert "LM Studio" in chat.json()["detail"]
     with db_session_factory() as db:
@@ -123,6 +128,53 @@ async def test_model_list_and_dashboard_accept_realistic_lm_studio_metadata(clie
     assert dashboard.json()["lm_studio_available"] is True
 
 
+async def test_teacher_roles_are_closed_and_report_role_specific_availability(client):
+    provider = lm_studio_provider_with_tags(
+        {
+            "data": [
+                {"id": TEACHER_MODEL, "object": "model"},
+                {"id": "text-embedding-embeddinggemma-300m", "object": "model"},
+                {"id": "nomic-embed-text-v1.5", "object": "model"},
+            ]
+        }
+    )
+    app.dependency_overrides[get_model_provider] = lambda: provider
+
+    response = await client.get("/api/teacher/roles")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "lm_studio",
+        "available": True,
+        "roles": [
+            {"role": "teacher", "available": True},
+            {"role": "deep_teacher", "available": False},
+        ],
+        "error": None,
+    }
+
+
+async def test_chat_rejects_physical_or_unknown_models_and_resolves_roles(client):
+    app.dependency_overrides[get_model_provider] = lambda: WorkingProvider()
+
+    for rejected in (
+        {"message": "Hallo", "model": TEACHER_MODEL, "history": []},
+        {"message": "Hallo", "role": "embedding", "history": []},
+        {"message": "Hallo", "role": "nomic-embed-text-v1.5", "history": []},
+    ):
+        response = await client.post("/api/chat", json=rejected)
+        assert response.status_code == 422
+
+    regular = await client.post(
+        "/api/chat", json={"message": "Hallo", "role": "teacher", "history": []}
+    )
+    deep = await client.post(
+        "/api/chat", json={"message": "Hallo", "role": "deep_teacher", "history": []}
+    )
+    assert regular.json()["model"] == TEACHER_MODEL
+    assert deep.json()["model"] == DEEP_TEACHER_MODEL
+
+
 async def test_empty_lm_studio_list_is_available_without_invented_models(client):
     provider = lm_studio_provider_with_tags({"data": []})
     app.dependency_overrides[get_model_provider] = lambda: provider
@@ -159,7 +211,7 @@ async def test_chat_keeps_history_ephemeral_and_stores_only_safe_metadata(
         "/api/chat",
         json={
             "message": "Privater Inhalt",
-            "model": "local-test",
+            "role": "teacher",
             "history": [{"role": "assistant", "content": "Vorherige private Antwort"}],
         },
     )
@@ -177,7 +229,7 @@ async def test_streaming_chat_reuses_one_session(client, db_session_factory):
     app.dependency_overrides[get_model_provider] = lambda: WorkingProvider()
     first = await client.post(
         "/api/chat/stream",
-        json={"message": "Hallo", "model": "local-test", "history": []},
+        json={"message": "Hallo", "role": "teacher", "history": []},
     )
     assert first.status_code == 200
     events = [line for line in first.text.splitlines() if line]
@@ -189,7 +241,7 @@ async def test_streaming_chat_reuses_one_session(client, db_session_factory):
         "/api/chat/stream",
         json={
             "message": "Noch einmal",
-            "model": "local-test",
+            "role": "teacher",
             "history": [{"role": "assistant", "content": "Guten Tag"}],
             "session_id": session_id,
         },

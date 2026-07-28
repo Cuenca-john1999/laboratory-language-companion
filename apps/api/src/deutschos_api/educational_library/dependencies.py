@@ -1,6 +1,11 @@
 from fastapi import Depends
 
 from deutschos_api.core.config import Settings, get_settings
+from deutschos_api.core.model_roles import (
+    DEEP_TEACHER_MODEL,
+    EMBEDDING_MODEL,
+    TEACHER_MODEL,
+)
 from deutschos_api.providers.base import ModelProvider
 from deutschos_api.providers.dependencies import get_model_provider
 
@@ -25,6 +30,8 @@ def get_library_search(
     settings: Settings = Depends(get_settings),
 ) -> EducationalSearchService:
     embedding_model = settings.educational_library_embedding_model.strip()
+    if embedding_model and embedding_model != EMBEDDING_MODEL:
+        raise ValueError("El motor semántico configurado no está autorizado por DeutschOS.")
     provider = (
         LMStudioEmbeddingProvider(
             settings.lm_studio_base_url,
@@ -50,12 +57,12 @@ def get_library_model_router(
     return LibraryModelRouter(
         model_provider,
         ModelRoutingPolicy(
-            planner=settings.educational_library_planner_model,
-            embedding=settings.educational_library_embedding_model,
-            teacher=settings.educational_library_teacher_model,
-            fallback=settings.educational_library_fallback_model,
-            vision=settings.educational_library_vision_model,
-            repair=settings.educational_library_repair_model,
+            planner=TEACHER_MODEL,
+            embedding=EMBEDDING_MODEL,
+            teacher=TEACHER_MODEL,
+            fallback=DEEP_TEACHER_MODEL,
+            vision=TEACHER_MODEL,
+            repair=TEACHER_MODEL,
             planner_timeout=settings.educational_library_planner_timeout_seconds,
             teacher_timeout=settings.educational_library_teacher_timeout_seconds,
         ),

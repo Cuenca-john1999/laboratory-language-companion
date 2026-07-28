@@ -815,6 +815,18 @@ export function LibraryWorkspace() {
         </p>
       </div>
 
+      <p className="capability-line" aria-label="Estado del motor semántico">
+        Motor semántico: EmbeddingGemma 300M ·{" "}
+        {modelRouting === null
+          ? "comprobando disponibilidad"
+          : !modelRouting.lm_studio_available
+            ? "error de LM Studio"
+            : modelRouting.roles.find((item) => item.role === "embedding")
+                  ?.available
+              ? "disponible"
+              : "no disponible"}
+      </p>
+
       {error ? (
         <div className="error" role="alert">
           {error}
