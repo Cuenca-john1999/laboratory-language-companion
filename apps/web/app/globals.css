@@ -1388,17 +1388,124 @@ details summary {
   max-width: 75%;
   padding: 16px 20px;
   line-height: 1.5;
-  white-space: pre-wrap;
 }
 .bubble.user {
   align-self: flex-end;
   background: var(--green);
   color: white;
+  white-space: pre-wrap;
 }
 .bubble.teacher {
   align-self: flex-start;
   background: var(--cream);
   border: 1px solid #ccc3ae;
+  min-width: 0;
+}
+.teacher-markdown {
+  overflow-wrap: anywhere;
+}
+.teacher-markdown > :first-child {
+  margin-top: 0;
+}
+.teacher-markdown > :last-child {
+  margin-bottom: 0;
+}
+.teacher-markdown p,
+.teacher-markdown ul,
+.teacher-markdown ol,
+.teacher-markdown blockquote,
+.teacher-markdown pre,
+.teacher-markdown .teacher-table-scroll,
+.teacher-markdown .katex-display {
+  margin: 0 0 0.9rem;
+}
+.teacher-markdown h1,
+.teacher-markdown h2,
+.teacher-markdown h3,
+.teacher-markdown h4 {
+  color: var(--ink);
+  font-family: Georgia, serif;
+  line-height: 1.2;
+  margin: 1.15rem 0 0.55rem;
+}
+.teacher-markdown h1 {
+  font-size: 1.55rem;
+}
+.teacher-markdown h2 {
+  font-size: 1.35rem;
+}
+.teacher-markdown h3,
+.teacher-markdown h4 {
+  font-size: 1.12rem;
+}
+.teacher-markdown ul,
+.teacher-markdown ol {
+  padding-left: 1.4rem;
+}
+.teacher-markdown li + li {
+  margin-top: 0.3rem;
+}
+.teacher-markdown blockquote {
+  border-left: 3px solid var(--lime);
+  color: #4f4b43;
+  padding-left: 0.85rem;
+}
+.teacher-markdown code {
+  background: #e8e1d2;
+  border-radius: 3px;
+  font-size: 0.92em;
+  padding: 0.12em 0.32em;
+}
+.teacher-markdown pre {
+  background: #252923;
+  color: #f4f0e7;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.9rem 1rem;
+}
+.teacher-markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+.teacher-markdown a {
+  color: #245b47;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+.teacher-markdown a:focus-visible,
+.teacher-table-scroll:focus-visible {
+  outline: 3px solid var(--lime);
+  outline-offset: 2px;
+}
+.teacher-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.teacher-markdown table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+.teacher-markdown th,
+.teacher-markdown td {
+  border: 1px solid #b8af9e;
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  white-space: nowrap;
+}
+.teacher-markdown th {
+  background: #ddd4c1;
+  font-weight: 700;
+}
+.teacher-markdown hr {
+  border: 0;
+  border-top: 1px solid #b8af9e;
+  margin: 1.1rem 0;
+}
+.teacher-markdown .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2rem 0;
 }
 .error {
   padding: 14px;

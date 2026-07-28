@@ -11,6 +11,7 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
 import { getTeacherRoles, streamNdjson } from "../lib/api";
+import { TeacherMarkdown } from "./TeacherMarkdown";
 
 type Message = { role: "user" | "teacher"; text: string };
 
@@ -244,7 +245,11 @@ export function Chat() {
         )}
         {messages.map((message, index) => (
           <div className={`bubble ${message.role}`} key={index}>
-            {message.text}
+            {message.role === "teacher" ? (
+              <TeacherMarkdown>{message.text}</TeacherMarkdown>
+            ) : (
+              message.text
+            )}
           </div>
         ))}
         {waitingForFirstToken ? (

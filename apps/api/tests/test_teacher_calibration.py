@@ -92,6 +92,26 @@ def test_laboratory_vocabulary_and_safety_are_in_the_contract():
     prompt = teacher_prompt("teacher_v1.md")
     assert all(word in prompt for word in ("muestras", "pipetas", "reactivos"))
     assert "No inventes procedimientos médicos" in prompt
+    assert "Ich untersuche den Patienten" in prompt
+    assert "Schlüssel" in prompt
+    assert "solo si realmente pertenece" in prompt
+
+
+def test_accusative_guidance_is_precise_and_explicitly_introductory():
+    prompt = teacher_prompt("teacher_v1.md")
+    assert "No afirmes que el acusativo sea «el caso que más se usa»" in prompt
+    assert "No presentes «en acusativo solo cambia el masculino»" in prompt
+    assert "simplificación inicial" in prompt
+    assert "der` → `den" in prompt and "ein` → `einen" in prompt
+    assert "otros determinantes se declinan" in prompt
+    assert "los pronombres" in prompt and "los adjetivos" in prompt
+    assert "artículo o determinante marca la función gramatical" in prompt
+
+
+def test_simple_correction_is_brief_and_does_not_repeat_the_lesson():
+    prompt = teacher_prompt("teacher_v1.md")
+    assert all(word in prompt for word in ("Original", "Corrección", "explicación breve"))
+    assert "No repitas automáticamente la lección ni el ejercicio anterior" in prompt
 
 
 def test_mission_is_original_and_ends_in_a_verifiable_language_task():

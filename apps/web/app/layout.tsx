@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Nav } from "../components/Nav";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
