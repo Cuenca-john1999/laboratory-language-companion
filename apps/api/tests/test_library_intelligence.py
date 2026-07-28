@@ -31,7 +31,12 @@ from deutschos_api.educational_library.schemas import (
     TeacherIntent,
     TeacherQueryPlan,
 )
-from deutschos_api.educational_library.search import EducationalSearchService
+from deutschos_api.educational_library.search import (
+    EMBEDDINGGEMMA_MODEL,
+    EducationalSearchService,
+    prepare_embedding_document,
+    prepare_embedding_query,
+)
 from deutschos_api.educational_library.service import EducationalLibraryService
 from deutschos_api.educational_library.teacher import EducationalTeacherService
 from deutschos_api.main import app
@@ -110,6 +115,16 @@ class RouterProvider(ModelProvider):
             ambiguity=QueryAmbiguity.HIGH,
             search_queries=["die"],
         )
+
+
+def test_embeddinggemma_retrieval_formats_queries_and_documents_centrally():
+    assert prepare_embedding_query("  der   Akkusativ  ", EMBEDDINGGEMMA_MODEL) == (
+        "task: search result | query: der Akkusativ"
+    )
+    assert prepare_embedding_document("  Der   Artikel  ", EMBEDDINGGEMMA_MODEL) == (
+        "title: none | text: Der Artikel"
+    )
+    assert prepare_embedding_query("  texto  ", "another-model") == "texto"
 
 
 @pytest.fixture
@@ -447,14 +462,14 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
 @pytest.mark.anyio
 async def test_model_router_uses_installed_capabilities_and_bounded_fallback():
     provider = RouterProvider(
-        ["google/gemma-4-12b-qat", "google/gemma-4-26b-a4b-qat", "google/gemma-4-12b-qat", "text-embedding-nomic-embed-text-v1.5"],
+        ["google/gemma-4-12b-qat", "google/gemma-4-26b-a4b-qat", "google/gemma-4-12b-qat", "text-embedding-embeddinggemma-300m"],
         fail={"google/gemma-4-26b-a4b-qat"},
     )
     router = LibraryModelRouter(
         provider,
         ModelRoutingPolicy(
             planner="google/gemma-4-12b-qat",
-            embedding="text-embedding-nomic-embed-text-v1.5",
+            embedding="text-embedding-embeddinggemma-300m",
             teacher="google/gemma-4-26b-a4b-qat",
             fallback="google/gemma-4-12b-qat",
             vision="google/gemma-4-12b-qat",
@@ -557,10 +572,10 @@ async def test_intelligence_http_contracts_are_strict_and_operational(
     embedding = CountingEmbeddingProvider()
     search = EducationalSearchService(intelligence_library.database, embedding)
     router = LibraryModelRouter(
-        RouterProvider(["google/gemma-4-12b-qat", "google/gemma-4-12b-qat", "text-embedding-nomic-embed-text-v1.5"]),
+        RouterProvider(["google/gemma-4-12b-qat", "google/gemma-4-12b-qat", "text-embedding-embeddinggemma-300m"]),
         ModelRoutingPolicy(
             planner="google/gemma-4-12b-qat",
-            embedding="text-embedding-nomic-embed-text-v1.5",
+            embedding="text-embedding-embeddinggemma-300m",
             teacher="google/gemma-4-12b-qat",
             fallback="google/gemma-4-26b-a4b-qat",
             vision="google/gemma-4-12b-qat",

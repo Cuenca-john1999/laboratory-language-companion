@@ -96,10 +96,14 @@ defecto.
 ## Búsqueda y memoria pedagógica
 
 FTS5 con tokenización Unicode y ranking BM25 está siempre disponible. Los modos
-`semantic` y `hybrid` usan `text-embedding-nomic-embed-text-v1.5` mediante `EmbeddingProvider`; si
+`semantic` y `hybrid` usan `text-embedding-embeddinggemma-300m` mediante `EmbeddingProvider`; si
 no está instalado o disponible, la respuesta declara `semantic_available=false`
 y cae a léxico. Nunca se fabrican vectores de producción. Consulta y texto se
 normalizan con NFC y espacios canónicos, sin traducirlos ni borrar signos.
+EmbeddingGemma recibe consultas como `task: search result | query: …` y
+documentos como `title: none | text: …`. Este formato se aplica únicamente al
+texto enviado al modelo; los chunks originales permanecen intactos. La versión
+registrada es `embeddinggemma-retrieval.v1`.
 
 Cada vector registra chunk, versión de fuente, modelo, digest, dimensión, hash del
 texto normalizado, versión de normalización, calidad, estado y error. Se excluyen
@@ -156,7 +160,7 @@ conocimiento externo.
 Los nombres de modelo viven en configuración, no dispersos en el pipeline:
 
 - planner y reparación estructural: `google/gemma-4-12b-qat`;
-- embeddings: `text-embedding-nomic-embed-text-v1.5`;
+- embeddings: `text-embedding-embeddinggemma-300m`;
 - docente ordinario: `google/gemma-4-12b-qat`;
 - explicaciones profundas de Konjunktiv II y declinación adjetival: `google/gemma-4-26b-a4b-qat`;
 - visión selectiva: `google/gemma-4-12b-qat`.

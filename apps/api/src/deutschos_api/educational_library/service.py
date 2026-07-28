@@ -893,11 +893,11 @@ class EducationalLibraryService:
             semantic = connection.execute(
                 "SELECT count(DISTINCT CASE WHEN e.status='indexed' "
                 "AND e.source_version_id=c.source_version_id "
-                "AND e.normalization_version='embedding-text.v1' THEN c.id END) indexed_count,"
+                "AND e.normalization_version='embeddinggemma-retrieval.v1' THEN c.id END) indexed_count,"
                 "count(DISTINCT CASE WHEN e.status='failed' THEN c.id END) failed_count,"
                 "count(DISTINCT CASE WHEN e.chunk_id IS NOT NULL AND (e.status='stale' "
                 "OR coalesce(e.source_version_id,-1)!=c.source_version_id "
-                "OR e.normalization_version!='embedding-text.v1') THEN c.id END) stale_count,"
+                "OR e.normalization_version!='embeddinggemma-retrieval.v1') THEN c.id END) stale_count,"
                 "max(CASE WHEN e.status='indexed' THEN e.dimension END) dimension,"
                 "max(CASE WHEN e.status='indexed' THEN e.model_digest END) model_digest "
                 "FROM chunks c JOIN source_versions sv ON sv.id=c.source_version_id "
@@ -949,7 +949,7 @@ class EducationalLibraryService:
                 stale=int(semantic["stale_count"] or 0),
                 excluded=int(excluded or 0),
                 dimension=semantic["dimension"],
-                normalization_version="embedding-text.v1",
+                normalization_version="embeddinggemma-retrieval.v1",
             ),
             latest_inventory=InventoryReport.model_validate_json(inventory_row["report_json"])
             if inventory_row

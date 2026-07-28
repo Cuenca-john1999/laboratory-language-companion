@@ -143,6 +143,13 @@ class FakeEmbeddingProvider:
         ]
 
 
+class UnavailableEmbeddingProvider(FakeEmbeddingProvider):
+    model_name = "text-embedding-embeddinggemma-300m"
+
+    async def available(self) -> bool:
+        return False
+
+
 class FakeModelProvider(ModelProvider):
     async def health_check(self) -> bool:
         return True
@@ -481,6 +488,12 @@ async def test_fts_semantic_hybrid_filters_and_fallback(
     fallback = await lexical_service.search("Artikel", mode="hybrid")
     assert fallback.effective_mode == "lexical"
     assert fallback.warning
+    unavailable = await EducationalSearchService(
+        library.database, UnavailableEmbeddingProvider()
+    ).search("Artikel", mode="semantic")
+    assert unavailable.effective_mode == "lexical"
+    assert "text-embedding-embeddinggemma-300m" in (unavailable.warning or "")
+    assert "LM Studio" in (unavailable.warning or "")
 
     semantic_service = EducationalSearchService(library.database, FakeEmbeddingProvider())
     indexed = await semantic_service.index_embeddings()

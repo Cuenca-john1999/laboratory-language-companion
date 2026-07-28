@@ -91,11 +91,28 @@ class LMStudioEmbeddingProvider:
         return self.model_version, self._digest or self.model_version
 
 
-EMBEDDING_NORMALIZATION_VERSION = "embedding-text.v1"
+EMBEDDING_NORMALIZATION_VERSION = "embeddinggemma-retrieval.v1"
+EMBEDDINGGEMMA_MODEL = "text-embedding-embeddinggemma-300m"
+EMBEDDINGGEMMA_QUERY_PREFIX = "task: search result | query: "
+EMBEDDINGGEMMA_DOCUMENT_PREFIX = "title: none | text: "
 
 
 def _embedding_text(text: str) -> str:
     return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+
+
+def prepare_embedding_query(text: str, model: str) -> str:
+    normalized = _embedding_text(text)
+    if model == EMBEDDINGGEMMA_MODEL:
+        return EMBEDDINGGEMMA_QUERY_PREFIX + normalized
+    return normalized
+
+
+def prepare_embedding_document(text: str, model: str) -> str:
+    normalized = _embedding_text(text)
+    if model == EMBEDDINGGEMMA_MODEL:
+        return EMBEDDINGGEMMA_DOCUMENT_PREFIX + normalized
+    return normalized
 
 
 def _text_hash(text: str) -> str:
@@ -168,7 +185,7 @@ class EducationalSearchService:
         if provider is None:
             raise RuntimeError("El proveedor local de embeddings no está configurado.")
         model_version, model_digest = await self._provider_metadata()
-        normalised = _embedding_text(query)
+        normalised = prepare_embedding_query(query, provider.model_name)
         config_hash = stable_cache_key(
             provider.provider_name,
             provider.model_name,
@@ -395,13 +412,23 @@ class EducationalSearchService:
                 ),
             )
         if not semantic_available:
+            model = (
+                self.embedding_provider.model_name
+                if self.embedding_provider is not None
+                else None
+            )
+            warning = (
+                f"El modelo de embeddings '{model}' no está disponible en LM Studio; se usó FTS5."
+                if model
+                else "El modelo local de embeddings no está configurado; se usó FTS5."
+            )
             return SearchResponse(
                 query=query,
                 requested_mode=mode,
                 effective_mode="lexical",
                 semantic_available=False,
                 results=lexical[:limit],
-                warning="La búsqueda semántica local no está configurada; se usó FTS5.",
+                warning=warning,
                 timings=SearchTimings(
                     fts_ms=fts_ms,
                     total_ms=round((perf_counter() - total_started) * 1_000),
@@ -548,7 +575,7 @@ class EducationalSearchService:
                 ).fetchall()
             if not rows:
                 break
-            texts = [_embedding_text(row["text"]) for row in rows]
+            texts = [prepare_embedding_document(row["text"], provider.model_name) for row in rows]
             try:
                 vectors = await provider.embed(texts)
             except Exception as exc:

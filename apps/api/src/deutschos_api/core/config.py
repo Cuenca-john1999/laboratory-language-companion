@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     lm_studio_model: str = "google/gemma-4-12b-qat"
     lm_studio_deep_model: str = "google/gemma-4-26b-a4b-qat"
     lm_studio_vision_model: str = "google/gemma-4-12b-qat"
-    lm_studio_embedding_model: str = "text-embedding-nomic-embed-text-v1.5"
+    lm_studio_embedding_model: str = "text-embedding-embeddinggemma-300m"
     lm_studio_timeout_seconds: float = 180
     lm_studio_context_length: int = 8192
     lm_studio_temperature: float = 0.2
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     educational_library_runtime_dir: Path = PROJECT_ROOT / "var" / "educational-library"
     educational_library_scan_on_startup: bool = True
     educational_library_scan_interval_seconds: int = 900
-    educational_library_embedding_model: str = "text-embedding-nomic-embed-text-v1.5"
+    educational_library_embedding_model: str = "text-embedding-embeddinggemma-300m"
     educational_library_planner_model: str = "google/gemma-4-12b-qat"
     educational_library_teacher_model: str = "google/gemma-4-12b-qat"
     educational_library_fallback_model: str = "google/gemma-4-26b-a4b-qat"

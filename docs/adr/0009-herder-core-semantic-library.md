@@ -27,7 +27,7 @@ pero el workbook no reemplaza la teoría.
 ### Recuperación híbrida
 
 FTS5 continúa siendo el fallback siempre disponible. Los embeddings locales usan
-`text-embedding-nomic-embed-text-v1.5` y registran modelo, digest, dimensión, normalización, hash
+`text-embedding-embeddinggemma-300m` y registran modelo, digest, dimensión, normalización, hash
 del texto y versión de fuente. Se indexan incrementalmente y se invalidan por
 provenance, no por fecha global.
 

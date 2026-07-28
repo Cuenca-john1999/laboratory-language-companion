@@ -52,7 +52,7 @@ planificación 14B de unos 32 segundos.
 - `google/gemma-4-12b-qat`: docente ordinario.
 - `google/gemma-4-26b-a4b-qat`: Konjunktiv II, declinación adjetival y fallback profundo.
 - `google/gemma-4-12b-qat`: planificación y reparación estructural.
-- `text-embedding-nomic-embed-text-v1.5`: embeddings.
+- `text-embedding-embeddinggemma-300m`: embeddings.
 - `google/gemma-4-12b-qat`: inspección visual selectiva.
 
 La cadena es recíproca y acotada: 14B y 27B pueden cubrirse mutuamente; 4B es el
