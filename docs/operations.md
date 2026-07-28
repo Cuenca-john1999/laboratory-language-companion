@@ -66,6 +66,12 @@ La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal:
 - `scripts/stop.sh` al pulsar **Detener** o **Salir**;
 - `scripts/status.sh --machine` al abrir y cada cuatro segundos.
 
+Después de confirmar que API y web responden, **Iniciar** abre mediante
+`NSWorkspace` el bundle exacto `~/Applications/DeutschOS.app`. Si su bundle
+identifier ya está ejecutándose, lo activa sin crear otra instancia. Safari
+solo recibe `http://127.0.0.1:3000` como respaldo cuando la web app falta o
+macOS devuelve un error al abrirla.
+
 El protocolo `deutschos-status-v1` informa SSD, modelos, disponibilidad de
 LM Studio/API/web, disponibilidad y cantidad de fuentes de la biblioteca, y
 ownership de cada PID. Los campos de biblioteca son aditivos para conservar la

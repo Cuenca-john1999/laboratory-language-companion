@@ -69,9 +69,9 @@ Finder al Dock —no hace falta mover el bundle— y ábrela siempre con el SSD
 conectado. La ruta del proyecto queda registrada durante el build, por lo que
 también puede copiarse a `~/Applications` sin perder el proyecto del SSD.
 
-- **Iniciar** ejecuta `scripts/start.sh`, muestra el progreso real y abre la web
-  cuando LM Studio, FastAPI y Next.js responden.
-- **Abrir DeutschOS** abre `http://127.0.0.1:3000` cuando la web está disponible.
+- **Iniciar** ejecuta `scripts/start.sh`, espera a LM Studio, FastAPI y Next.js,
+  y abre o activa `~/Applications/DeutschOS.app` mediante su bundle exacto.
+  Safari se usa una sola vez como respaldo si esa aplicación falta o no abre.
 - **Detener** ejecuta `scripts/stop.sh` y mantiene abierta la ventana.
 - **Salir** detiene los procesos gestionados antes de terminar la aplicación.
 

@@ -458,3 +458,19 @@ def test_native_controller_build_reuses_launcher_scripts():
     assert "Terminal" not in source
     assert 'APP_PATH="$DIST_DIR/DeutschOS.app"' in build_script
     assert "/usr/bin/codesign" in build_script
+
+
+def test_launcher_targets_web_app_exactly_and_never_uses_ambiguous_app_name():
+    start_script = (SCRIPTS / "start.sh").read_text(encoding="utf-8")
+    controller_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/DeutschOSController").glob(
+            "*.swift"
+        )
+    )
+
+    assert '$HOME/Applications/DeutschOS.app' in start_script
+    assert "open -a DeutschOS" not in start_script
+    assert "open -a DeutschOS" not in controller_source
+    assert "NSWorkspace.shared.openApplication" in controller_source
+    assert "homeDirectoryForCurrentUser" in controller_source

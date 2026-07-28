@@ -1,5 +1,35 @@
 import Foundation
 
+private final class MockWorkspace: WorkspaceOpening {
+  var shouldActivate = false
+  var openApplicationError: Error?
+  var shouldOpenURL = true
+  private(set) var activatedBundleIdentifiers: [String] = []
+  private(set) var openedApplications: [URL] = []
+  private(set) var openedURLs: [URL] = []
+
+  func activateApplication(bundleIdentifier: String, at url: URL) async throws -> Bool {
+    activatedBundleIdentifiers.append(bundleIdentifier)
+    return shouldActivate
+  }
+
+  func openApplication(at url: URL) async throws {
+    openedApplications.append(url)
+    if let openApplicationError {
+      throw openApplicationError
+    }
+  }
+
+  func openURL(_ url: URL) -> Bool {
+    openedURLs.append(url)
+    return shouldOpenURL
+  }
+}
+
+private enum MockOpenError: Error {
+  case refused
+}
+
 enum TestFailure: LocalizedError {
   case expectation(String)
 
@@ -24,6 +54,11 @@ struct ControllerTests {
     try projectLocatorRequiresAllScripts()
     try terminationPolicyProtectsActiveServices()
     try await scriptExecutorRunsWithoutTerminal()
+    try await webAppPathUsesCurrentHome()
+    try await existingWebAppOpensWithoutSafari()
+    try await runningWebAppActivatesWithoutDuplicate()
+    try await missingWebAppFallsBackOnce()
+    try await webAppOpenErrorFallsBackOnce()
     if let integrationRoot = ProcessInfo.processInfo.environment[
       "DEUTSCHOS_CONTROLLER_INTEGRATION_ROOT"
     ] {
@@ -201,6 +236,98 @@ struct ControllerTests {
     let result = await ScriptExecutor().run(script: script, projectRoot: root)
     try expect(result.succeeded, "script executor failed")
     try expect(result.standardOutput == "controller-ok\n", "script output")
+    passed += 1
+  }
+
+  private static func webAppPathUsesCurrentHome() async throws {
+    let home = URL(fileURLWithPath: "/private/tmp/current-user-home", isDirectory: true)
+    let launcher = WebAppLauncher(workspace: MockWorkspace(), homeDirectory: home)
+    try expect(
+      launcher.applicationURL.path == "/private/tmp/current-user-home/Applications/DeutschOS.app",
+      "web app path does not derive from current home"
+    )
+    passed += 1
+  }
+
+  private static func existingWebAppOpensWithoutSafari() async throws {
+    let manager = FileManager.default
+    let home = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let app = home.appendingPathComponent("Applications/DeutschOS.app")
+    try manager.createDirectory(at: app, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: home) }
+    let workspace = MockWorkspace()
+    let outcome = try await WebAppLauncher(
+      workspace: workspace,
+      fileManager: manager,
+      homeDirectory: home
+    ).launch()
+
+    try expect(outcome == .opened, "existing web app was not opened")
+    try expect(
+      workspace.openedApplications.map(\.standardizedFileURL.path)
+        == [app.standardizedFileURL.path],
+      "wrong web app path opened"
+    )
+    try expect(workspace.openedURLs.isEmpty, "Safari opened alongside web app")
+    passed += 1
+  }
+
+  private static func runningWebAppActivatesWithoutDuplicate() async throws {
+    let workspace = MockWorkspace()
+    workspace.shouldActivate = true
+    let outcome = try await WebAppLauncher(workspace: workspace).launch()
+
+    try expect(outcome == .activated, "running web app was not activated")
+    try expect(
+      workspace.activatedBundleIdentifiers == [WebAppLauncher.bundleIdentifier],
+      "wrong bundle identifier activated"
+    )
+    try expect(workspace.openedApplications.isEmpty, "running web app duplicated")
+    try expect(workspace.openedURLs.isEmpty, "Safari opened for running web app")
+    passed += 1
+  }
+
+  private static func missingWebAppFallsBackOnce() async throws {
+    let workspace = MockWorkspace()
+    let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let outcome = try await WebAppLauncher(
+      workspace: workspace,
+      homeDirectory: home
+    ).launch()
+
+    guard case .safariFallback(let reason) = outcome else {
+      throw TestFailure.expectation("missing web app did not use fallback")
+    }
+    try expect(reason.contains("no está instalada"), "missing-app reason not logged")
+    try expect(workspace.openedURLs == [WebAppLauncher.webURL], "fallback was not unique")
+    try expect(workspace.openedApplications.isEmpty, "missing web app was opened")
+    passed += 1
+  }
+
+  private static func webAppOpenErrorFallsBackOnce() async throws {
+    let manager = FileManager.default
+    let home = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let app = home.appendingPathComponent("Applications/DeutschOS.app")
+    try manager.createDirectory(at: app, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: home) }
+    let workspace = MockWorkspace()
+    workspace.openApplicationError = MockOpenError.refused
+    let outcome = try await WebAppLauncher(
+      workspace: workspace,
+      fileManager: manager,
+      homeDirectory: home
+    ).launch()
+
+    guard case .safariFallback(let reason) = outcome else {
+      throw TestFailure.expectation("open error did not use fallback")
+    }
+    try expect(reason.contains("no pudo abrir"), "open-error reason not preserved")
+    try expect(
+      workspace.openedApplications.map(\.standardizedFileURL.path)
+        == [app.standardizedFileURL.path],
+      "web app open not attempted once"
+    )
+    try expect(workspace.openedURLs == [WebAppLauncher.webURL], "fallback was not unique")
     passed += 1
   }
 

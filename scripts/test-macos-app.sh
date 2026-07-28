@@ -29,6 +29,7 @@ TARGET="$(uname -m)-apple-macosx13.0"
   -module-cache-path "$BUILD_DIR/module-cache" \
   "$SOURCE_DIR/ServiceStatus.swift" \
   "$SOURCE_DIR/ScriptExecutor.swift" \
+  "$SOURCE_DIR/WebAppLauncher.swift" \
   "$SOURCE_DIR/ControllerModel.swift" \
   "$TEST_SOURCE" \
   -o "$BUILD_DIR/ControllerTests"

@@ -12,6 +12,7 @@ final class ControllerModel: ObservableObject {
 
   private(set) var allowImmediateTermination = false
   private let projectRoot: URL?
+  private let webAppLauncher: WebAppLauncher
   private var monitorTask: Task<Void, Never>?
   private var actionTask: Task<Void, Never>?
   private var activeExecutor: ScriptExecutor?
@@ -19,8 +20,12 @@ final class ControllerModel: ObservableObject {
   private var terminationInProgress = false
   private var lastLoggedStatus: String?
 
-  init(projectRoot: URL? = ProjectLocator.locate()) {
+  init(
+    projectRoot: URL? = ProjectLocator.locate(),
+    webAppLauncher: WebAppLauncher = WebAppLauncher()
+  ) {
     self.projectRoot = projectRoot
+    self.webAppLauncher = webAppLauncher
     if projectRoot == nil {
       phase = .ssdUnavailable
       snapshot.ssdAvailable = false
@@ -32,7 +37,7 @@ final class ControllerModel: ObservableObject {
   }
 
   var canStart: Bool {
-    !phase.isBusy && phase != .ssdUnavailable && !snapshot.allServicesActive
+    !phase.isBusy && phase != .ssdUnavailable
   }
 
   var canStop: Bool {
@@ -82,8 +87,10 @@ final class ControllerModel: ObservableObject {
   }
 
   func openWeb() {
-    guard canOpenWeb, let url = URL(string: "http://127.0.0.1:3000") else { return }
-    NSWorkspace.shared.open(url)
+    guard canOpenWeb else { return }
+    Task { [weak self] in
+      await self?.launchWebApplication()
+    }
   }
 
   func openLogs() {
@@ -208,6 +215,28 @@ final class ControllerModel: ObservableObject {
       phase = .error
       alertMessage = UserFacingError.message(action: "el arranque", result: result)
       appendOperationalLog("arranque fallido (código \(result.exitCode))")
+      return
+    }
+    appendOperationalLog("API y Web listas; abriendo aplicación web")
+    await launchWebApplication()
+  }
+
+  private func launchWebApplication() async {
+    do {
+      switch try await webAppLauncher.launch() {
+      case .activated:
+        appendOperationalLog("aplicación web ya activa; traída al frente sin duplicarla")
+      case .opened:
+        appendOperationalLog(
+          "aplicación web localizada y abierta mediante ~/Applications/DeutschOS.app"
+        )
+      case .safariFallback(let reason):
+        appendOperationalLog("fallback a Safari: \(reason)")
+        alertMessage = "Se abrió Safari como respaldo porque \(reason)."
+      }
+    } catch {
+      appendOperationalLog("error de apertura: \(error.localizedDescription)")
+      alertMessage = error.localizedDescription
     }
   }
 

@@ -59,9 +59,25 @@ all_services_ready() {
 }
 
 open_deutschos() {
+  local web_app
   if [[ "$LAUNCHER_TEST_MODE" == "1" && "${DEUTSCHOS_LAUNCHER_NO_OPEN:-1}" == "1" ]]; then
-    launcher_log "Apertura del navegador omitida en modo de prueba."
+    launcher_log "Apertura de la interfaz omitida en modo de prueba."
     return 0
+  fi
+  if [[ "${DEUTSCHOS_APP_WRAPPER:-0}" == "1" ]]; then
+    launcher_log "Servicios listos; el controlador abrirá la aplicación web mediante NSWorkspace."
+    return 0
+  fi
+  web_app="$HOME/Applications/DeutschOS.app"
+  if [[ -d "$web_app" ]]; then
+    launcher_log "Aplicación web localizada; abriendo su bundle exacto."
+    if /usr/bin/open "$web_app" >>"$LAUNCHER_LOG" 2>&1; then
+      launcher_log "Aplicación web abierta."
+      return 0
+    fi
+    launcher_log "Error de apertura de la aplicación web; fallback único a Safari."
+  else
+    launcher_log "Aplicación web ausente; fallback único a Safari."
   fi
   /usr/bin/open "$WEB_URL" >>"$LAUNCHER_LOG" 2>&1
 }
@@ -200,7 +216,7 @@ MODEL_NAMES="$(active_model_names || true)"
 [[ -n "$MODEL_NAMES" ]] || fail_launcher "LM Studio responde, pero no informa modelos disponibles."
 launcher_log "Modelos activos: $MODEL_NAMES"
 
-open_deutschos || fail_launcher "Los servicios están listos, pero macOS no pudo abrir $WEB_URL."
+open_deutschos || fail_launcher "Los servicios están listos, pero macOS no pudo abrir ninguna interfaz."
 START_SUCCEEDED=1
 launcher_log "DeutschOS listo en $WEB_URL"
 exit 0

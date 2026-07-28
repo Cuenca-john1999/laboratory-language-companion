@@ -79,11 +79,11 @@ struct ControllerView: View {
     switch controller.phase {
     case .running:
       VStack(spacing: 10) {
-        Button("Abrir DeutschOS") { controller.openWeb() }
+        Button("Iniciar") { controller.startRequested() }
           .buttonStyle(.borderedProminent)
           .controlSize(.large)
           .frame(maxWidth: .infinity)
-          .disabled(!controller.canOpenWeb)
+          .disabled(!controller.canStart)
           .accessibilityIdentifier("open-deutschos")
         Button("Detener") { controller.stopRequested() }
           .controlSize(.large)
