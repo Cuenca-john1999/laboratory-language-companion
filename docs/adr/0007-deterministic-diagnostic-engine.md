@@ -132,7 +132,7 @@ tiene triggers equivalentes a los de respuestas y resultados. Si la auditoría
 futura exige inmutabilidad frente a escritores directos, deberá añadirse una
 tabla de eventos en otra decisión y migración.
 
-El servicio no importa el Learning Engine, Ollama o capas HTTP y no escribe
+El servicio no importa el Learning Engine, LM Studio o capas HTTP y no escribe
 `StudentSkill` ni `SkillEvidence`.
 
 ## Alternativas consideradas
@@ -145,7 +145,7 @@ para identidad, no introduce aleatoriedad en esta versión.
 
 ### Decidir itinerario o score con un LLM
 
-Se rechazó porque impediría reproducir resultados, fallaría con Ollama apagado y
+Se rechazó porque impediría reproducir resultados, fallaría con LM Studio apagado y
 mezclaría generación lingüística con control de dominio. El LLM queda fuera de
 esta versión.
 
@@ -171,7 +171,7 @@ difícil probar selección, scoring y agregación como funciones reproducibles.
 
 ### Positivas
 
-- El motor funciona completamente offline y con Ollama apagado.
+- El motor funciona completamente offline y con LM Studio apagado.
 - La misma entrada produce la misma tarea y estimación.
 - Los límites y transiciones impiden bucles y cierres incoherentes.
 - Pausa, reinicio e idempotencia conservan el estado local.
@@ -194,7 +194,7 @@ difícil probar selección, scoring y agregación como funciones reproducibles.
 ## Fuera de alcance
 
 - endpoints y frontend;
-- Ollama, LLM y generación o evaluación libre;
+- LM Studio, LLM y generación o evaluación libre;
 - audio, voz y pronunciación;
 - proyección a `StudentSkill` o `SkillEvidence`;
 - cambios de currículo;

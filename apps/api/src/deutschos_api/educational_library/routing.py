@@ -120,7 +120,7 @@ class LibraryModelRouter:
                 )
             )
         return ModelRoutingRead(
-            ollama_available=available,
+            lm_studio_available=available,
             installed_models=installed,
             roles=roles,
             policy_version=ROUTING_POLICY_VERSION,

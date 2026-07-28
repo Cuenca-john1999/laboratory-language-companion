@@ -1,7 +1,7 @@
 # Learning Engine v2
 
 El primer núcleo funcional de Milestone 1 es local, determinista y totalmente
-independiente de Ollama. El código decide qué estudiar, qué prerrequisitos se
+independiente de LM Studio. El código decide qué estudiar, qué prerrequisitos se
 cumplen, cómo cambia el dominio y cuándo toca repasar. Un modelo de lenguaje
 podrá generar el enunciado de una actividad ya seleccionada, pero no puede
 alterar esas decisiones ni escribir directamente en `StudentSkill`.

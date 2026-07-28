@@ -51,10 +51,10 @@ function boundedHistory(messages: Message[]): ChatHistoryMessage[] {
 
 function modelError(models: ModelsResponse): string {
   if (!models.available) {
-    return models.error ?? "Ollama no está disponible.";
+    return models.error ?? "LM Studio no está disponible.";
   }
   if (models.models.length === 0) {
-    return "Ollama está activo, pero no hay modelos instalados.";
+    return "LM Studio está activo, pero no hay modelos instalados.";
   }
   return "";
 }
@@ -83,7 +83,7 @@ export function Chat() {
         setError(
           cause instanceof Error
             ? cause.message
-            : "No se pudo comprobar el estado de Ollama.",
+            : "No se pudo comprobar el estado de LM Studio.",
         );
       });
   }, []);
@@ -183,11 +183,11 @@ export function Chat() {
 
   const placeholder =
     models === undefined
-      ? "Comprobando Ollama…"
+      ? "Comprobando LM Studio…"
       : models === null
         ? "La API local debe estar activa para conversar"
         : !models.available
-          ? "Ollama debe estar activo para conversar"
+          ? "LM Studio debe estar activo para conversar"
           : models.models.length === 0
             ? "Instala un modelo local para conversar"
             : "Schreib etwas…";

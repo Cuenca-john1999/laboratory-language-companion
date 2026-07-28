@@ -5,7 +5,6 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 # shellcheck source=launcher-common.sh
 source "$PROJECT_ROOT/scripts/launcher-common.sh"
 
-STARTED_OLLAMA=""
 STARTED_API=""
 STARTED_WEB=""
 LOCK_DIR="$RUN_DIR/start.lock"
@@ -42,7 +41,6 @@ cleanup_start() {
   if ((START_SUCCEEDED == 0)); then
     cleanup_started_role web "$STARTED_WEB"
     cleanup_started_role api "$STARTED_API"
-    cleanup_started_role ollama "$STARTED_OLLAMA"
   fi
   if ((LOCK_OWNED == 1)); then
     rm -f -- "$LOCK_DIR/pid"
@@ -57,7 +55,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 all_services_ready() {
-  ollama_ready && api_ready && web_ready
+  lm_studio_ready && api_ready && web_ready
 }
 
 open_deutschos() {
@@ -116,12 +114,6 @@ launcher_log "Solicitud de arranque para $PROJECT_ROOT"
 df -P "$PROJECT_ROOT" >/dev/null 2>&1 || fail_launcher "No se puede acceder al volumen del proyecto."
 [[ -x "$PYTHON" ]] || fail_launcher "Falta .venv/bin/python; ejecuta la instalación del README."
 [[ -x "$NEXT_BIN" ]] || fail_launcher "Faltan dependencias web; ejecuta npm ci."
-[[ -n "$OLLAMA_BIN" && -x "$OLLAMA_BIN" ]] || fail_launcher "Ollama no está instalado o no es ejecutable."
-
-MODEL_COUNT="$(model_count_on_disk)"
-((MODEL_COUNT > 0)) || fail_launcher "No hay modelos en $OLLAMA_MODELS_DIR. No se descargará ninguno automáticamente."
-launcher_log "$MODEL_COUNT manifiesto(s) de modelo detectado(s) en $OLLAMA_MODELS_DIR."
-
 if acquire_start_lock; then
   :
 else
@@ -134,32 +126,10 @@ else
   fail_launcher "No se pudo adquirir el bloqueo de arranque; revisa $LOCK_DIR."
 fi
 
-clean_invalid_pid_file ollama
-if ollama_ready; then
-  if pid_file_state ollama; then
-    launcher_log "Ollama ya está activo y continúa gestionado por DeutschOS."
-  else
-    launcher_log "Ollama ya está activo; se reutiliza sin asumir su propiedad."
-  fi
-elif pid_file_state ollama; then
-  wait_for_probe "Ollama" ollama_ready "$PID_VALUE" "$START_TIMEOUT" \
-    || fail_launcher "El Ollama gestionado no llegó a estar disponible. Revisa logs/ollama.log."
-elif port_is_busy "$OLLAMA_PORT"; then
-  fail_launcher "El puerto $OLLAMA_PORT está ocupado por un servicio que no responde como Ollama."
+if lm_studio_ready; then
+  launcher_log "LM Studio está activo; se reutiliza como servicio externo."
 else
-  launcher_log "Iniciando Ollama en loopback con OLLAMA_MODELS=$OLLAMA_MODELS_DIR"
-  /usr/bin/nohup /usr/bin/env \
-    OLLAMA_HOST="127.0.0.1:$OLLAMA_PORT" \
-    OLLAMA_MODELS="$OLLAMA_MODELS_DIR" \
-    OLLAMA_NO_CLOUD=1 \
-    OLLAMA_NOHISTORY=1 \
-    "$OLLAMA_BIN" serve </dev/null >>"$LOG_DIR/ollama.log" 2>&1 &
-  STARTED_OLLAMA=$!
-  disown "$STARTED_OLLAMA" 2>/dev/null || true
-  write_pid_file ollama "$STARTED_OLLAMA" \
-    || fail_launcher "No se pudo registrar el PID de Ollama."
-  wait_for_probe "Ollama" ollama_ready "$STARTED_OLLAMA" "$START_TIMEOUT" \
-    || fail_launcher "Ollama no arrancó. Revisa logs/ollama.log."
+  fail_launcher "LM Studio no responde en $LM_STUDIO_URL. Inicia su servidor local."
 fi
 
 if ! api_ready; then
@@ -227,7 +197,7 @@ else
 fi
 
 MODEL_NAMES="$(active_model_names || true)"
-[[ -n "$MODEL_NAMES" ]] || fail_launcher "Ollama responde, pero no informa modelos disponibles."
+[[ -n "$MODEL_NAMES" ]] || fail_launcher "LM Studio responde, pero no informa modelos disponibles."
 launcher_log "Modelos activos: $MODEL_NAMES"
 
 open_deutschos || fail_launcher "Los servicios están listos, pero macOS no pudo abrir $WEB_URL."

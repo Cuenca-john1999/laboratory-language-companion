@@ -30,9 +30,9 @@ class EmbeddingProvider(Protocol):
     async def metadata(self) -> tuple[str, str]: ...
 
 
-class OllamaEmbeddingProvider:
-    provider_name = "ollama"
-    model_version = "ollama-embed-api.v1"
+class LMStudioEmbeddingProvider:
+    provider_name = "lm_studio"
+    model_version = "openai-embeddings-api.v1"
 
     def __init__(self, base_url: str, model: str, *, timeout: float = 120):
         self.base_url = base_url.rstrip("/")
@@ -45,14 +45,14 @@ class OllamaEmbeddingProvider:
             return False
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
+                response = await client.get(f"{self.base_url}/models")
                 response.raise_for_status()
-                models = response.json().get("models", [])
+                models = response.json().get("data", [])
                 for item in models:
                     if not isinstance(item, dict):
                         continue
-                    if (item.get("model") or item.get("name")) == self.model_name:
-                        self._digest = str(item.get("digest") or self.model_version)
+                    if item.get("id") == self.model_name:
+                        self._digest = self.model_version
                         return True
                 return False
         except (httpx.HTTPError, ValueError, AttributeError):
@@ -64,16 +64,20 @@ class OllamaEmbeddingProvider:
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 response = await client.post(
-                    f"{self.base_url}/api/embed",
-                    json={"model": self.model_name, "input": list(texts), "keep_alive": "5m"},
+                    f"{self.base_url}/embeddings",
+                    json={"model": self.model_name, "input": list(texts)},
                 )
                 response.raise_for_status()
                 payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeError("El proveedor local de embeddings no está disponible.") from exc
-        embeddings = payload.get("embeddings") if isinstance(payload, dict) else None
-        if not isinstance(embeddings, list) or len(embeddings) != len(texts):
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list) or len(data) != len(texts):
             raise RuntimeError("El proveedor local devolvió embeddings inválidos.")
+        embeddings = [
+            item.get("embedding") for item in sorted(data, key=lambda item: item.get("index", 0))
+            if isinstance(item, dict)
+        ]
         parsed: list[list[float]] = []
         for vector in embeddings:
             if not isinstance(vector, list) or not vector:

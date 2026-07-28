@@ -5,7 +5,7 @@
 Este documento describe la implementación interna de `#006C` sobre la
 persistencia `0005` y su adaptador HTTP de `#006D`. El motor selecciona, evalúa
 y agrega tareas diagnósticas de texto de forma local, reproducible y acotada.
-El núcleo no depende del frontend, Ollama o cualquier otro proveedor de modelos;
+El núcleo no depende del frontend, LM Studio o cualquier otro proveedor de modelos;
 los endpoints se limitan a validar, traducir y proyectar sus contratos.
 
 La implementación vive en
@@ -654,7 +654,7 @@ Limitaciones actuales:
 Queda fuera de alcance:
 
 - frontend diagnóstico;
-- LLM, Ollama y evaluación libre;
+- LLM, LM Studio y evaluación libre;
 - audio, voz, escucha y pronunciación;
 - banco pedagógico de producción;
 - integración o proyección a `StudentSkill` y `SkillEvidence`;
@@ -716,7 +716,7 @@ La traducción de errores es deliberadamente estable y sanitizada:
 
 No se incorporan mensajes internos ni trazas a la respuesta HTTP y las rutas no
 registran textos del alumno o contenido de tareas. No se importa ni consulta
-Ollama.
+LM Studio.
 
 ### Proveedor de producción
 

@@ -302,7 +302,7 @@ El evaluador determinista tiene prioridad cuando existe una clave suficiente.
 Un LLM puede evaluar texto libre únicamente con un esquema cerrado, una rúbrica
 versionada y citas breves de la respuesta como justificación. No selecciona la
 habilidad, dificultad, siguiente tarea, score final, confianza agregada ni
-finalización. Si Ollama no está disponible o su salida no valida, la tarea se
+finalización. Si LM Studio no está disponible o su salida no valida, la tarea se
 pospone, usa una evaluación determinista alternativa o queda `not_evaluable`;
 la sesión no se bloquea.
 
@@ -582,7 +582,7 @@ las filas normalizadas son la base para auditar y recalcular.
   por separado; el conocimiento técnico no rescata formas lingüísticas.
 - **Contenido ambiguo o clave errónea:** invalidar la tarea, no al alumno, y
   excluirla de la estimación.
-- **Ollama desconectado:** continuar con tareas/evaluaciones deterministas;
+- **LM Studio desconectado:** continuar con tareas/evaluaciones deterministas;
   posponer o marcar no evaluables las respuestas libres que lo requieran.
 - **Reinicio de aplicación:** reanudar desde la última transición persistida y no
   duplicar tareas ni evaluaciones.
@@ -644,7 +644,7 @@ aceptación de esa versión.
 | `#006C` | Máquina de estados y motor adaptativo determinista de texto | Alto–ULTRA | Moderado–alto | `#006B`, plantillas mínimas y bandas acordadas | Selección, límites, pausa, reanudación, idempotencia y casos límite cubiertos; sin endpoints ni LLM |
 | `#006D` | Endpoints y contratos API | Alto | Moderado | `#006C` | Crear/reanudar/responder/pausar/completar/leer informe con códigos HTTP e idempotencia probados |
 | `#006E` | Interfaz de primera clase, pausa e informe | Alto | Moderado | `#006D` | Flujo accesible en español, estados reales, sin datos inventados y aceptación manual básica |
-| `#006F` | Generación/evaluación LLM estructurada con fallback | Alto–ULTRA | Moderado–alto | Flujo determinista estable | Esquemas estrictos, prompts versionados, auditoría, tolerancia a Ollama apagado y comparación con evaluaciones deterministas |
+| `#006F` | Generación/evaluación LLM estructurada con fallback | Alto–ULTRA | Moderado–alto | Flujo determinista estable | Esquemas estrictos, prompts versionados, auditoría, tolerancia a LM Studio apagado y comparación con evaluaciones deterministas |
 | `#006G` | Aceptación manual y ajuste conservador | Alto | Moderado | `#006B–F` | Sesión real de 15–25 minutos, pausa/reanudación, informe honesto, revisión de logs/datos y defectos corregidos |
 | `#006H` | Comprensión auditiva local | Alto | Moderado–alto | Texto aceptado, política de audio | Estímulos versionados, controles, evidencias auditivas separadas y funcionamiento offline |
 | `#006I` | Voz, fluidez y pronunciación orientativa | Alto–ULTRA | Alto | `#006H`, decisión de retención | Grabación explícita local, métricas prudentes, borrado probado y ninguna inferencia oral desde texto |
@@ -749,7 +749,7 @@ El `CandidateProvider` es una dependencia. Solo las pruebas usan fixtures
 deterministas pequeños. Como aún no existe un banco pedagógico de producción,
 la API real devuelve `503` para todas las operaciones diagnósticas en lugar de
 presentar esos fixtures como contenido auténtico. No hay integración con
-Ollama, audio, frontend ni proyección a `StudentSkill`/`SkillEvidence`.
+LM Studio, audio, frontend ni proyección a `StudentSkill`/`SkillEvidence`.
 
 El cargador editorial solo permite que bancos con estado explícito `production`,
 checksum verificado y tareas deterministas lleguen a ese proveedor. Los estados

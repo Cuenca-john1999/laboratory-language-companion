@@ -2,4 +2,4 @@
 
 **Estado:** aceptado.
 
-La aplicación depende de `ModelProvider`, no de Ollama. El contrato cubre salud, modelos, chat, generación estructurada y reserva embeddings. Esto permite sustituir el runtime y centraliza validación, reparación y errores.
+La aplicación depende de `ModelProvider`, no de LM Studio. El contrato cubre salud, modelos, chat, generación estructurada y reserva embeddings. Esto permite sustituir el runtime y centraliza validación, reparación y errores.

@@ -2,7 +2,7 @@
 
 Sistema privado, local-first y de usuario único para aprender alemán. La API es
 FastAPI, la interfaz usa Next.js y el estado del estudiante se conserva en
-SQLite mediante migraciones Alembic. Ollama es opcional: si está apagado, el
+SQLite mediante migraciones Alembic. LM Studio es opcional: si está apagado, el
 perfil, el dashboard y el resto de la aplicación siguen disponibles.
 
 ## Requisitos (macOS Apple Silicon)
@@ -10,10 +10,10 @@ perfil, el dashboard y el resto de la aplicación siguen disponibles.
 - Node.js 20.9 o posterior.
 - npm.
 - Python 3.12.
-- Ollama, solo para las funciones que necesitan un modelo local.
+- LM Studio, solo para las funciones que necesitan un modelo local.
 
 ```bash
-brew install node python@3.12 ollama
+brew install node python@3.12 lm_studio
 ```
 
 ## Instalación inicial
@@ -42,7 +42,7 @@ cd /Volumes/Juegos/DeutschOS
 ```
 
 `doctor.sh` revisa el volumen, runtimes, dependencias, SQLite, migraciones,
-Ollama y los puertos 3000/8000. Ollama ausente o apagado es un aviso, no un
+LM Studio y los puertos 3000/8000. LM Studio ausente o apagado es un aviso, no un
 fallo esencial.
 
 `dev.sh` comprueba los requisitos, aplica migraciones de forma segura y levanta
@@ -70,7 +70,7 @@ conectado. La ruta del proyecto queda registrada durante el build, por lo que
 también puede copiarse a `~/Applications` sin perder el proyecto del SSD.
 
 - **Iniciar** ejecuta `scripts/start.sh`, muestra el progreso real y abre la web
-  cuando Ollama, FastAPI y Next.js responden.
+  cuando LM Studio, FastAPI y Next.js responden.
 - **Abrir DeutschOS** abre `http://127.0.0.1:3000` cuando la web está disponible.
 - **Detener** ejecuta `scripts/stop.sh` y mantiene abierta la ventana.
 - **Salir** detiene los procesos gestionados antes de terminar la aplicación.
@@ -90,7 +90,7 @@ Para consultar o detener desde una shell siguen disponibles:
 ```
 
 Los logs privados están en `logs/` y los PID files en `run/`; ambos directorios,
-`dist/` y `Ollama/` están excluidos de Git. `stop.sh` no cierra un Ollama, API o
+`dist/` y `LM Studio/` están excluidos de Git. `stop.sh` no cierra un LM Studio, API o
 web iniciados de otra manera. Si el bundle está copiado fuera del SSD puede
 mostrar «SSD no disponible»; si vive en el propio SSD, macOS no podrá abrirlo
 hasta volver a montar `/Volumes/Juegos`. No se instalan LaunchAgents ni se
@@ -110,7 +110,7 @@ de la aplicación nativa.
 
 ## Probar el Learning Engine
 
-El planificador y los repasos funcionan aunque Ollama esté apagado. Con API y
+El planificador y los repasos funcionan aunque LM Studio esté apagado. Con API y
 web iniciadas:
 
 ```bash
@@ -141,7 +141,7 @@ originales no se modifican; el catálogo reconstruible vive en
 ./scripts/educational-library.sh integrity
 ```
 
-La búsqueda léxica FTS5 funciona sin Ollama. Embeddings y transcripción se
+La búsqueda léxica FTS5 funciona sin LM Studio. Embeddings y transcripción se
 declaran no disponibles si no existe un proveedor local real; no se simulan ni
 se descargan modelos. Qwen puede crear KnowledgeUnits candidatas y borradores
 con fuentes, siempre separados del currículo y del progreso. Consulta
@@ -153,11 +153,11 @@ seguridad y limitaciones.
 En una terminal independiente:
 
 ```bash
-ollama serve
-ollama pull qwen3:8b
+lm_studio serve
+lm_studio pull qwen3:8b
 ```
 
-El chat permite elegir cualquier modelo instalado. Si Ollama no responde, la
+El chat permite elegir cualquier modelo instalado. Si LM Studio no responde, la
 API comunica indisponibilidad real; no genera respuestas simuladas.
 
 ## Copias de seguridad

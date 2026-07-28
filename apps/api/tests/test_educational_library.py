@@ -52,7 +52,7 @@ def library_settings(tmp_path: Path) -> Settings:
         educational_library_runtime_dir=tmp_path / "runtime",
         educational_library_scan_on_startup=False,
         educational_library_embedding_model="",
-        ollama_model="test-qwen",
+        lm_studio_model="test-qwen",
     )
 
 

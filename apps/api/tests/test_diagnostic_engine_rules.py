@@ -690,7 +690,7 @@ def test_deterministic_partial_key_and_second_empty_attempt_are_auditable():
     assert empty_retry.reason_codes == ["empty_response_retry_exhausted"]
 
 
-def test_free_text_without_deterministic_rubric_remains_not_evaluable_without_ollama():
+def test_free_text_without_deterministic_rubric_remains_not_evaluable_without_lm_studio():
     task = candidate(
         "manual",
         strategy=RubricStrategy.MANUAL_ONLY,

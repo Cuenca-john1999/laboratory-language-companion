@@ -75,6 +75,6 @@ class DashboardResponse(APIModel):
     preferred_name: str
     immediate_goal: str
     current_model: str | None
-    ollama_available: bool
+    lm_studio_available: bool
     pending_reviews: int
     recent_sessions: list[SessionRead]

@@ -96,7 +96,7 @@ defecto.
 ## Búsqueda y memoria pedagógica
 
 FTS5 con tokenización Unicode y ranking BM25 está siempre disponible. Los modos
-`semantic` y `hybrid` usan `qwen3-embedding:0.6b` mediante `EmbeddingProvider`; si
+`semantic` y `hybrid` usan `text-embedding-nomic-embed-text-v1.5` mediante `EmbeddingProvider`; si
 no está instalado o disponible, la respuesta declara `semantic_available=false`
 y cae a léxico. Nunca se fabrican vectores de producción. Consulta y texto se
 normalizan con NFC y espacios canónicos, sin traducirlos ni borrar signos.
@@ -135,7 +135,7 @@ originales; la API devuelve fragmentos breves y no capítulos.
 `EducationalTeacherService` es el único pipeline de consulta educativa. Reglas
 deterministas crean planes seguros para consultas frecuentes (`die`, acusativo,
 `kein/nicht`, pronombres, Konjunktiv II y otras); los demás planes usan
-`qwen3.5:4b`. El plan estricto `library-query-plan.v1` contiene intención,
+`google/gemma-4-12b-qat`. El plan estricto `library-query-plan.v1` contiene intención,
 ambigüedad y hasta seis consultas locales. El servicio valida el plan, ejecuta la recuperación
 híbrida con fallback léxico, combina KnowledgeUnits con chunks originales, baja
 la prioridad de solucionarios y deduplica por hash, grupo de duplicados y
@@ -155,11 +155,11 @@ conocimiento externo.
 
 Los nombres de modelo viven en configuración, no dispersos en el pipeline:
 
-- planner y reparación estructural: `qwen3.5:4b`;
-- embeddings: `qwen3-embedding:0.6b`;
-- docente ordinario: `qwen3:14b`;
-- explicaciones profundas de Konjunktiv II y declinación adjetival: `qwen3.5:27b`;
-- visión selectiva: `qwen3-vl:8b`.
+- planner y reparación estructural: `google/gemma-4-12b-qat`;
+- embeddings: `text-embedding-nomic-embed-text-v1.5`;
+- docente ordinario: `google/gemma-4-12b-qat`;
+- explicaciones profundas de Konjunktiv II y declinación adjetival: `google/gemma-4-26b-a4b-qat`;
+- visión selectiva: `google/gemma-4-12b-qat`.
 
 El benchmark #007L2 favoreció 14B para uso ordinario (27,5 s de media y 7/10
 respuestas verificadas) frente a 27B (64,9 s y 5/10). El modelo alternativo forma
@@ -253,9 +253,9 @@ degrada falsamente a `no_evidence`.
 ./scripts/educational-library.sh page-quality SOURCE_ID
 ./scripts/educational-library.sh reprocess-page SOURCE_ID 10 --method vision
 ./scripts/educational-library.sh ask "¿Qué significa die?"
-./scripts/educational-library.sh derive "Nominativ Akkusativ" --model qwen3:14b
+./scripts/educational-library.sh derive "Nominativ Akkusativ" --model google/gemma-4-12b-qat
 ./scripts/educational-library.sh generate "Nominativ Akkusativ" \
-  --objective micro_lesson --level A1 --model qwen3:14b
+  --objective micro_lesson --level A1 --model google/gemma-4-12b-qat
 ./scripts/educational-library.sh integrity
 ./scripts/educational-library.sh import-herder-index /ruta/Herder_Index.pdf \
   --canonical-json /ruta/Herder_Index_canonical.json
@@ -326,7 +326,7 @@ texto nativo o pdftotext, después OCR local disponible, visión selectiva y rev
 humana. Cada variante registra método, versión, hash, calidad y provenance;
 seleccionarla no borra ni reescribe la anterior.
 
-En el entorno validado existen `pdftotext`, `pdftoppm` y `qwen3-vl:8b`; no existen
+En el entorno validado existen `pdftotext`, `pdftoppm` y `google/gemma-4-12b-qat`; no existen
 Tesseract ni OCRmyPDF, por lo que OCR devuelve 503 en lugar de fingir capacidad.
 Una única página difícil del workbook se transcribió con visión a 120 dpi,
 razonamiento desactivado, salida limitada e imagen temporal eliminada. No hay OCR

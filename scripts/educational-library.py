@@ -41,7 +41,7 @@ from deutschos_api.educational_library.schemas import (  # noqa: E402
 )
 from deutschos_api.educational_library.search import (  # noqa: E402
     EducationalSearchService,
-    OllamaEmbeddingProvider,
+    LMStudioEmbeddingProvider,
 )
 from deutschos_api.educational_library.routing import (  # noqa: E402
     LibraryModelRouter,
@@ -54,7 +54,7 @@ from deutschos_api.educational_library.teacher import (  # noqa: E402
     EducationalTeacherService,
     LearnerContext,
 )
-from deutschos_api.providers.ollama import OllamaProvider  # noqa: E402
+from deutschos_api.providers.lm_studio import LMStudioProvider  # noqa: E402
 from deutschos_api.providers.base import (  # noqa: E402
     ProviderResponseError,
     ProviderUnavailableError,
@@ -138,30 +138,30 @@ def components():
     service = EducationalLibraryService(settings)
     embedding_model = settings.educational_library_embedding_model.strip()
     embedding = (
-        OllamaEmbeddingProvider(settings.ollama_base_url, embedding_model)
+        LMStudioEmbeddingProvider(settings.lm_studio_base_url, embedding_model)
         if embedding_model
         else None
     )
     search = EducationalSearchService(service.database, embedding)
-    provider = OllamaProvider(settings.ollama_base_url, timeout=300)
+    provider = LMStudioProvider(settings.lm_studio_base_url, timeout=300)
     knowledge = EducationalKnowledgeService(
         service.database,
         search,
         provider,
-        default_model=settings.ollama_model,
+        default_model=settings.lm_studio_model,
     )
     return service, search, knowledge
 
 
 async def runtime_summary(service: EducationalLibraryService) -> dict[str, object]:
     settings = get_settings()
-    provider = OllamaProvider(settings.ollama_base_url, timeout=5)
+    provider = LMStudioProvider(settings.lm_studio_base_url, timeout=5)
     try:
         installed = [item.name for item in await provider.list_models()]
     except (ProviderUnavailableError, ProviderResponseError):
         installed = []
     return service.summary(
-        ollama_available=bool(installed), installed_models=installed
+        lm_studio_available=bool(installed), installed_models=installed
     ).model_dump(mode="json")
 
 
@@ -181,10 +181,9 @@ async def run(args: argparse.Namespace) -> object:
         return payload
     if args.command == "ask":
         settings = get_settings()
-        provider = OllamaProvider(
-            settings.ollama_base_url,
+        provider = LMStudioProvider(
+            settings.lm_studio_base_url,
             timeout=settings.educational_library_teacher_timeout_seconds,
-            keep_alive=settings.educational_library_model_keep_alive,
         )
         router = LibraryModelRouter(
             provider,
@@ -203,7 +202,7 @@ async def run(args: argparse.Namespace) -> object:
             service.database,
             search,
             provider,
-            default_model=settings.ollama_model,
+            default_model=settings.lm_studio_model,
             model_router=router,
         )
         return (
@@ -336,9 +335,8 @@ async def run(args: argparse.Namespace) -> object:
             visual_seconds = None
         else:
             extractor = HerderIndexVisualExtractor(
-                settings.ollama_base_url,
+                settings.lm_studio_base_url,
                 model=settings.educational_library_vision_model,
-                keep_alive=settings.educational_library_model_keep_alive,
             )
             pages = await extractor.extract(args.reference.expanduser())
             model = extractor.model

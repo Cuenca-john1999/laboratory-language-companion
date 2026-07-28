@@ -122,7 +122,7 @@ def intelligence_library(tmp_path: Path) -> EducationalLibraryService:
         educational_library_runtime_dir=tmp_path / "runtime",
         educational_library_scan_on_startup=False,
         educational_library_embedding_model="",
-        ollama_model="test",
+        lm_studio_model="test",
     )
     return EducationalLibraryService(settings)
 
@@ -386,9 +386,16 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
 
         def json(self):
             return {
-                "message": {
-                    "content": "Tabelle: der Hund | den Hund\nAkkusativ: Ich sehe den Hund."
-                }
+                "choices": [
+                    {
+                        "message": {
+                            "content": (
+                                "Tabelle: der Hund | den Hund\n"
+                                "Akkusativ: Ich sehe den Hund."
+                            )
+                        }
+                    }
+                ]
             }
 
     class FakeClient:
@@ -403,8 +410,9 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
 
         async def post(self, *args, **kwargs):
             del args
-            assert kwargs["json"]["model"] == "qwen3-vl:8b"
-            assert kwargs["json"]["think"] is False
+            assert kwargs["json"]["model"] == "google/gemma-4-12b-qat"
+            assert kwargs["json"]["temperature"] == 0
+            assert kwargs["json"]["messages"][0]["content"][1]["type"] == "image_url"
             return FakeResponse()
 
     monkeypatch.setattr(
@@ -426,7 +434,7 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
     repeated = await intelligence.reprocess_vision(source.id, 1)
     assert variant.id == repeated.id
     assert variant.method == "vision"
-    assert variant.provenance["model"] == "qwen3-vl:8b"
+    assert variant.provenance["model"] == "google/gemma-4-12b-qat"
     assert variant.provenance["temporary_image_deleted"] is True
     assert "den Hund" in variant.text_preview
     assert path.read_bytes() == original
@@ -439,18 +447,18 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
 @pytest.mark.anyio
 async def test_model_router_uses_installed_capabilities_and_bounded_fallback():
     provider = RouterProvider(
-        ["qwen3.5:4b", "qwen3.5:27b", "qwen3:14b", "qwen3-embedding:0.6b"],
-        fail={"qwen3.5:27b"},
+        ["google/gemma-4-12b-qat", "google/gemma-4-26b-a4b-qat", "google/gemma-4-12b-qat", "text-embedding-nomic-embed-text-v1.5"],
+        fail={"google/gemma-4-26b-a4b-qat"},
     )
     router = LibraryModelRouter(
         provider,
         ModelRoutingPolicy(
-            planner="qwen3.5:4b",
-            embedding="qwen3-embedding:0.6b",
-            teacher="qwen3.5:27b",
-            fallback="qwen3:14b",
-            vision="qwen3-vl:8b",
-            repair="qwen3.5:4b",
+            planner="google/gemma-4-12b-qat",
+            embedding="text-embedding-nomic-embed-text-v1.5",
+            teacher="google/gemma-4-26b-a4b-qat",
+            fallback="google/gemma-4-12b-qat",
+            vision="google/gemma-4-12b-qat",
+            repair="google/gemma-4-12b-qat",
         ),
     )
     plan, selected, fallback = await router.structured_generate(
@@ -459,20 +467,18 @@ async def test_model_router_uses_installed_capabilities_and_bounded_fallback():
         TeacherQueryPlan,
     )
     assert plan.target_expression == "die"
-    assert selected == "qwen3:14b"
+    assert selected == "google/gemma-4-12b-qat"
     assert fallback
     assert router.candidates(ModelRole.TEACHER) == (
-        "qwen3.5:27b",
-        "qwen3:14b",
-        "qwen3.5:4b",
+        "google/gemma-4-26b-a4b-qat",
+        "google/gemma-4-12b-qat",
     )
     assert router.candidates(ModelRole.FALLBACK) == (
-        "qwen3:14b",
-        "qwen3.5:27b",
-        "qwen3.5:4b",
+        "google/gemma-4-12b-qat",
+        "google/gemma-4-26b-a4b-qat",
     )
     status = await router.status()
-    assert not next(item for item in status.roles if item.role == "vision").available
+    assert next(item for item in status.roles if item.role == "vision").available
     missing = LibraryModelRouter(
         RouterProvider([]),
         router.policy,
@@ -551,14 +557,14 @@ async def test_intelligence_http_contracts_are_strict_and_operational(
     embedding = CountingEmbeddingProvider()
     search = EducationalSearchService(intelligence_library.database, embedding)
     router = LibraryModelRouter(
-        RouterProvider(["qwen3:14b", "qwen3.5:4b", "qwen3-embedding:0.6b"]),
+        RouterProvider(["google/gemma-4-12b-qat", "google/gemma-4-12b-qat", "text-embedding-nomic-embed-text-v1.5"]),
         ModelRoutingPolicy(
-            planner="qwen3.5:4b",
-            embedding="qwen3-embedding:0.6b",
-            teacher="qwen3:14b",
-            fallback="qwen3.5:27b",
-            vision="qwen3-vl:8b",
-            repair="qwen3.5:4b",
+            planner="google/gemma-4-12b-qat",
+            embedding="text-embedding-nomic-embed-text-v1.5",
+            teacher="google/gemma-4-12b-qat",
+            fallback="google/gemma-4-26b-a4b-qat",
+            vision="google/gemma-4-12b-qat",
+            repair="google/gemma-4-12b-qat",
         ),
     )
     app.dependency_overrides[get_library_service] = lambda: intelligence_library
@@ -615,7 +621,7 @@ async def test_intelligence_http_contracts_are_strict_and_operational(
             next(item for item in roles.json()["roles"] if item["role"] == "teacher")[
                 "selected_model"
             ]
-            == "qwen3:14b"
+            == "google/gemma-4-12b-qat"
         )
 
         indexed = await client.post(

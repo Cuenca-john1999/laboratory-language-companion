@@ -25,7 +25,7 @@ from deutschos_api.models import (
     SkillEvidence,
     StudentSkill,
 )
-from deutschos_api.providers.ollama import OllamaProvider
+from deutschos_api.providers.lm_studio import LMStudioProvider
 
 pytestmark = pytest.mark.anyio
 
@@ -592,17 +592,17 @@ async def test_legacy_task_rejects_structured_answer_without_reinterpreting_it(
         ),
     ],
 )
-async def test_response_cases_are_public_and_ollama_independent(
+async def test_response_cases_are_public_and_lm_studio_independent(
     diagnostic_client,
     monkeypatch,
     overrides,
     outcome,
     score,
 ):
-    def reject_ollama_access(*args, **kwargs):
-        raise AssertionError("the diagnostic HTTP flow must not access Ollama")
+    def reject_lm_studio_access(*args, **kwargs):
+        raise AssertionError("the diagnostic HTTP flow must not access LM Studio")
 
-    monkeypatch.setattr(OllamaProvider, "client", reject_ollama_access)
+    monkeypatch.setattr(LMStudioProvider, "client", reject_lm_studio_access)
     session_id = await create_started_session(diagnostic_client)
     task = await select_task(diagnostic_client, session_id)
     response = await diagnostic_client.post(
@@ -760,7 +760,7 @@ async def test_provider_is_503_in_production_until_a_versioned_bank_exists(clien
     assert response.json()["detail"] == (
         "El banco diagnóstico versionado no está configurado en esta instalación."
     )
-    assert "ollama" not in response.text.casefold()
+    assert "lm_studio" not in response.text.casefold()
 
 
 async def test_reserved_provider_content_returns_503_and_rolls_back(

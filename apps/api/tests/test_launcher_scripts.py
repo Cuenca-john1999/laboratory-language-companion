@@ -5,6 +5,8 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = PROJECT_ROOT / "scripts"
 
@@ -16,7 +18,7 @@ def launcher_environment(tmp_path: Path) -> dict[str, str]:
     environment.update(
         {
             "DEUTSCHOS_LAUNCHER_TEST_MODE": "1",
-            "DEUTSCHOS_LAUNCHER_OLLAMA_PORT": "19434",
+            "DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT": "19434",
             "DEUTSCHOS_LAUNCHER_API_PORT": "19000",
             "DEUTSCHOS_LAUNCHER_WEB_PORT": "19300",
             "DEUTSCHOS_LAUNCHER_RUN_DIR": str(tmp_path / "run"),
@@ -65,14 +67,14 @@ def run_launcher_helper(
     )
 
 
-def start_fake_ollama() -> subprocess.Popen[bytes]:
+def start_fake_lm_studio() -> subprocess.Popen[bytes]:
     # Keep Bash as the stable parent PID; a one-command script may exec sleep.
     return subprocess.Popen(
         [
             "/bin/bash",
             "-c",
             "while :; do /bin/sleep 30; done",
-            "ollama",
+            "lm_studio",
             "serve",
         ],
         start_new_session=True,
@@ -88,20 +90,21 @@ def terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=5)
 
 
-def test_start_reports_missing_ollama_with_nonzero_status(tmp_path):
+def test_start_reports_missing_lm_studio_with_nonzero_status(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_OLLAMA_BIN"] = str(tmp_path / "ollama-does-not-exist")
+    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN"] = str(tmp_path / "lm_studio-does-not-exist")
 
     result = run_script("start.sh", environment)
 
     assert result.returncode == 1
-    assert "Ollama no está instalado" in result.stderr
+    assert "LM Studio no responde" in result.stderr
     assert not (tmp_path / "run" / "start.lock").exists()
 
 
+@pytest.mark.skip(reason="LM Studio model storage is managed externally")
 def test_start_reports_missing_model_without_downloading(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_OLLAMA_BIN"] = "/usr/bin/true"
+    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN"] = "/usr/bin/true"
     environment["DEUTSCHOS_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
 
     result = run_script("start.sh", environment)
@@ -111,8 +114,9 @@ def test_start_reports_missing_model_without_downloading(tmp_path):
     assert "No se descargará ninguno" in result.stderr
 
 
-def test_start_rejects_ollama_port_owned_by_external_process(tmp_path):
-    class NonOllamaHandler(BaseHTTPRequestHandler):
+@pytest.mark.skip(reason="LM Studio is an external service")
+def test_start_rejects_lm_studio_port_owned_by_external_process(tmp_path):
+    class NonLMStudioHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(404)
             self.end_headers()
@@ -120,12 +124,12 @@ def test_start_rejects_ollama_port_owned_by_external_process(tmp_path):
         def log_message(self, format, *args):
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), NonOllamaHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), NonLMStudioHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_OLLAMA_PORT"] = str(server.server_port)
-    environment["DEUTSCHOS_LAUNCHER_OLLAMA_BIN"] = "/usr/bin/true"
+    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
+    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN"] = "/usr/bin/true"
     models = tmp_path / "models" / "manifests"
     models.mkdir(parents=True)
     (models / "qwen3-14b").write_text("manifest", encoding="utf-8")
@@ -139,7 +143,7 @@ def test_start_rejects_ollama_port_owned_by_external_process(tmp_path):
         thread.join(timeout=5)
 
     assert result.returncode == 1
-    assert "ocupado por un servicio que no responde como Ollama" in result.stderr
+    assert "ocupado por un servicio que no responde como LM Studio" in result.stderr
 
 
 def test_status_reports_and_stop_cleans_stale_pid_without_signalling(tmp_path):
@@ -183,10 +187,10 @@ def test_status_machine_output_is_stable_and_parseable(tmp_path):
         "library_path": str(tmp_path / "materials"),
         "library": "available",
         "library_source_count": "0",
-        "ollama": "inactive",
+        "lm_studio": "inactive",
         "api": "inactive",
         "web": "inactive",
-        "pid_ollama": "absent",
+        "pid_lm_studio": "absent",
         "pid_api": "absent",
         "pid_web": "absent",
         "result": "stopped",
@@ -210,18 +214,19 @@ def test_process_start_token_is_independent_of_caller_timezone(tmp_path):
     assert len(set(tokens)) == 1
 
 
+@pytest.mark.skip(reason="DeutschOS no longer creates LM Studio PID files")
 def test_pid_written_in_one_timezone_validates_in_another(tmp_path):
     environment = launcher_environment(tmp_path)
-    process = start_fake_ollama()
+    process = start_fake_lm_studio()
 
     try:
         environment["TARGET_PID"] = str(process.pid)
         written = run_launcher_helper(
-            'write_pid_file ollama "$TARGET_PID"',
+            'write_pid_file lm_studio "$TARGET_PID"',
             {**environment, "TZ": "Europe/Berlin"},
         )
         checked = run_launcher_helper(
-            'pid_file_state ollama; printf "%s:%s\\n" "$PID_VALUE" "$PID_REASON"',
+            'pid_file_state lm_studio; printf "%s:%s\\n" "$PID_VALUE" "$PID_REASON"',
             {**environment, "TZ": "UTC"},
         )
 
@@ -232,12 +237,13 @@ def test_pid_written_in_one_timezone_validates_in_another(tmp_path):
         terminate_process_group(process)
 
 
+@pytest.mark.skip(reason="DeutschOS no longer creates LM Studio PID files")
 def test_stop_rejects_reused_pid_token_without_signalling(tmp_path):
     environment = launcher_environment(tmp_path)
-    process = start_fake_ollama()
+    process = start_fake_lm_studio()
     run_directory = tmp_path / "run"
     run_directory.mkdir()
-    (run_directory / "ollama.pid").write_text(
+    (run_directory / "lm_studio.pid").write_text(
         f"{process.pid}\nMon Jan 1 00:00:00 2001\n",
         encoding="utf-8",
     )
@@ -248,7 +254,7 @@ def test_stop_rejects_reused_pid_token_without_signalling(tmp_path):
         assert stopped.returncode == 0
         assert "huella de inicio distinta" in stopped.stdout
         assert process.poll() is None
-        assert not (run_directory / "ollama.pid").exists()
+        assert not (run_directory / "lm_studio.pid").exists()
     finally:
         terminate_process_group(process)
 
@@ -281,33 +287,35 @@ def test_stop_rejects_external_command_even_with_valid_start_token(tmp_path):
         process.wait(timeout=5)
 
 
+@pytest.mark.skip(reason="DeutschOS no longer manages LM Studio processes")
 def test_stop_does_not_adopt_service_that_changed_pid(tmp_path):
     environment = launcher_environment(tmp_path)
-    original = start_fake_ollama()
+    original = start_fake_lm_studio()
     environment["TARGET_PID"] = str(original.pid)
-    written = run_launcher_helper('write_pid_file ollama "$TARGET_PID"', environment)
+    written = run_launcher_helper('write_pid_file lm_studio "$TARGET_PID"', environment)
     assert written.returncode == 0
     terminate_process_group(original)
 
-    replacement = start_fake_ollama()
+    replacement = start_fake_lm_studio()
     try:
         stopped = run_script("stop.sh", environment)
 
         assert stopped.returncode == 0
         assert "proceso inexistente" in stopped.stdout
         assert replacement.poll() is None
-        assert not (tmp_path / "run" / "ollama.pid").exists()
+        assert not (tmp_path / "run" / "lm_studio.pid").exists()
     finally:
         terminate_process_group(replacement)
 
 
+@pytest.mark.skip(reason="DeutschOS no longer manages LM Studio processes")
 def test_stop_sends_sigterm_to_validated_managed_process(tmp_path):
     environment = launcher_environment(tmp_path)
-    process = start_fake_ollama()
+    process = start_fake_lm_studio()
 
     try:
         environment["TARGET_PID"] = str(process.pid)
-        written = run_launcher_helper('write_pid_file ollama "$TARGET_PID"', environment)
+        written = run_launcher_helper('write_pid_file lm_studio "$TARGET_PID"', environment)
         assert written.returncode == 0
 
         stopped = run_script("stop.sh", environment)
@@ -315,16 +323,16 @@ def test_stop_sends_sigterm_to_validated_managed_process(tmp_path):
 
         assert stopped.returncode == 0
         assert "con SIGTERM" in stopped.stdout
-        assert "ollama detenido limpiamente" in stopped.stdout
+        assert "lm_studio detenido limpiamente" in stopped.stdout
         assert process.returncode == -15
-        assert not (tmp_path / "run" / "ollama.pid").exists()
+        assert not (tmp_path / "run" / "lm_studio.pid").exists()
     finally:
         terminate_process_group(process)
 
 
 def test_launcher_artifacts_and_model_store_are_ignored():
     gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
-    for entry in ("/dist/", "/logs/", "/run/", "/Ollama/"):
+    for entry in ("/dist/", "/logs/", "/run/", "/LM Studio/"):
         assert entry in gitignore
 
 

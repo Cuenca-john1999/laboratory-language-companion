@@ -54,7 +54,7 @@ def study_editorial(tmp_path: Path) -> LibraryEditorialService:
         educational_library_runtime_dir=tmp_path / "library-runtime",
         educational_library_scan_on_startup=False,
         educational_library_embedding_model="",
-        ollama_model="unused",
+        lm_studio_model="unused",
     )
     theory_name = "Herder Gramatica Alemana Hispanohablantes.md"
     workbook_name = "Herder Ejercicios y Soluciones.md"

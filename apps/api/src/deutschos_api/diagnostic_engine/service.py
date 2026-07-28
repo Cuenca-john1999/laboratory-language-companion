@@ -3,7 +3,7 @@
 All pedagogical choices live in the pure selector, scorer, and aggregator.
 This service only serialises SQLite writes, reconstructs persisted state, and
 commits each public mutation atomically.  It never imports the Learning Engine,
-Ollama, or HTTP layers and never writes StudentSkill or SkillEvidence.
+LM Studio, or HTTP layers and never writes StudentSkill or SkillEvidence.
 """
 
 from __future__ import annotations

@@ -37,44 +37,44 @@ enum PIDOwnership: String, Equatable {
 struct ServiceSnapshot: Equatable {
   var ssdAvailable: Bool
   var modelCount: Int
-  var ollamaActive: Bool
+  var lm_studioActive: Bool
   var apiActive: Bool
   var webActive: Bool
   var libraryAvailable: Bool
   var librarySourceCount: Int
   var libraryPath: String
-  var ollamaPID: PIDOwnership
+  var lm_studioPID: PIDOwnership
   var apiPID: PIDOwnership
   var webPID: PIDOwnership
 
   static let stopped = ServiceSnapshot(
     ssdAvailable: true,
     modelCount: 0,
-    ollamaActive: false,
+    lm_studioActive: false,
     apiActive: false,
     webActive: false,
     libraryAvailable: false,
     librarySourceCount: 0,
     libraryPath: "",
-    ollamaPID: .absent,
+    lm_studioPID: .absent,
     apiPID: .absent,
     webPID: .absent
   )
 
   var allServicesActive: Bool {
-    ollamaActive && apiActive && webActive
+    lm_studioActive && apiActive && webActive
   }
 
   var anyServiceActive: Bool {
-    ollamaActive || apiActive || webActive
+    lm_studioActive || apiActive || webActive
   }
 
   var anyManagedProcess: Bool {
-    ollamaPID == .managed || apiPID == .managed || webPID == .managed
+    lm_studioPID == .managed || apiPID == .managed || webPID == .managed
   }
 
   var hasStalePID: Bool {
-    ollamaPID == .stale || apiPID == .stale || webPID == .stale
+    lm_studioPID == .stale || apiPID == .stale || webPID == .stale
   }
 
   var derivedPhase: ControllerPhase {
@@ -144,13 +144,13 @@ enum StatusOutputParser {
     return ServiceSnapshot(
       ssdAvailable: try required("ssd") == "available",
       modelCount: modelCount,
-      ollamaActive: try active("ollama"),
+      lm_studioActive: try active("lm_studio"),
       apiActive: try active("api"),
       webActive: try active("web"),
       libraryAvailable: fields["library"] == "available",
       librarySourceCount: max(0, librarySourceCount),
       libraryPath: fields["library_path"] ?? "",
-      ollamaPID: try ownership("pid_ollama"),
+      lm_studioPID: try ownership("pid_lm_studio"),
       apiPID: try ownership("pid_api"),
       webPID: try ownership("pid_web")
     )
@@ -195,10 +195,10 @@ enum UserFacingError {
     let details = result.standardError + "\n" + result.standardOutput
     let mappings: [(String, String)] = [
       ("El SSD no está conectado", "El SSD de DeutschOS no está conectado."),
-      ("No hay modelos", "No se encontró ningún modelo local de Ollama."),
-      ("Ollama no está instalado", "Ollama no está instalado o no se puede ejecutar."),
+      ("No hay modelos", "No se encontró ningún modelo local de LM Studio."),
+      ("LM Studio no está instalado", "LM Studio no está instalado o no se puede ejecutar."),
       ("ocupado por un proceso ajeno", "Un puerto de DeutschOS está ocupado por otro proceso."),
-      ("Ollama no arrancó", "Ollama no respondió antes del tiempo límite."),
+      ("LM Studio no arrancó", "LM Studio no respondió antes del tiempo límite."),
       ("La API gestionada no llegó", "La API no respondió antes del tiempo límite."),
       ("FastAPI", "FastAPI no pudo iniciarse correctamente."),
       ("Next.js", "Next.js no pudo completar la acción."),

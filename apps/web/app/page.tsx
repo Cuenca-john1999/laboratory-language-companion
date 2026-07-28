@@ -64,18 +64,18 @@ export default async function DashboardPage() {
           <div className="status-card">
             <span
               aria-hidden="true"
-              className={dashboard.ollama_available ? "dot online" : "dot"}
+              className={dashboard.lm_studio_available ? "dot online" : "dot"}
             />
             <div>
               <strong>
-                {dashboard.ollama_available
-                  ? "Ollama conectado"
-                  : "Ollama desconectado"}
+                {dashboard.lm_studio_available
+                  ? "LM Studio conectado"
+                  : "LM Studio desconectado"}
               </strong>
               <small>
-                {dashboard.ollama_available
+                {dashboard.lm_studio_available
                   ? (dashboard.current_model ?? "Ningún modelo predeterminado")
-                  : "El Learning Engine sigue disponible sin Ollama"}
+                  : "El Learning Engine sigue disponible sin LM Studio"}
               </small>
             </div>
           </div>

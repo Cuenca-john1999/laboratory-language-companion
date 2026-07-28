@@ -205,28 +205,28 @@ elif [[ -n "$DATABASE_PATH" ]]; then
   warn "la base todavía no existe; dev.sh la creará mediante Alembic"
 fi
 
-printf '\nOllama (opcional)\n'
-if command -v ollama >/dev/null 2>&1; then
-  ok "Ollama instalado: $(command_version ollama)"
+printf '\nLM Studio (opcional)\n'
+if command -v lm_studio >/dev/null 2>&1; then
+  ok "LM Studio instalado: $(command_version lm_studio)"
 else
-  warn "Ollama no está instalado; API y web seguirán funcionando sin chat local"
+  warn "LM Studio no está instalado; API y web seguirán funcionando sin chat local"
 fi
 
-OLLAMA_URL="http://127.0.0.1:11434"
+LM_STUDIO_URL="http://127.0.0.1:1234/v1"
 if [[ -n "$CONFIG_PYTHON" ]]; then
-  if ! OLLAMA_URL="$($CONFIG_PYTHON "$CONFIG_HELPER" --root "$ROOT" value DEUTSCHOS_OLLAMA_BASE_URL --default "$OLLAMA_URL" 2>&1)"; then
-    bad "no se pudo leer DEUTSCHOS_OLLAMA_BASE_URL"
-    detail "$OLLAMA_URL"
-    OLLAMA_URL=""
+  if ! LM_STUDIO_URL="$($CONFIG_PYTHON "$CONFIG_HELPER" --root "$ROOT" value DEUTSCHOS_LM_STUDIO_BASE_URL --default "$LM_STUDIO_URL" 2>&1)"; then
+    bad "no se pudo leer DEUTSCHOS_LM_STUDIO_BASE_URL"
+    detail "$LM_STUDIO_URL"
+    LM_STUDIO_URL=""
   fi
 fi
 
-if [[ -n "$OLLAMA_URL" && -n "$CONFIG_PYTHON" ]]; then
-  if "$CONFIG_PYTHON" "$CONFIG_HELPER" --root "$ROOT" is-loopback "$OLLAMA_URL"; then
-    ok "Ollama configurado en loopback ($OLLAMA_URL)"
-    if OLLAMA_TAGS="$(curl --silent --show-error --fail --connect-timeout 1 --max-time 3 "$OLLAMA_URL/api/tags" 2>&1)"; then
-      ok "servidor Ollama disponible"
-      if MODEL_COUNT="$(printf '%s' "$OLLAMA_TAGS" | "$CONFIG_PYTHON" -c '
+if [[ -n "$LM_STUDIO_URL" && -n "$CONFIG_PYTHON" ]]; then
+  if "$CONFIG_PYTHON" "$CONFIG_HELPER" --root "$ROOT" is-loopback "$LM_STUDIO_URL"; then
+    ok "LM Studio configurado en loopback ($LM_STUDIO_URL)"
+    if LM_STUDIO_TAGS="$(curl --silent --show-error --fail --connect-timeout 1 --max-time 3 "$LM_STUDIO_URL/models" 2>&1)"; then
+      ok "servidor LM Studio disponible"
+      if MODEL_COUNT="$(printf '%s' "$LM_STUDIO_TAGS" | "$CONFIG_PYTHON" -c '
 import json, sys
 payload = json.load(sys.stdin)
 models = payload.get("models", [])
@@ -235,21 +235,21 @@ if not isinstance(models, list):
 print(len(models))
 ' 2>/dev/null)"; then
         if ((MODEL_COUNT > 0)); then
-          ok "$MODEL_COUNT modelo(s) instalado(s) en Ollama"
+          ok "$MODEL_COUNT modelo(s) instalado(s) en LM Studio"
         else
-          warn "Ollama responde pero no tiene modelos instalados"
+          warn "LM Studio responde pero no tiene modelos instalados"
         fi
       else
-        warn "Ollama respondió con un inventario de modelos no válido"
+        warn "LM Studio respondió con un inventario de modelos no válido"
       fi
     else
-      warn "servidor Ollama apagado o inaccesible; el resto de la aplicación puede arrancar"
+      warn "servidor LM Studio apagado o inaccesible; el resto de la aplicación puede arrancar"
     fi
   else
-    bad "DEUTSCHOS_OLLAMA_BASE_URL debe apuntar a localhost/loopback"
+    bad "DEUTSCHOS_LM_STUDIO_BASE_URL debe apuntar a localhost/loopback"
   fi
 elif [[ -z "$CONFIG_PYTHON" ]]; then
-  warn "se omite la comprobación de URL de Ollama porque Python no está disponible"
+  warn "se omite la comprobación de URL de LM Studio porque Python no está disponible"
 fi
 
 printf '\nPuertos de desarrollo\n'

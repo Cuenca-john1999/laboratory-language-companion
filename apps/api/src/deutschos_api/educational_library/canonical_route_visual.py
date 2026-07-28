@@ -196,7 +196,7 @@ class HerderIndexVisualExtractor:
         self,
         base_url: str,
         *,
-        model: str = "qwen3-vl:8b",
+        model: str = "google/gemma-4-12b-qat",
         timeout_seconds: float = 300,
         keep_alive: str = "10m",
     ):
@@ -258,26 +258,35 @@ class HerderIndexVisualExtractor:
         try:
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
-                    f"{self.base_url}/api/chat",
+                    f"{self.base_url}/chat/completions",
                     json={
                         "model": self.model,
                         "stream": False,
-                        "think": False,
-                        "keep_alive": self.keep_alive,
-                        "format": "json",
-                        "options": {"temperature": 0, "num_predict": 16_384, "seed": 0},
+                        "temperature": 0,
+                        "max_tokens": 16_384,
+                        "response_format": {"type": "json_object"},
                         "messages": [
                             {
                                 "role": "user",
-                                "content": _PROMPT.format(page_number=page_number),
-                                "images": [encoded],
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": _PROMPT.format(page_number=page_number),
+                                    },
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": f"data:image/png;base64,{encoded}"
+                                        },
+                                    },
+                                ],
                             }
                         ],
                     },
                 )
                 response.raise_for_status()
                 payload = response.json()
-            content = str(payload.get("message", {}).get("content", ""))
+            content = str(payload["choices"][0]["message"]["content"])
             page = ReferenceIndexPage.model_validate_json(content)
         except (httpx.HTTPError, ValueError, ValidationError) as exc:
             raise LibraryProviderUnavailableError(

@@ -18,7 +18,7 @@ struct ControllerView: View {
 
       if showsServices {
         VStack(alignment: .leading, spacing: 9) {
-          serviceRow("Ollama", active: controller.snapshot.ollamaActive, feminine: false)
+          serviceRow("LM Studio", active: controller.snapshot.lm_studioActive, feminine: false)
           serviceRow("API", active: controller.snapshot.apiActive, feminine: true)
           serviceRow("Web", active: controller.snapshot.webActive, feminine: true)
           HStack {

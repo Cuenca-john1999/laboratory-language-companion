@@ -25,7 +25,7 @@ from .service import json_dump, json_load, utc_text
 
 PAGE_QUALITY_VERSION = "page-quality.v1"
 PDFTEXT_VARIANT_VERSION = "pdftotext-layout.v1"
-VISION_VARIANT_VERSION = "ollama-vision-transcription.v1"
+VISION_VARIANT_VERSION = "lm_studio-vision-transcription.v1"
 
 
 def _ratios(text: str) -> dict[str, float | bool | list[str] | str]:
@@ -238,21 +238,31 @@ class DocumentIntelligenceService:
             try:
                 async with httpx.AsyncClient(timeout=180) as client:
                     response = await client.post(
-                        f"{self.settings.ollama_base_url}/api/chat",
+                        f"{self.settings.lm_studio_base_url}/chat/completions",
                         json={
                             "model": model,
                             "stream": False,
-                            "think": False,
-                            "keep_alive": self.settings.educational_library_model_keep_alive,
-                            "options": {"temperature": 0, "num_predict": 2_048},
+                            "temperature": 0,
+                            "max_tokens": 2_048,
                             "messages": [
                                 {
                                     "role": "user",
-                                    "content": (
-                                        "Transcribe fielmente esta página. Conserva alemán y español, "
-                                        "saltos útiles y signos. No expliques ni completes texto ilegible."
-                                    ),
-                                    "images": [encoded],
+                                    "content": [
+                                        {
+                                            "type": "text",
+                                            "text": (
+                                                "Transcribe fielmente esta página. Conserva alemán y "
+                                                "español, saltos útiles y signos. No expliques ni "
+                                                "completes texto ilegible."
+                                            ),
+                                        },
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/png;base64,{encoded}"
+                                            },
+                                        },
+                                    ],
                                 }
                             ],
                         },
@@ -263,7 +273,12 @@ class DocumentIntelligenceService:
                 raise LibraryProviderUnavailableError(
                     "El modelo visual local no pudo transcribir la página."
                 ) from exc
-        text = str(payload.get("message", {}).get("content", "")).strip()
+        choices = payload.get("choices", []) if isinstance(payload, dict) else []
+        text = (
+            str(choices[0].get("message", {}).get("content", "")).strip()
+            if choices
+            else ""
+        )
         if not text:
             raise LibraryProviderUnavailableError(
                 "El modelo visual devolvió una transcripción vacía."

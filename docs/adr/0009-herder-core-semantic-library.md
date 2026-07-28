@@ -27,7 +27,7 @@ pero el workbook no reemplaza la teoría.
 ### Recuperación híbrida
 
 FTS5 continúa siendo el fallback siempre disponible. Los embeddings locales usan
-`qwen3-embedding:0.6b` y registran modelo, digest, dimensión, normalización, hash
+`text-embedding-nomic-embed-text-v1.5` y registran modelo, digest, dimensión, normalización, hash
 del texto y versión de fuente. Se indexan incrementalmente y se invalidan por
 provenance, no por fecha global.
 
@@ -43,10 +43,10 @@ ubicación Herder permanecen limitadas al core para evitar atribuciones falsas.
 
 ### Modelos por función
 
-Los modelos se eligen por rol y capacidad comprobada. `qwen3.5:4b` planifica y
-repara estructuras; `qwen3:14b` responde consultas ordinarias; `qwen3.5:27b` se
+Los modelos se eligen por rol y capacidad comprobada. `google/gemma-4-12b-qat` planifica y
+repara estructuras; `google/gemma-4-12b-qat` responde consultas ordinarias; `google/gemma-4-26b-a4b-qat` se
 reserva para Konjunktiv II, declinación adjetival y fallback profundo;
-`qwen3-vl:8b` solo inspecciona páginas seleccionadas. Un lock impide generaciones
+`google/gemma-4-12b-qat` solo inspecciona páginas seleccionadas. Un lock impide generaciones
 concurrentes de modelos grandes. Cada rol tiene timeout, fallback acotado y
 `keep_alive` finito. La política se basa en el benchmark local documentado, no en
 el tamaño nominal del modelo.

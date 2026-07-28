@@ -9,7 +9,7 @@ DeutschOS necesita una primera estimación útil para un alumno con exposición
 irregular al alemán y capacidades posiblemente desiguales entre lectura,
 escucha, escritura y habla. Una etiqueta CEFR global basada en pocas respuestas
 ocultaría esas diferencias. Además, el sistema debe seguir funcionando localmente
-cuando Ollama no esté disponible y debe poder explicar por qué produjo cada
+cuando LM Studio no esté disponible y debe poder explicar por qué produjo cada
 conclusión.
 
 El Learning Engine actual usa un currículo versionado A0–A1, un planificador
@@ -76,7 +76,7 @@ puede cambiar el orden de tareas, pero no aporta puntuación.
 
 ### Entrevista dirigida y evaluada libremente por un LLM
 
-Se rechaza porque sería difícil de reproducir, auditar y usar con Ollama apagado.
+Se rechaza porque sería difícil de reproducir, auditar y usar con LM Studio apagado.
 También mezclaría selección, evaluación y finalización en un componente
 probabilístico.
 
@@ -105,7 +105,7 @@ versionado; la interfaz debe explicar bandas, confianza y límites.
 ### Positivas
 
 - El diagnóstico funciona offline y sus decisiones se pueden reproducir.
-- Un problema de Ollama no impide terminar las partes deterministas.
+- Un problema de LM Studio no impide terminar las partes deterministas.
 - Las capacidades se observan por habilidad y modalidad, sin CEFR global
   inventado.
 - Pausa, reanudación, corrección y repetición conservan un historial auditable.

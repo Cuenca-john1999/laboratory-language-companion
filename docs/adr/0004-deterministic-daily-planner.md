@@ -9,7 +9,7 @@ DeutschOS necesita decidir qué estudiar con información local: currículo,
 prerrequisitos, estimaciones por habilidad, historial, repasos vencidos,
 preferencias, motivación y minutos disponibles. Delegar esta decisión a un LLM
 haría el resultado difícil de reproducir y de auditar, y dejaría la aplicación
-inutilizable cuando Ollama no esté disponible.
+inutilizable cuando LM Studio no esté disponible.
 
 ## Decisión
 

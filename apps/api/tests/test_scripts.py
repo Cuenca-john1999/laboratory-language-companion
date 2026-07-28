@@ -42,7 +42,7 @@ def test_backup_is_consistent_unique_and_excludes_secrets_and_models(tmp_path, m
     (root / ".env").write_text(
         "DEUTSCHOS_TIMEZONE=Europe/Berlin\n"
         "NEXT_PUBLIC_API_URL=http://127.0.0.1:8000\n"
-        "DEUTSCHOS_OLLAMA_BASE_URL=http://user:password@127.0.0.1:11434\n"
+        "DEUTSCHOS_LM_STUDIO_BASE_URL=http://user:password@127.0.0.1:1234\n"
         "OPENAI_API_KEY=never-copy-this\n",
         encoding="utf-8",
     )
@@ -66,7 +66,7 @@ def test_backup_is_consistent_unique_and_excludes_secrets_and_models(tmp_path, m
     assert manifest["alembic_revision"] == "test-revision"
     assert manifest["configuration_files"] == ["configuration/.env"]
     assert manifest["excluded_configuration_keys"] == [
-        "DEUTSCHOS_OLLAMA_BASE_URL",
+        "DEUTSCHOS_LM_STUDIO_BASE_URL",
         "OPENAI_API_KEY",
     ]
     assert manifest["copied_data_files"] == ["pedagogy/notes.json"]
@@ -77,7 +77,7 @@ def test_backup_is_consistent_unique_and_excludes_secrets_and_models(tmp_path, m
     assert "DEUTSCHOS_TIMEZONE" in safe_env
     assert "NEXT_PUBLIC_API_URL" in safe_env
     assert "OPENAI_API_KEY" not in safe_env
-    assert "DEUTSCHOS_OLLAMA_BASE_URL" not in safe_env
+    assert "DEUTSCHOS_LM_STUDIO_BASE_URL" not in safe_env
     assert "user:password" not in safe_env
     assert "never-copy-this" not in safe_env
     assert not any("node_modules" in path.as_posix() for path in first.rglob("*"))
@@ -94,9 +94,9 @@ def test_backup_is_consistent_unique_and_excludes_secrets_and_models(tmp_path, m
 
 def test_loopback_urls_reject_embedded_credentials():
     assert is_loopback_url("http://127.0.0.1:8000")
-    assert is_loopback_url("http://localhost:11434")
+    assert is_loopback_url("http://localhost:1234")
     assert not is_loopback_url("http://user:password@127.0.0.1:8000")
-    assert not is_loopback_url("http://token@localhost:11434")
+    assert not is_loopback_url("http://token@localhost:1234")
 
 
 def test_backup_reports_missing_database_without_publishing_partial_bundle(tmp_path, monkeypatch):

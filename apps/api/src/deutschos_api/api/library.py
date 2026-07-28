@@ -140,7 +140,7 @@ def _translate(exc: Exception) -> HTTPException:
     )
 
 
-async def _ollama_available(provider: ModelProvider) -> bool:
+async def _lm_studio_available(provider: ModelProvider) -> bool:
     try:
         return await provider.health_check()
     except Exception:
@@ -162,7 +162,7 @@ async def library_status(
     try:
         installed = await _installed_models(provider)
         return service.summary(
-            ollama_available=bool(installed) or await _ollama_available(provider),
+            lm_studio_available=bool(installed) or await _lm_studio_available(provider),
             installed_models=installed,
         )
     except Exception as exc:

@@ -25,7 +25,7 @@ export type Dashboard = {
   preferred_name: string;
   immediate_goal: string;
   current_model: string | null;
-  ollama_available: boolean;
+  lm_studio_available: boolean;
   pending_reviews: number;
   recent_sessions: Session[];
 };
@@ -412,7 +412,7 @@ export type LibraryCapabilities = {
   semantic_available: boolean;
   embedding_provider: string | null;
   embedding_model: string | null;
-  ollama_available: boolean;
+  lm_studio_available: boolean;
   pdftoppm: boolean;
   tesseract: boolean;
   ocrmypdf: boolean;
@@ -878,7 +878,7 @@ export type TeacherQuery = {
 };
 
 export type LibraryModelRouting = {
-  ollama_available: boolean;
+  lm_studio_available: boolean;
   installed_models: string[];
   roles: {
     role:

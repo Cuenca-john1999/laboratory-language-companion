@@ -24,11 +24,11 @@ El diagnóstico comprueba:
 - Node.js, npm, Python 3.12 y `.venv`;
 - dependencias npm y Python;
 - integridad SQLite y revisión Alembic;
-- instalación, servidor e inventario de modelos de Ollama;
+- instalación, servidor e inventario de modelos de LM Studio;
 - ocupación de los puertos 3000 y 8000.
 
 Un símbolo `✗` produce código de salida 1. Los símbolos `!` son avisos: por
-ejemplo, Ollama apagado o una migración que `dev.sh` puede aplicar. El script
+ejemplo, LM Studio apagado o una migración que `dev.sh` puede aplicar. El script
 legado `check-environment.sh` es solo un wrapper y se conserva temporalmente.
 
 ## Desarrollo
@@ -37,7 +37,7 @@ legado `check-environment.sh` es solo un wrapper y se conserva temporalmente.
 ./scripts/dev.sh
 ```
 
-El script no instala dependencias y no inicia Ollama. Valida primero los
+El script no instala dependencias y no inicia LM Studio. Valida primero los
 requisitos y que ambos puertos estén libres. Si SQLite ya existe, ejecuta
 `quick_check`. Antes de una migración pendiente crea un bundle consistente de
 solo la base con la etiqueta `pre-migration`; después ejecuta Alembic y verifica
@@ -67,7 +67,7 @@ La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal:
 - `scripts/status.sh --machine` al abrir y cada cuatro segundos.
 
 El protocolo `deutschos-status-v1` informa SSD, modelos, disponibilidad de
-Ollama/API/web, disponibilidad y cantidad de fuentes de la biblioteca, y
+LM Studio/API/web, disponibilidad y cantidad de fuentes de la biblioteca, y
 ownership de cada PID. Los campos de biblioteca son aditivos para conservar la
 compatibilidad del protocolo. Swift no reimplementa la detección de
 puertos, la validación de procesos ni el cierre de árboles. Durante un arranque
@@ -118,13 +118,13 @@ considera externo: se reutiliza, pero el launcher no adquiere su propiedad.
 Un puerto ocupado por una respuesta que no corresponde al servicio esperado se
 trata como error y nunca se mata ese proceso.
 
-Ollama se inicia únicamente cuando no responde ya en loopback, con:
+LM Studio se inicia únicamente cuando no responde ya en loopback, con:
 
 ```bash
-OLLAMA_MODELS=/Volumes/Juegos/DeutschOS/Ollama/models
-OLLAMA_HOST=127.0.0.1:11434
-OLLAMA_NO_CLOUD=1
-OLLAMA_NOHISTORY=1
+LM_STUDIO_MODELS=/Volumes/Juegos/DeutschOS/LM Studio/models
+LM_STUDIO_HOST=127.0.0.1:1234
+LM_STUDIO_NO_CLOUD=1
+LM_STUDIO_NOHISTORY=1
 ```
 
 El launcher no descarga modelos y exige al menos un manifiesto local. Para la
@@ -144,8 +144,8 @@ Comandos operativos:
 `stop.sh` envía primero SIGTERM y reserva SIGKILL para el último recurso. Solo
 actúa sobre procesos cuyo PID file, hora de inicio y comando coinciden; limpia
 archivos obsoletos sin señalar procesos ajenos. `status.sh` devuelve cero cuando
-Ollama, API y web responden y no hay PID files huérfanos. Los artefactos
-`dist/`, `.build/`, `logs/`, `run/` y el almacén `Ollama/` son locales y están
+LM Studio, API y web responden y no hay PID files huérfanos. Los artefactos
+`dist/`, `.build/`, `logs/`, `run/` y el almacén `LM Studio/` son locales y están
 ignorados por Git. No hay LaunchAgent, permisos de administrador, telemetría ni
 inicio al iniciar sesión.
 
@@ -181,9 +181,9 @@ caliente; se ejecuta `quick_check` antes y después. El bundle contiene:
 - `manifest.json`: fecha UTC, revisión Alembic, tamaños y SHA-256.
 
 No se siguen enlaces simbólicos. Se excluyen otras bases no gestionadas,
-temporales, cachés, directorios de Ollama/Hugging Face y extensiones habituales
+temporales, cachés, directorios de LM Studio/Hugging Face y extensiones habituales
 de pesos (`.gguf`, `.safetensors`, `.onnx`, entre otras). Los modelos deben
-recuperarse desde su instalación local de Ollama, no desde estos bundles.
+recuperarse desde su instalación local de LM Studio, no desde estos bundles.
 Las claves `.env` que no estén en la lista pública del script se omiten. Las
 URLs públicas con credenciales embebidas o que no apunten a loopback también se
 rechazan. Sus nombres, nunca sus valores, quedan en

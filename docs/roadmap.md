@@ -2,7 +2,7 @@
 
 ## Milestone 0 — Fundación
 
-Perfil, persistencia migrada, dashboard real, proveedor Ollama reemplazable, chat local, estados de error, documentación y pruebas.
+Perfil, persistencia migrada, dashboard real, proveedor LM Studio reemplazable, chat local, estados de error, documentación y pruebas.
 
 ## Milestone 1 — Learning Engine
 

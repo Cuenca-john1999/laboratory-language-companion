@@ -315,7 +315,7 @@ class LibraryCapabilities(APIModel):
     semantic_available: bool
     embedding_provider: str | None = None
     embedding_model: str | None = None
-    ollama_available: bool = False
+    lm_studio_available: bool = False
     pdftoppm: bool = False
     tesseract: bool = False
     ocrmypdf: bool = False
@@ -1022,7 +1022,7 @@ class ModelRoleRead(APIModel):
 
 
 class ModelRoutingRead(APIModel):
-    ollama_available: bool
+    lm_studio_available: bool
     installed_models: list[str]
     roles: list[ModelRoleRead]
     policy_version: str

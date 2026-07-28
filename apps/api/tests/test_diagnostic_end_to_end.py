@@ -1177,7 +1177,7 @@ async def test_draft_requires_explicit_injection_and_production_remains_unavaila
         assert unavailable["detail"] == (
             "El banco diagnóstico versionado no está configurado en esta instalación."
         )
-        assert "ollama" not in str(unavailable).casefold()
+        assert "lm_studio" not in str(unavailable).casefold()
 
     async with harness.client(inject_draft=True) as editorial_client:
         created = _json(

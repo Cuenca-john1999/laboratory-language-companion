@@ -61,8 +61,9 @@ coverage/
 # Local model stores and model weights. Keep this anchored so that the
 # application package `deutschos_api/models` remains tracked.
 /models/
-/Ollama/
-/ollama/
+/LM Studio/
+/lm_studio/
+/LM Studio Models/
 *.bin
 *.ckpt
 *.ggml

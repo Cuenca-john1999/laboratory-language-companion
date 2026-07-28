@@ -152,7 +152,7 @@ def teacher_library(tmp_path: Path) -> EducationalLibraryService:
         educational_library_runtime_dir=tmp_path / "runtime",
         educational_library_scan_on_startup=False,
         educational_library_embedding_model="",
-        ollama_model="teacher-test",
+        lm_studio_model="teacher-test",
     )
     (materials / "Artikel-Lehrbuch.md").write_text(
         "# Bestimmter Artikel\n\nDie Frau liest. Die Bücher sind neu. "

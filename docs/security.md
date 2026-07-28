@@ -3,8 +3,8 @@
 ## Límite de red
 
 DeutschOS no requiere cuentas, claves API ni servicios cloud. `dev.sh` enlaza
-FastAPI y Next.js a `127.0.0.1` y rechaza URLs de API/Ollama que no sean
-loopback. La telemetría de Next.js se desactiva durante el desarrollo. Ollama es
+FastAPI y Next.js a `127.0.0.1` y rechaza URLs de API/LM Studio que no sean
+loopback. La telemetría de Next.js se desactiva durante el desarrollo. LM Studio es
 opcional y su indisponibilidad no bloquea el resto de la aplicación.
 
 ## Datos privados

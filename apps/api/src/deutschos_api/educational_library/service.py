@@ -831,7 +831,7 @@ class EducationalLibraryService:
     def capabilities(
         self,
         *,
-        ollama_available: bool = False,
+        lm_studio_available: bool = False,
         installed_models: list[str] | None = None,
     ) -> LibraryCapabilities:
         embedding_model = self.settings.educational_library_embedding_model.strip() or None
@@ -844,17 +844,17 @@ class EducationalLibraryService:
             transcription_backend=None,
             transcription_model=None,
             semantic_available=bool(
-                embedding_model and ollama_available and embedding_model in installed_models
+                embedding_model and lm_studio_available and embedding_model in installed_models
             ),
-            embedding_provider="ollama" if embedding_model else None,
+            embedding_provider="lm_studio" if embedding_model else None,
             embedding_model=embedding_model,
-            ollama_available=ollama_available,
+            lm_studio_available=lm_studio_available,
             pdftoppm=shutil.which("pdftoppm") is not None,
             tesseract=shutil.which("tesseract") is not None,
             ocrmypdf=shutil.which("ocrmypdf") is not None,
             tesseract_languages=self._tesseract_languages(),
             vision_available=bool(
-                ollama_available and vision_model and vision_model in installed_models
+                lm_studio_available and vision_model and vision_model in installed_models
             ),
             installed_models=installed_models,
         )
@@ -862,7 +862,7 @@ class EducationalLibraryService:
     def summary(
         self,
         *,
-        ollama_available: bool = False,
+        lm_studio_available: bool = False,
         installed_models: list[str] | None = None,
     ) -> LibrarySummary:
         with self.database.connect() as connection:
@@ -902,7 +902,7 @@ class EducationalLibraryService:
                 "max(CASE WHEN e.status='indexed' THEN e.model_digest END) model_digest "
                 "FROM chunks c JOIN source_versions sv ON sv.id=c.source_version_id "
                 "JOIN sources s ON s.id=sv.source_id LEFT JOIN embeddings e ON e.chunk_id=c.id "
-                "AND e.provider='ollama' AND e.model=? WHERE sv.id=s.current_version_id "
+                "AND e.provider='lm_studio' AND e.model=? WHERE sv.id=s.current_version_id "
                 "AND s.status='present' AND s.excluded=0",
                 (embedding_model,),
             ).fetchone()
@@ -938,7 +938,7 @@ class EducationalLibraryService:
             knowledge_by_status={row["status"]: row["total"] for row in knowledge_rows},
             jobs_by_status={row["state"]: row["total"] for row in job_rows},
             capabilities=self.capabilities(
-                ollama_available=ollama_available, installed_models=installed_models
+                lm_studio_available=lm_studio_available, installed_models=installed_models
             ),
             semantic_index=SemanticIndexSummary(
                 model=embedding_model or None,

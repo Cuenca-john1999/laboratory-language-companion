@@ -2,7 +2,7 @@
 
 Fecha: 2026-07-18. Equipo y runtime locales, sin red. El corpus fue la biblioteca
 real ya indexada; cada una de las diez preguntas se ejecutó una vez con
-`qwen3:14b` y una vez con `qwen3.5:27b`. `qwen3.5:4b` se mantuvo como planificador.
+`google/gemma-4-12b-qat` y una vez con `google/gemma-4-26b-a4b-qat`. `google/gemma-4-12b-qat` se mantuvo como planificador.
 El artefacto detallado local está en
 `var/educational-library/benchmarks/007L2-model-comparison.json` y no se versiona
 porque contiene consultas y respuestas runtime.
@@ -11,8 +11,8 @@ porque contiene consultas y respuestas runtime.
 
 | Modelo docente | Completadas y verificadas | Insuficiencia segura | Media total | Mediana total | Tokens prompt medios | Tokens salida medios | Reparaciones |
 | -------------- | ------------------------: | -------------------: | ----------: | ------------: | -------------------: | -------------------: | -----------: |
-| `qwen3:14b`    |                      7/10 |                 3/10 | 27 496,2 ms |   27 798,5 ms |              5 180,9 |                312,8 |            3 |
-| `qwen3.5:27b`  |                      5/10 |                 5/10 | 64 890,2 ms |   56 852,0 ms |              5 037,0 |                392,4 |            5 |
+| `google/gemma-4-12b-qat`    |                      7/10 |                 3/10 | 27 496,2 ms |   27 798,5 ms |              5 180,9 |                312,8 |            3 |
+| `google/gemma-4-26b-a4b-qat`  |                      5/10 |                 5/10 | 64 890,2 ms |   56 852,0 ms |              5 037,0 |                392,4 |            5 |
 
 Tiempos totales individuales, en milisegundos:
 
@@ -49,11 +49,11 @@ planificación 14B de unos 32 segundos.
 
 ## Política resultante
 
-- `qwen3:14b`: docente ordinario.
-- `qwen3.5:27b`: Konjunktiv II, declinación adjetival y fallback profundo.
-- `qwen3.5:4b`: planificación y reparación estructural.
-- `qwen3-embedding:0.6b`: embeddings.
-- `qwen3-vl:8b`: inspección visual selectiva.
+- `google/gemma-4-12b-qat`: docente ordinario.
+- `google/gemma-4-26b-a4b-qat`: Konjunktiv II, declinación adjetival y fallback profundo.
+- `google/gemma-4-12b-qat`: planificación y reparación estructural.
+- `text-embedding-nomic-embed-text-v1.5`: embeddings.
+- `google/gemma-4-12b-qat`: inspección visual selectiva.
 
 La cadena es recíproca y acotada: 14B y 27B pueden cubrirse mutuamente; 4B es el
 último fallback estructurado. No se cargan dos modelos grandes simultáneamente.

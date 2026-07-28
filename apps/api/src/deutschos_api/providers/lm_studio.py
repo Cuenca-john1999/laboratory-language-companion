@@ -1,0 +1,267 @@
+import json
+from collections.abc import AsyncIterator
+from typing import Any, NoReturn
+
+import httpx
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+from deutschos_api.providers.base import (
+    MalformedStructuredOutputError,
+    ModelNotFoundError,
+    ModelProvider,
+    ProviderResponseError,
+    ProviderUnavailableError,
+    StructuredModel,
+)
+from deutschos_api.schemas.api import ModelInfo
+
+
+class LMStudioModel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str
+
+
+class LMStudioModelsResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    data: list[LMStudioModel]
+
+
+class LMStudioProvider(ModelProvider):
+    """Client for LM Studio's OpenAI-compatible local API."""
+
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        timeout: float = 180,
+        context_length: int = 8192,
+        temperature: float = 0.2,
+        max_tokens: int = 2048,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+        self.context_length = context_length
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.transport = transport
+        self.last_request_metrics: dict[str, int | str] = {}
+
+    def client(self, timeout: float | None = None) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=timeout or self.timeout, transport=self.transport)
+
+    async def health_check(self) -> bool:
+        try:
+            async with self.client(3) as client:
+                response = await client.get(f"{self.base_url}/models")
+                return response.is_success
+        except httpx.HTTPError:
+            return False
+
+    async def list_models(self) -> list[ModelInfo]:
+        try:
+            async with self.client(5) as client:
+                response = await client.get(f"{self.base_url}/models")
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(
+                "LM Studio no está disponible. Inicia su servidor local y vuelve a intentarlo."
+            ) from exc
+        try:
+            payload = LMStudioModelsResponse.model_validate(response.json())
+        except (ValueError, ValidationError) as exc:
+            raise ProviderResponseError(
+                "LM Studio devolvió una lista de modelos incompatible."
+            ) from exc
+        return [ModelInfo(name=item.id) for item in payload.data]
+
+    def _completion_payload(
+        self, model: str, messages: list[dict[str, Any]], *, stream: bool
+    ) -> dict[str, Any]:
+        return {
+            "model": model,
+            "messages": messages,
+            "stream": stream,
+            "temperature": self.temperature,
+            "max_tokens": self.max_tokens,
+        }
+
+    @staticmethod
+    def _raise_status(exc: httpx.HTTPStatusError, model: str) -> NoReturn:
+        status = exc.response.status_code
+        detail = ""
+        try:
+            payload = exc.response.json()
+            detail = str(payload.get("error", {}).get("message") or payload.get("message") or "")
+        except ValueError:
+            detail = exc.response.text[:300]
+        if status == 404 or "model" in detail.casefold() and "not found" in detail.casefold():
+            raise ModelNotFoundError(
+                f"El modelo local '{model}' no está disponible en LM Studio."
+            ) from exc
+        raise ProviderResponseError(
+            f"LM Studio rechazó la solicitud ({status})"
+            + (f": {detail}" if detail else ".")
+        ) from exc
+
+    def _capture_metrics(self, model: str, payload: dict[str, Any]) -> None:
+        usage = payload.get("usage")
+        metrics: dict[str, int | str] = {"model": model}
+        if isinstance(usage, dict):
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                if isinstance(usage.get(key), int):
+                    metrics[key] = usage[key]
+        self.last_request_metrics = metrics
+
+    async def chat(self, model: str, messages: list[dict[str, str]]) -> str:
+        try:
+            async with self.client() as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    json=self._completion_payload(model, messages, stream=False),
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            self._raise_status(exc, model)
+        except httpx.TimeoutException as exc:
+            raise ProviderUnavailableError(
+                "LM Studio agotó el tiempo de generación configurado."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(
+                "No se pudo conectar con el servidor local de LM Studio."
+            ) from exc
+        try:
+            content = payload["choices"][0]["message"]["content"]
+            self._capture_metrics(model, payload)
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderResponseError("LM Studio devolvió una respuesta malformada.") from exc
+        if not isinstance(content, str) or not content.strip():
+            raise ProviderResponseError("LM Studio devolvió una respuesta sin contenido.")
+        return content
+
+    async def stream_chat(
+        self, model: str, messages: list[dict[str, str]]
+    ) -> AsyncIterator[str]:
+        try:
+            async with self.client() as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    json=self._completion_payload(model, messages, stream=True),
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line or line == "data: [DONE]":
+                            continue
+                        if not line.startswith("data: "):
+                            raise ProviderResponseError(
+                                "LM Studio devolvió un fragmento SSE incompatible."
+                            )
+                        try:
+                            payload = json.loads(line[6:])
+                            content = payload["choices"][0]["delta"].get("content")
+                        except (ValueError, KeyError, IndexError, TypeError) as exc:
+                            raise ProviderResponseError(
+                                "LM Studio devolvió un fragmento SSE malformado."
+                            ) from exc
+                        if isinstance(content, str) and content:
+                            yield content
+        except ProviderResponseError:
+            raise
+        except httpx.HTTPStatusError as exc:
+            self._raise_status(exc, model)
+        except httpx.TimeoutException as exc:
+            raise ProviderUnavailableError(
+                "LM Studio agotó el tiempo durante el streaming."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(
+                "Se perdió la conexión con LM Studio durante el streaming."
+            ) from exc
+
+    async def structured_generate(
+        self, model: str, messages: list[dict[str, str]], schema: type[StructuredModel]
+    ) -> StructuredModel:
+        payload = self._completion_payload(model, messages, stream=False)
+        payload["temperature"] = 0
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": schema.__name__,
+                "strict": True,
+                "schema": schema.model_json_schema(),
+            },
+        }
+        raw = await self._request_structured(model, payload)
+        try:
+            return schema.model_validate_json(raw)
+        except ValidationError:
+            repair = messages + [
+                {"role": "assistant", "content": raw},
+                {
+                    "role": "user",
+                    "content": "Repara el JSON para cumplir exactamente el esquema. Devuelve solo JSON.",
+                },
+            ]
+            payload = self._completion_payload(model, repair, stream=False)
+            payload["temperature"] = 0
+            payload["response_format"] = {"type": "json_object"}
+            repaired = await self._request_structured(model, payload)
+            try:
+                return schema.model_validate_json(repaired)
+            except ValidationError as exc:
+                raise MalformedStructuredOutputError(
+                    "LM Studio no produjo JSON válido después de repararlo."
+                ) from exc
+
+    async def _request_structured(self, model: str, payload: dict[str, Any]) -> str:
+        try:
+            async with self.client() as client:
+                response = await client.post(f"{self.base_url}/chat/completions", json=payload)
+                response.raise_for_status()
+                body = response.json()
+                self._capture_metrics(model, body)
+                content = body["choices"][0]["message"]["content"]
+        except httpx.HTTPStatusError as exc:
+            self._raise_status(exc, model)
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(
+                "Falló la generación estructurada en LM Studio."
+            ) from exc
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise ProviderResponseError(
+                "LM Studio devolvió datos estructurados ilegibles."
+            ) from exc
+        if not isinstance(content, str):
+            raise ProviderResponseError("LM Studio no devolvió contenido estructurado.")
+        return content
+
+    async def embeddings(self, texts: list[str], model: str) -> list[list[float]]:
+        if not texts:
+            return []
+        try:
+            async with self.client() as client:
+                response = await client.post(
+                    f"{self.base_url}/embeddings",
+                    json={"model": model, "input": texts},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            self._raise_status(exc, model)
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailableError(
+                "LM Studio no pudo generar embeddings."
+            ) from exc
+        try:
+            ordered = sorted(payload["data"], key=lambda item: item["index"])
+            vectors = [item["embedding"] for item in ordered]
+        except (KeyError, TypeError) as exc:
+            raise ProviderResponseError(
+                "LM Studio devolvió embeddings malformados."
+            ) from exc
+        if len(vectors) != len(texts) or any(not isinstance(item, list) or not item for item in vectors):
+            raise ProviderResponseError("LM Studio devolvió un número inválido de embeddings.")
+        return [[float(value) for value in vector] for vector in vectors]

@@ -39,10 +39,10 @@ struct ControllerTests {
   private static func snapshot(
     ssd: String = "available",
     models: Int = 1,
-    ollama: String,
+    lm_studio: String,
     api: String,
     web: String,
-    pidOllama: String,
+    pidLMStudio: String,
     pidAPI: String,
     pidWeb: String,
     result: String
@@ -52,10 +52,10 @@ struct ControllerTests {
       format=deutschos-status-v1
       ssd=\(ssd)
       model_count=\(models)
-      ollama=\(ollama)
+      lm_studio=\(lm_studio)
       api=\(api)
       web=\(web)
-      pid_ollama=\(pidOllama)
+      pid_lm_studio=\(pidLMStudio)
       pid_api=\(pidAPI)
       pid_web=\(pidWeb)
       result=\(result)
@@ -65,10 +65,10 @@ struct ControllerTests {
 
   private static func runningManagedServices() throws {
     let value = try snapshot(
-      ollama: "active",
+      lm_studio: "active",
       api: "active",
       web: "active",
-      pidOllama: "managed",
+      pidLMStudio: "managed",
       pidAPI: "managed",
       pidWeb: "managed",
       result: "running"
@@ -82,10 +82,10 @@ struct ControllerTests {
   private static func stoppedExternalFreeState() throws {
     let value = try snapshot(
       models: 0,
-      ollama: "inactive",
+      lm_studio: "inactive",
       api: "inactive",
       web: "inactive",
-      pidOllama: "absent",
+      pidLMStudio: "absent",
       pidAPI: "absent",
       pidWeb: "absent",
       result: "stopped"
@@ -98,10 +98,10 @@ struct ControllerTests {
 
   private static func stalePIDProducesPartialState() throws {
     let value = try snapshot(
-      ollama: "inactive",
+      lm_studio: "inactive",
       api: "inactive",
       web: "inactive",
-      pidOllama: "stale",
+      pidLMStudio: "stale",
       pidAPI: "absent",
       pidWeb: "absent",
       result: "partial"
@@ -115,10 +115,10 @@ struct ControllerTests {
     let value = try snapshot(
       ssd: "unavailable",
       models: 0,
-      ollama: "inactive",
+      lm_studio: "inactive",
       api: "inactive",
       web: "inactive",
-      pidOllama: "absent",
+      pidLMStudio: "absent",
       pidAPI: "absent",
       pidWeb: "absent",
       result: "stopped"
@@ -177,7 +177,7 @@ struct ControllerTests {
       TerminationPolicy.requiresConfirmation(phase: .starting, snapshot: value),
       "starting state did not request confirmation"
     )
-    value.ollamaActive = true
+    value.lm_studioActive = true
     try expect(
       TerminationPolicy.requiresConfirmation(phase: .running, snapshot: value),
       "active external service did not request confirmation"
@@ -214,7 +214,7 @@ struct ControllerTests {
     let controller = await MainActor.run { ControllerModel(projectRoot: projectRoot) }
     await controller.refreshStatus()
     let runDirectory = projectRoot.appendingPathComponent("run")
-    let pidFiles = ["ollama.pid", "api.pid", "web.pid"].map {
+    let pidFiles = ["lm_studio.pid", "api.pid", "web.pid"].map {
       runDirectory.appendingPathComponent($0)
     }
 

@@ -242,10 +242,10 @@ final class ControllerModel: ObservableObject {
   private func logStatusIfChanged() {
     let signature = [
       phase.title,
-      snapshot.ollamaActive ? "ollama:on" : "ollama:off",
+      snapshot.lm_studioActive ? "lm_studio:on" : "lm_studio:off",
       snapshot.apiActive ? "api:on" : "api:off",
       snapshot.webActive ? "web:on" : "web:off",
-      "pid:\(snapshot.ollamaPID.rawValue),\(snapshot.apiPID.rawValue),\(snapshot.webPID.rawValue)",
+      "pid:\(snapshot.lm_studioPID.rawValue),\(snapshot.apiPID.rawValue),\(snapshot.webPID.rawValue)",
     ].joined(separator: " ")
     guard signature != lastLoggedStatus else { return }
     lastLoggedStatus = signature

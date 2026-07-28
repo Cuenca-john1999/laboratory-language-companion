@@ -130,7 +130,7 @@ async def ensure_model_available(model_provider: ModelProvider, model: str) -> N
     if model not in {item.name for item in installed_models}:
         raise HTTPException(
             status_code=404,
-            detail=f"El modelo local '{model}' no está instalado en Ollama.",
+            detail=f"El modelo local '{model}' no está instalado en LM Studio.",
         )
 
 
@@ -165,10 +165,10 @@ async def models(
 ) -> ModelsResponse:
     try:
         return ModelsResponse(
-            provider="ollama", available=True, models=await model_provider.list_models()
+            provider="lm_studio", available=True, models=await model_provider.list_models()
         )
     except (ProviderUnavailableError, ProviderResponseError) as exc:
-        return ModelsResponse(provider="ollama", available=False, models=[], error=str(exc))
+        return ModelsResponse(provider="lm_studio", available=False, models=[], error=str(exc))
 
 
 @router.get("/api/profile", response_model=ProfileRead)
@@ -228,19 +228,19 @@ async def dashboard(
         ) from exc
     try:
         installed_models = await model_provider.list_models()
-        ollama_available = True
+        lm_studio_available = True
     except (ProviderUnavailableError, ProviderResponseError):
         installed_models = []
-        ollama_available = False
+        lm_studio_available = False
     installed_names = {item.name for item in installed_models}
-    configured_model = settings.ollama_model if settings.ollama_model in installed_names else None
+    configured_model = settings.lm_studio_model if settings.lm_studio_model in installed_names else None
     return DashboardResponse(
         preferred_name=profile.preferred_name if profile else "Estudiante",
         immediate_goal=goals[0]
         if isinstance(goals, list) and goals
         else "Configura tu primer objetivo",
         current_model=configured_model,
-        ollama_available=ollama_available,
+        lm_studio_available=lm_studio_available,
         pending_reviews=pending,
         recent_sessions=[SessionRead.model_validate(s) for s in sessions],
     )

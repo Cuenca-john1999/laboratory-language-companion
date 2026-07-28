@@ -13,26 +13,22 @@ export DO_NOT_TRACK=1
 
 LAUNCHER_TEST_MODE="${DEUTSCHOS_LAUNCHER_TEST_MODE:-0}"
 if [[ "$LAUNCHER_TEST_MODE" == "1" ]]; then
-  OLLAMA_PORT="${DEUTSCHOS_LAUNCHER_OLLAMA_PORT:-11434}"
+  LM_STUDIO_PORT="${DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT:-1234}"
   API_PORT="${DEUTSCHOS_LAUNCHER_API_PORT:-8000}"
   WEB_PORT="${DEUTSCHOS_LAUNCHER_WEB_PORT:-3000}"
   RUN_DIR="${DEUTSCHOS_LAUNCHER_RUN_DIR:-$PROJECT_ROOT/run}"
   LOG_DIR="${DEUTSCHOS_LAUNCHER_LOG_DIR:-$PROJECT_ROOT/logs}"
-  OLLAMA_MODELS_DIR="${DEUTSCHOS_LAUNCHER_MODELS_DIR:-$PROJECT_ROOT/Ollama/models}"
-  OLLAMA_BIN="${DEUTSCHOS_LAUNCHER_OLLAMA_BIN:-$(command -v ollama 2>/dev/null || true)}"
 else
-  OLLAMA_PORT=11434
+  LM_STUDIO_PORT=1234
   API_PORT=8000
   WEB_PORT=3000
   RUN_DIR="$PROJECT_ROOT/run"
   LOG_DIR="$PROJECT_ROOT/logs"
-  OLLAMA_MODELS_DIR="$PROJECT_ROOT/Ollama/models"
-  OLLAMA_BIN="$(command -v ollama 2>/dev/null || true)"
 fi
 
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
 NEXT_BIN="$PROJECT_ROOT/node_modules/.bin/next"
-OLLAMA_URL="http://127.0.0.1:$OLLAMA_PORT"
+LM_STUDIO_URL="http://127.0.0.1:$LM_STUDIO_PORT"
 API_URL="http://127.0.0.1:$API_PORT"
 WEB_URL="http://127.0.0.1:$WEB_PORT"
 LAUNCHER_LOG="$LOG_DIR/launcher.log"
@@ -101,9 +97,6 @@ expected_process() {
   pid="$2"
   command_line="$(ps -o command= -p "$pid" 2>/dev/null || true)"
   case "$role" in
-    ollama)
-      [[ "$command_line" == *"ollama serve"* ]]
-      ;;
     api)
       [[ "$command_line" == *"uvicorn"*"deutschos_api.main:app"*"$PROJECT_ROOT/apps/api/src"* ]]
       ;;
@@ -201,8 +194,8 @@ port_is_busy() {
   return 2
 }
 
-ollama_ready() {
-  curl --silent --fail --connect-timeout 1 --max-time 3 "$OLLAMA_URL/api/tags" >/dev/null 2>&1
+lm_studio_ready() {
+  curl --silent --fail --connect-timeout 1 --max-time 3 "$LM_STUDIO_URL/v1/models" >/dev/null 2>&1
 }
 
 api_ready() {
@@ -217,28 +210,18 @@ web_ready() {
   [[ "$response" == *"<title>DeutschOS</title>"* ]]
 }
 
-model_count_on_disk() {
-  local count
-  if [[ ! -d "$OLLAMA_MODELS_DIR/manifests" ]]; then
-    printf '0\n'
-    return 0
-  fi
-  count="$(find "$OLLAMA_MODELS_DIR/manifests" -type f 2>/dev/null | wc -l | tr -d '[:space:]')"
-  printf '%s\n' "${count:-0}"
-}
-
 active_model_names() {
   local payload
   [[ -x "$PYTHON" ]] || return 1
-  payload="$(curl --silent --fail --connect-timeout 1 --max-time 3 "$OLLAMA_URL/api/tags" 2>/dev/null)" || return 1
+  payload="$(curl --silent --fail --connect-timeout 1 --max-time 3 "$LM_STUDIO_URL/v1/models" 2>/dev/null)" || return 1
   printf '%s' "$payload" | "$PYTHON" -c '
 import json, sys
 payload = json.load(sys.stdin)
-models = payload.get("models", [])
+models = payload.get("data", [])
 names = []
 for item in models if isinstance(models, list) else []:
     if isinstance(item, dict):
-        name = item.get("model") or item.get("name")
+        name = item.get("id")
         if isinstance(name, str) and name.strip():
             names.append(name.strip())
 print(", ".join(names))

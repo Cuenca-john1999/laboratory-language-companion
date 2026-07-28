@@ -11,7 +11,7 @@ from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
 from .memory import PedagogicalMemoryService
 from .routing import LibraryModelRouter, ModelRoutingPolicy
-from .search import EducationalSearchService, OllamaEmbeddingProvider
+from .search import EducationalSearchService, LMStudioEmbeddingProvider
 from .service import EducationalLibraryService
 from .teacher import EducationalTeacherService, TeacherLimits
 
@@ -26,8 +26,8 @@ def get_library_search(
 ) -> EducationalSearchService:
     embedding_model = settings.educational_library_embedding_model.strip()
     provider = (
-        OllamaEmbeddingProvider(
-            settings.ollama_base_url,
+        LMStudioEmbeddingProvider(
+            settings.lm_studio_base_url,
             embedding_model,
             timeout=settings.educational_library_embedding_timeout_seconds,
         )
@@ -97,7 +97,7 @@ def get_library_knowledge(
         service.database,
         search,
         model_provider,
-        default_model=settings.ollama_model,
+        default_model=settings.lm_studio_model,
     )
 
 
@@ -112,7 +112,7 @@ def get_library_teacher(
         service.database,
         search,
         model_provider,
-        default_model=settings.ollama_model,
+        default_model=settings.lm_studio_model,
         model_router=router,
         limits=TeacherLimits(
             max_search_queries=settings.educational_library_teacher_max_search_queries,

@@ -31,7 +31,7 @@ EXCLUDED_DIRECTORY_NAMES = {
     "huggingface",
     "model",
     "models",
-    "ollama",
+    "lm_studio",
     "temp",
     "tmp",
 }
@@ -60,7 +60,7 @@ class BackupError(RuntimeError):
 def is_safe_public_configuration(key: str, value: str) -> bool:
     """Reject credential-bearing URLs even when their key is otherwise public."""
 
-    if key in {"DEUTSCHOS_OLLAMA_BASE_URL", "NEXT_PUBLIC_API_URL"}:
+    if key in {"DEUTSCHOS_LM_STUDIO_BASE_URL", "NEXT_PUBLIC_API_URL"}:
         return is_loopback_url(value)
     if key == "DEUTSCHOS_CORS_ORIGINS":
         origins = [origin.strip() for origin in value.split(",") if origin.strip()]
@@ -133,7 +133,7 @@ def should_exclude_file(path: Path, database: Path) -> bool:
 def should_exclude_directory(name: str) -> bool:
     lowered = name.lower()
     return lowered in EXCLUDED_DIRECTORY_NAMES or lowered.startswith(
-        ("huggingface-", "model-", "models-", "ollama-")
+        ("huggingface-", "model-", "models-", "lm_studio-")
     )
 
 

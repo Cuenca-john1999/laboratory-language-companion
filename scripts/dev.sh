@@ -150,9 +150,11 @@ print(parsed.port or (443 if parsed.scheme == "https" else 80))
 [[ "$PUBLIC_API_PORT" == "8000" ]] \
   || fail "dev.sh inicia FastAPI en 8000; NEXT_PUBLIC_API_URL debe usar ese puerto."
 
-OLLAMA_URL="$($PYTHON "$CONFIG_HELPER" --root "$ROOT" value DEUTSCHOS_OLLAMA_BASE_URL --default 'http://127.0.0.1:11434')"
-"$PYTHON" "$CONFIG_HELPER" --root "$ROOT" is-loopback "$OLLAMA_URL" \
-  || fail "DEUTSCHOS_OLLAMA_BASE_URL debe apuntar a localhost/loopback."
+LM_STUDIO_URL="$($PYTHON "$CONFIG_HELPER" --root "$ROOT" value DEUTSCHOS_LM_STUDIO_BASE_URL --default 'http://127.0.0.1:1234/v1')"
+"$PYTHON" "$CONFIG_HELPER" --root "$ROOT" is-loopback "$LM_STUDIO_URL" \
+  || fail "DEUTSCHOS_LM_STUDIO_BASE_URL debe apuntar a localhost/loopback."
+curl --silent --fail --connect-timeout 1 --max-time 5 "$LM_STUDIO_URL/models" >/dev/null \
+  || fail "LM Studio no responde en $LM_STUDIO_URL. Inicia su servidor local."
 
 export NEXT_PUBLIC_API_URL="$PUBLIC_API_URL"
 export NEXT_TELEMETRY_DISABLED=1

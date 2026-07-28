@@ -23,7 +23,7 @@ from deutschos_api.educational_library.routing import (  # noqa: E402
 from deutschos_api.educational_library.schemas import TeacherAskRequest  # noqa: E402
 from deutschos_api.educational_library.search import (  # noqa: E402
     EducationalSearchService,
-    OllamaEmbeddingProvider,
+    LMStudioEmbeddingProvider,
 )
 from deutschos_api.educational_library.service import (  # noqa: E402
     EducationalLibraryService,
@@ -32,7 +32,7 @@ from deutschos_api.educational_library.teacher import (  # noqa: E402
     EducationalTeacherService,
     LearnerContext,
 )
-from deutschos_api.providers.ollama import OllamaProvider  # noqa: E402
+from deutschos_api.providers.lm_studio import LMStudioProvider  # noqa: E402
 
 QUERIES = (
     "¿Qué significa die?",
@@ -46,12 +46,12 @@ QUERIES = (
     "¿En qué sección de Herder aparece el acusativo?",
     "Explícame los verbos marcianos.",
 )
-MODELS = ("qwen3:14b", "qwen3.5:27b")
+MODELS = ("google/gemma-4-12b-qat", "google/gemma-4-26b-a4b-qat")
 
 
-def _ollama_processes() -> str:
+def _lm_studio_processes() -> str:
     result = subprocess.run(
-        ["ollama", "ps"],
+        ["lm_studio", "ps"],
         capture_output=True,
         check=False,
         text=True,
@@ -63,8 +63,8 @@ def _ollama_processes() -> str:
 async def benchmark(output: Path) -> dict[str, object]:
     settings = get_settings()
     service = EducationalLibraryService(settings)
-    embedding = OllamaEmbeddingProvider(
-        settings.ollama_base_url,
+    embedding = LMStudioEmbeddingProvider(
+        settings.lm_studio_base_url,
         settings.educational_library_embedding_model,
         timeout=settings.educational_library_embedding_timeout_seconds,
     )
@@ -73,8 +73,8 @@ async def benchmark(output: Path) -> dict[str, object]:
         ttl_seconds=settings.educational_library_cache_ttl_seconds,
     )
     search = EducationalSearchService(service.database, embedding, cache=cache)
-    provider = OllamaProvider(
-        settings.ollama_base_url,
+    provider = LMStudioProvider(
+        settings.lm_studio_base_url,
         timeout=max(300, settings.educational_library_teacher_timeout_seconds),
         keep_alive="5m",
     )
@@ -138,7 +138,7 @@ async def benchmark(output: Path) -> dict[str, object]:
                 "models": result.models,
                 "timings": result.timings.model_dump(mode="json"),
                 "wall_ms": elapsed_ms,
-                "ollama_metrics": dict(provider.last_request_metrics),
+                "lm_studio_metrics": dict(provider.last_request_metrics),
                 "confidence": result.confidence.value,
                 "answer": result.answer.model_dump(mode="json"),
                 "source_count": len(result.sources),
@@ -150,7 +150,7 @@ async def benchmark(output: Path) -> dict[str, object]:
                     for source in result.sources
                 ),
                 "citations": [source.citation for source in result.sources],
-                "ollama_ps": _ollama_processes(),
+                "lm_studio_ps": _lm_studio_processes(),
             }
             runs.append(run)
             print(

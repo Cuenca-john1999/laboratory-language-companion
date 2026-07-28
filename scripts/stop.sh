@@ -10,7 +10,7 @@ ensure_launcher_directories
 launcher_log "Solicitud de cierre para procesos gestionados por DeutschOS."
 FAILURES=0
 
-for ROLE in web api ollama; do
+for ROLE in web api; do
   if pid_file_state "$ROLE"; then
     if ! stop_validated_role "$ROLE"; then
       launcher_log "ERROR: no se pudo detener $ROLE."

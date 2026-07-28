@@ -21,10 +21,11 @@ if [[ "${1:-}" == "--machine" ]]; then
     MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
   fi
 
-  MODEL_COUNT="$(model_count_on_disk)"
-  printf 'model_count=%s\n' "$MODEL_COUNT"
-  if ((MODEL_COUNT == 0)); then
-    MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+  MODEL_NAMES="$(active_model_names || true)"
+  if [[ -n "$MODEL_NAMES" ]]; then
+    printf 'model_count=%s\n' "$(printf '%s\n' "$MODEL_NAMES" | awk -F', ' '{print NF}')"
+  else
+    printf 'model_count=0\n'
   fi
 
   LIBRARY_MATERIALS_DIR="${DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
@@ -45,13 +46,14 @@ if [[ "${1:-}" == "--machine" ]]; then
   esac
   printf 'library_source_count=%s\n' "$LIBRARY_SOURCE_COUNT"
 
-  if ollama_ready; then
-    printf 'ollama=active\n'
+  if lm_studio_ready; then
+    printf 'lm_studio=active\n'
     ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
   else
-    printf 'ollama=inactive\n'
+    printf 'lm_studio=inactive\n'
     MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
   fi
+  printf 'pid_lm_studio=absent\n'
   if api_ready; then
     printf 'api=active\n'
     ACTIVE_SERVICES=$((ACTIVE_SERVICES + 1))
@@ -67,7 +69,7 @@ if [[ "${1:-}" == "--machine" ]]; then
     MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
   fi
 
-  for ROLE in ollama api web; do
+  for ROLE in api web; do
     if pid_file_state "$ROLE"; then
       printf 'pid_%s=managed\n' "$ROLE"
       printf 'pid_%s_value=%s\n' "$ROLE" "$PID_VALUE"
@@ -109,14 +111,6 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
-MODEL_COUNT="$(model_count_on_disk)"
-if ((MODEL_COUNT > 0)); then
-  printf '✓ Modelos locales: %s manifiesto(s)\n' "$MODEL_COUNT"
-else
-  printf '✗ No hay modelos en %s\n' "$OLLAMA_MODELS_DIR"
-  FAILURES=$((FAILURES + 1))
-fi
-
 LIBRARY_MATERIALS_DIR="${DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
 if [[ -d "$LIBRARY_MATERIALS_DIR" ]]; then
   printf '✓ Biblioteca educativa disponible (%s)\n' "$LIBRARY_MATERIALS_DIR"
@@ -124,11 +118,11 @@ else
   printf '! Biblioteca educativa no disponible (%s)\n' "$LIBRARY_MATERIALS_DIR"
 fi
 
-if ollama_ready; then
+if lm_studio_ready; then
   MODEL_NAMES="$(active_model_names || true)"
-  printf '✓ Ollama activo%s\n' "${MODEL_NAMES:+ — $MODEL_NAMES}"
+  printf '✓ LM Studio activo%s\n' "${MODEL_NAMES:+ — $MODEL_NAMES}"
 else
-  printf '✗ Ollama inactivo (%s)\n' "$OLLAMA_URL"
+  printf '✗ LM Studio inactivo (%s)\n' "$LM_STUDIO_URL"
   FAILURES=$((FAILURES + 1))
 fi
 
@@ -147,7 +141,7 @@ else
 fi
 
 printf '\nPID files\n'
-for ROLE in ollama api web; do
+for ROLE in api web; do
   if pid_file_state "$ROLE"; then
     printf '✓ %s: PID %s válido y gestionado\n' "$ROLE" "$PID_VALUE"
   else

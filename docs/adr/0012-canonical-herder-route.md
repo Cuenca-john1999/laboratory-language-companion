@@ -49,7 +49,7 @@ revisión y conservan snapshots legacy.
 
 Las revisiones de temas son idempotentes, auditables y reversibles. La importación
 administrativa usa archivos locales, no se expone como path de filesystem en la API
-pública y no requiere Ollama al cargar `/study`.
+pública y no requiere LM Studio al cargar `/study`.
 
 ## Consecuencias
 

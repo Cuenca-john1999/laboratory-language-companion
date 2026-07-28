@@ -13,21 +13,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[5]
 
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/deutschos.sqlite3"
-    ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen3:14b"
+    lm_studio_base_url: str = "http://127.0.0.1:1234/v1"
+    lm_studio_model: str = "google/gemma-4-12b-qat"
+    lm_studio_deep_model: str = "google/gemma-4-26b-a4b-qat"
+    lm_studio_vision_model: str = "google/gemma-4-12b-qat"
+    lm_studio_embedding_model: str = "text-embedding-nomic-embed-text-v1.5"
+    lm_studio_timeout_seconds: float = 180
+    lm_studio_context_length: int = 8192
+    lm_studio_temperature: float = 0.2
+    lm_studio_max_tokens: int = 2048
     timezone: str = "Europe/Berlin"
     cors_origins: list[str] = ["http://127.0.0.1:3000", "http://localhost:3000"]
     educational_materials_dir: Path = PROJECT_ROOT / "material educativo"
     educational_library_runtime_dir: Path = PROJECT_ROOT / "var" / "educational-library"
     educational_library_scan_on_startup: bool = True
     educational_library_scan_interval_seconds: int = 900
-    educational_library_embedding_model: str = "qwen3-embedding:0.6b"
-    educational_library_planner_model: str = "qwen3.5:4b"
-    educational_library_teacher_model: str = "qwen3:14b"
-    educational_library_fallback_model: str = "qwen3.5:27b"
-    educational_library_vision_model: str = "qwen3-vl:8b"
-    educational_library_repair_model: str = "qwen3.5:4b"
-    educational_library_model_keep_alive: str = "5m"
+    educational_library_embedding_model: str = "text-embedding-nomic-embed-text-v1.5"
+    educational_library_planner_model: str = "google/gemma-4-12b-qat"
+    educational_library_teacher_model: str = "google/gemma-4-12b-qat"
+    educational_library_fallback_model: str = "google/gemma-4-26b-a4b-qat"
+    educational_library_vision_model: str = "google/gemma-4-12b-qat"
+    educational_library_repair_model: str = "google/gemma-4-12b-qat"
     educational_library_planner_timeout_seconds: float = 45
     educational_library_teacher_timeout_seconds: float = 180
     educational_library_embedding_timeout_seconds: float = 120
@@ -69,10 +75,10 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",")]
         return value
 
-    @field_validator("ollama_base_url")
+    @field_validator("lm_studio_base_url")
     @classmethod
-    def require_local_ollama(cls, value: str) -> str:
-        cls._require_loopback_url(value, "ollama_base_url")
+    def require_local_lm_studio(cls, value: str) -> str:
+        cls._require_loopback_url(value, "lm_studio_base_url")
         return value.rstrip("/")
 
     @field_validator("cors_origins")
@@ -127,11 +133,26 @@ class Settings(BaseSettings):
         "educational_library_planner_timeout_seconds",
         "educational_library_teacher_timeout_seconds",
         "educational_library_embedding_timeout_seconds",
+        "lm_studio_timeout_seconds",
     )
     @classmethod
     def safe_model_timeout(cls, value: float) -> float:
         if value < 1 or value > 600:
             raise ValueError("library model timeouts must be between 1 and 600 seconds")
+        return value
+
+    @field_validator("lm_studio_context_length", "lm_studio_max_tokens")
+    @classmethod
+    def positive_model_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("LM Studio token limits must be positive")
+        return value
+
+    @field_validator("lm_studio_temperature")
+    @classmethod
+    def valid_temperature(cls, value: float) -> float:
+        if value < 0 or value > 2:
+            raise ValueError("LM Studio temperature must be between 0 and 2")
         return value
 
     @model_validator(mode="after")
