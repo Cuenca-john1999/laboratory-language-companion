@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from deutschos_api.models import Mistake, StudentProfile
+from deutschos_api.prompts.contracts import TEACHER_CONTRACT_VERSION, teacher_prompt
 from deutschos_api.providers.base import (
     MalformedStructuredOutputError,
     ModelProvider,
@@ -1270,16 +1271,20 @@ class EducationalTeacherService:
         messages = [
             {
                 "role": "system",
-                "content": (PROMPT_ROOT / "library_teacher_answer_v1.md").read_text(
-                    encoding="utf-8"
-                ),
+                "content": teacher_prompt("library_teacher_answer_v1.md"),
             },
             {"role": "user", "content": json_dump(prompt_payload)},
         ]
         selected_model = model
         try:
             if self.model_router:
-                role = ModelRole.FALLBACK if self._requires_deep_model(plan) else ModelRole.TEACHER
+                role, routing_reason = self._teacher_route(request, plan, knowledge)
+                logger.info(
+                    "teacher model route=%s reason=%s contract=%s",
+                    role.value,
+                    routing_reason,
+                    TEACHER_CONTRACT_VERSION,
+                )
                 draft, selected_model, _ = await self.model_router.structured_generate(
                     role, messages, TeacherAnswerDraft
                 )
@@ -1512,7 +1517,33 @@ class EducationalTeacherService:
     @staticmethod
     def _requires_deep_model(plan: TeacherQueryPlan) -> bool:
         target = (plan.target_expression or "").casefold()
-        return any(marker in target for marker in ("konjunktiv ii", "adjektivdeklination"))
+        complex_topics = (
+            "konjunktiv ii",
+            "adjektivdeklination",
+            "indirekte rede",
+            "passiv",
+            "satzbau",
+            "nebensatz",
+        )
+        return any(marker in target for marker in complex_topics)
+
+    @classmethod
+    def _teacher_route(
+        cls,
+        request: TeacherAskRequest,
+        plan: TeacherQueryPlan,
+        knowledge: list[dict[str, object]],
+    ) -> tuple[ModelRole, str]:
+        statuses = {str(item.get("status", "")) for item in knowledge}
+        if statuses & {"conflict", "rejected"}:
+            return ModelRole.DEEP, "conflicting_or_rejected_memory"
+        if cls._requires_deep_model(plan):
+            return ModelRole.DEEP, "complex_grammar"
+        if len(request.question) > 700 and len(plan.required_evidence) >= 3:
+            return ModelRole.DEEP, "long_multi_step_context"
+        if plan.intent == TeacherIntent.DIFFERENCE and len(plan.search_queries) >= 4:
+            return ModelRole.DEEP, "extended_comparison"
+        return ModelRole.TEACHER, "ordinary_clear_evidence"
 
     @staticmethod
     def _insufficient_answer(plan: TeacherQueryPlan) -> TeacherAnswerDraft:

@@ -1014,7 +1014,7 @@ class SemanticIndexRequest(APIModel):
 
 
 class ModelRoleRead(APIModel):
-    role: Literal["planner", "embedding", "teacher", "fallback", "vision", "repair"]
+    role: Literal["planner", "embedding", "teacher", "deep", "vision", "repair"]
     configured_model: str
     available: bool
     selected_model: str | None

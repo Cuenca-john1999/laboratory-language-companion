@@ -51,7 +51,8 @@ la ruta Herder.
 La presentación puede ser directa, laboratorio, ciudad helada, expedición
 submarina, operación espacial o una selección mixta determinista. Son marcos
 originales breves y opcionales. No cambian objetivo, páginas ni gramática y no
-usan marcas, personajes o textos de videojuegos. El plan local tiene de cuatro
+usan marcas, personajes o textos de videojuegos. Cada misión termina con una
+producción alemana verificable vinculada al objetivo. El plan local tiene de cuatro
 a seis pasos según la duración; abrir `/study` no llama a Qwen.
 
 ## Profesor contextual y privacidad

@@ -71,6 +71,7 @@ def build_mission(
             "example_de": None,
             "example_es": None,
             "objective": objective,
+            "verifiable_task": f"Produce una frase alemana que demuestre: {objective}",
             "original_content": True,
         }
     brief, example_de, example_es = _MISSION_EXAMPLES[mission_type]
@@ -82,6 +83,10 @@ def build_mission(
         "example_de": example_de,
         "example_es": example_es,
         "objective": objective,
+        "verifiable_task": (
+            f"Escribe una frase alemana original relacionada con «{concept}» "
+            f"que cumpla este objetivo: {objective}"
+        ),
         "original_content": True,
     }
 

@@ -1,10 +1,10 @@
 import json
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from deutschos_api.models import Mistake, StudentProfile
+from deutschos_api.prompts.contracts import teacher_prompt
 from deutschos_api.schemas.api import ChatTurn
 
 
@@ -37,8 +37,7 @@ def build_teacher_messages(
         .order_by(Mistake.last_seen_at.desc())
         .limit(3)
     ).all()
-    prompt_path = Path(__file__).parents[1] / "prompts" / "teacher_v1.md"
-    system_prompt = prompt_path.read_text(encoding="utf-8")
+    system_prompt = teacher_prompt("teacher_v1.md")
     context = {
         "profile": {
             "preferred_name": profile.preferred_name,

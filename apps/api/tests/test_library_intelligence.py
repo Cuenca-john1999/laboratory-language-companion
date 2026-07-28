@@ -405,8 +405,7 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
                     {
                         "message": {
                             "content": (
-                                "Tabelle: der Hund | den Hund\n"
-                                "Akkusativ: Ich sehe den Hund."
+                                "Tabelle: der Hund | den Hund\nAkkusativ: Ich sehe den Hund."
                             )
                         }
                     }
@@ -460,9 +459,14 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
 
 
 @pytest.mark.anyio
-async def test_model_router_uses_installed_capabilities_and_bounded_fallback():
+async def test_model_router_uses_one_installed_model_per_explicit_role():
     provider = RouterProvider(
-        ["google/gemma-4-12b-qat", "google/gemma-4-26b-a4b-qat", "google/gemma-4-12b-qat", "text-embedding-embeddinggemma-300m"],
+        [
+            "google/gemma-4-12b-qat",
+            "google/gemma-4-26b-a4b-qat",
+            "google/gemma-4-12b-qat",
+            "text-embedding-embeddinggemma-300m",
+        ],
         fail={"google/gemma-4-26b-a4b-qat"},
     )
     router = LibraryModelRouter(
@@ -476,22 +480,14 @@ async def test_model_router_uses_installed_capabilities_and_bounded_fallback():
             repair="google/gemma-4-12b-qat",
         ),
     )
-    plan, selected, fallback = await router.structured_generate(
-        ModelRole.TEACHER,
-        [{"role": "user", "content": "die"}],
-        TeacherQueryPlan,
-    )
-    assert plan.target_expression == "die"
-    assert selected == "google/gemma-4-12b-qat"
-    assert fallback
-    assert router.candidates(ModelRole.TEACHER) == (
-        "google/gemma-4-26b-a4b-qat",
-        "google/gemma-4-12b-qat",
-    )
-    assert router.candidates(ModelRole.FALLBACK) == (
-        "google/gemma-4-12b-qat",
-        "google/gemma-4-26b-a4b-qat",
-    )
+    with pytest.raises(ModelRoutingError):
+        await router.structured_generate(
+            ModelRole.TEACHER,
+            [{"role": "user", "content": "die"}],
+            TeacherQueryPlan,
+        )
+    assert router.candidates(ModelRole.TEACHER) == ("google/gemma-4-26b-a4b-qat",)
+    assert router.candidates(ModelRole.DEEP) == ("google/gemma-4-12b-qat",)
     status = await router.status()
     assert next(item for item in status.roles if item.role == "vision").available
     missing = LibraryModelRouter(
@@ -572,7 +568,13 @@ async def test_intelligence_http_contracts_are_strict_and_operational(
     embedding = CountingEmbeddingProvider()
     search = EducationalSearchService(intelligence_library.database, embedding)
     router = LibraryModelRouter(
-        RouterProvider(["google/gemma-4-12b-qat", "google/gemma-4-12b-qat", "text-embedding-embeddinggemma-300m"]),
+        RouterProvider(
+            [
+                "google/gemma-4-12b-qat",
+                "google/gemma-4-12b-qat",
+                "text-embedding-embeddinggemma-300m",
+            ]
+        ),
         ModelRoutingPolicy(
             planner="google/gemma-4-12b-qat",
             embedding="text-embedding-embeddinggemma-300m",

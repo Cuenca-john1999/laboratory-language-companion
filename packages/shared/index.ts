@@ -83,6 +83,7 @@ export type StudyMission = {
   example_de: string | null;
   example_es: string | null;
   objective: string;
+  verifiable_task: string;
   original_content: boolean;
 };
 

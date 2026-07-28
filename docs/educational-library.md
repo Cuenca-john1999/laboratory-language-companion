@@ -155,21 +155,47 @@ ranking ni evasiones de grounding. Existe una sola reparación controlada con
 de evidencia insuficiente. Qwen no completa silenciosamente la respuesta con
 conocimiento externo.
 
-### Enrutamiento, latencia, caché y fallos
+### Contrato docente y enrutamiento
+
+Todos los modos generativos reutilizan `gemma-teacher.v1`. El contrato fija español
+de España, adaptación solo al nivel respaldado, corrección que acepta variantes
+válidas, ejercicios sin solución prematura y ejemplos de alemán general y de
+laboratorio. El modo biblioteca añade exclusivamente su contrato estructurado:
+Herder `core_theory` manda en teoría, `core_workbook` en práctica y las fuentes
+complementarias solo apoyan o contrastan. Una página, ubicación o cita se presenta
+únicamente si fue recuperada y verificada; PDF e impresa se distinguen.
+
+El modelo habitual atiende explicaciones, vocabulario, ejercicios y correcciones
+breves con evidencia clara. El profundo se selecciona por una razón registrada
+internamente: gramática compleja, conflicto o memoria rechazada, comparación extensa
+o contexto largo que además requiera varios pasos. La longitud aislada no basta.
+Cada rol usa exactamente su modelo configurado: un fallo se comunica y no activa
+otro modelo.
+
+Si la evidencia documental no basta, Teacher Query lo indica, no completa la
+respuesta con conocimiento general atribuido a Herder y propone reformular o elegir
+una fuente. La conversación general puede dar una explicación general, pero debe
+identificarla como tal. Visión queda reservada a una imagen o página concreta cuando
+texto y memoria verificada no basten; no inicia OCR masivo.
+
+### Latencia, caché y fallos
 
 Los nombres de modelo viven en configuración, no dispersos en el pipeline:
 
 - planner y reparación estructural: `google/gemma-4-12b-qat`;
 - embeddings: `text-embedding-embeddinggemma-300m`;
 - docente ordinario: `google/gemma-4-12b-qat`;
-- explicaciones profundas de Konjunktiv II y declinación adjetival: `google/gemma-4-26b-a4b-qat`;
+- explicaciones profundas justificadas: `google/gemma-4-26b-a4b-qat`;
 - visión selectiva: `google/gemma-4-12b-qat`.
 
-El benchmark #007L2 favoreció 14B para uso ordinario (27,5 s de media y 7/10
-respuestas verificadas) frente a 27B (64,9 s y 5/10). El modelo alternativo forma
-una cadena de fallback acotada; se comprueba capacidad antes de usarlo, existe un
-timeout por rol, `keep_alive` es limitado y un lock impide generar en paralelo con
-varios modelos grandes. No se descargan modelos.
+Se comprueba capacidad antes de usar cada rol, existe un timeout por rol,
+`keep_alive` es limitado y un lock impide generar en paralelo con varios modelos
+grandes. No se descargan modelos ni existe una cadena de fallback.
+
+Para futuras calibraciones se actualiza primero el contrato central o el apéndice
+mínimo del modo, se añaden pruebas de propiedades (no snapshots de texto completo)
+y se realizan pocas consultas reales representativas. No se cambian identificadores
+de modelo, embeddings ni datos de progreso durante una calibración pedagógica.
 
 Los fallos conocidos se persisten y proyectan como `no_evidence`, `weak_evidence`,
 `retrieval_failure`, `model_unavailable`, `generation_failure`,

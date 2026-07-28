@@ -28,6 +28,7 @@ class StudyMissionRead(APIModel):
     example_de: str | None
     example_es: str | None
     objective: str
+    verifiable_task: str
     original_content: bool
 
 
