@@ -7,6 +7,8 @@ private final class MockWorkspace: WorkspaceOpening {
   private(set) var activatedBundleIdentifiers: [String] = []
   private(set) var openedApplications: [URL] = []
   private(set) var openedURLs: [URL] = []
+  var stopOutcomes: [String: ApplicationStopOutcome] = [:]
+  private(set) var stoppedBundleIdentifiers: [String] = []
 
   func activateApplication(bundleIdentifier: String, at url: URL) async throws -> Bool {
     activatedBundleIdentifiers.append(bundleIdentifier)
@@ -23,6 +25,13 @@ private final class MockWorkspace: WorkspaceOpening {
   func openURL(_ url: URL) -> Bool {
     openedURLs.append(url)
     return shouldOpenURL
+  }
+
+  func stopApplications(bundleIdentifier: String, timeoutNanoseconds: UInt64) async
+    -> ApplicationStopOutcome
+  {
+    stoppedBundleIdentifiers.append(bundleIdentifier)
+    return stopOutcomes[bundleIdentifier] ?? .notRunning
   }
 }
 
@@ -59,6 +68,9 @@ struct ControllerTests {
     try await runningWebAppActivatesWithoutDuplicate()
     try await missingWebAppFallsBackOnce()
     try await webAppOpenErrorFallsBackOnce()
+    try await webAppStopTargetsExactBundle()
+    try await lmStudioStopTargetsExactBundle()
+    try await absentApplicationsStopIdempotently()
     if let integrationRoot = ProcessInfo.processInfo.environment[
       "DEUTSCHOS_CONTROLLER_INTEGRATION_ROOT"
     ] {
@@ -328,6 +340,49 @@ struct ControllerTests {
       "web app open not attempted once"
     )
     try expect(workspace.openedURLs == [WebAppLauncher.webURL], "fallback was not unique")
+    passed += 1
+  }
+
+  private static func webAppStopTargetsExactBundle() async throws {
+    let workspace = MockWorkspace()
+    workspace.stopOutcomes[WebAppLauncher.bundleIdentifier] = .terminated
+    let outcome = await WebAppLauncher(workspace: workspace).stop()
+    try expect(outcome == .terminated, "web app did not terminate normally")
+    try expect(
+      workspace.stoppedBundleIdentifiers == [WebAppLauncher.bundleIdentifier],
+      "web app stop did not use the exact bundle identifier"
+    )
+    try expect(
+      !workspace.stoppedBundleIdentifiers.contains("com.apple.Safari"),
+      "Safari was targeted by web app stop"
+    )
+    passed += 1
+  }
+
+  private static func lmStudioStopTargetsExactBundle() async throws {
+    let workspace = MockWorkspace()
+    workspace.stopOutcomes[LMStudioApplication.bundleIdentifier] = .forceTerminated
+    let outcome = await LMStudioApplication(workspace: workspace).stop()
+    try expect(outcome == .forceTerminated, "LM Studio escalation not reported")
+    try expect(
+      workspace.stoppedBundleIdentifiers == [LMStudioApplication.bundleIdentifier],
+      "LM Studio stop did not use the exact bundle identifier"
+    )
+    passed += 1
+  }
+
+  private static func absentApplicationsStopIdempotently() async throws {
+    let workspace = MockWorkspace()
+    let launcher = WebAppLauncher(workspace: workspace)
+    let lmStudio = LMStudioApplication(workspace: workspace)
+    let firstWeb = await launcher.stop()
+    let secondWeb = await launcher.stop()
+    let firstLMStudio = await lmStudio.stop()
+    let secondLMStudio = await lmStudio.stop()
+    try expect(firstWeb == .notRunning, "closed web app produced an error")
+    try expect(secondWeb == .notRunning, "second web app stop was not idempotent")
+    try expect(firstLMStudio == .notRunning, "closed LM Studio produced an error")
+    try expect(secondLMStudio == .notRunning, "second LM Studio stop was not idempotent")
     passed += 1
   }
 

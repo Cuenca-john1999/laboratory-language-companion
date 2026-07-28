@@ -13,6 +13,7 @@ final class ControllerModel: ObservableObject {
   private(set) var allowImmediateTermination = false
   private let projectRoot: URL?
   private let webAppLauncher: WebAppLauncher
+  private let lmStudioApplication: LMStudioApplication
   private var monitorTask: Task<Void, Never>?
   private var actionTask: Task<Void, Never>?
   private var activeExecutor: ScriptExecutor?
@@ -22,10 +23,12 @@ final class ControllerModel: ObservableObject {
 
   init(
     projectRoot: URL? = ProjectLocator.locate(),
-    webAppLauncher: WebAppLauncher = WebAppLauncher()
+    webAppLauncher: WebAppLauncher = WebAppLauncher(),
+    lmStudioApplication: LMStudioApplication = LMStudioApplication()
   ) {
     self.projectRoot = projectRoot
     self.webAppLauncher = webAppLauncher
+    self.lmStudioApplication = lmStudioApplication
     if projectRoot == nil {
       phase = .ssdUnavailable
       snapshot.ssdAvailable = false
@@ -41,7 +44,7 @@ final class ControllerModel: ObservableObject {
   }
 
   var canStop: Bool {
-    !phase.isBusy && (snapshot.anyServiceActive || snapshot.anyManagedProcess)
+    !phase.isBusy
   }
 
   var canOpenWeb: Bool {
@@ -142,7 +145,7 @@ final class ControllerModel: ObservableObject {
       await refreshStatus()
     }
 
-    let safeToExit = !snapshot.anyManagedProcess
+    let safeToExit = !snapshot.anyManagedProcess && !snapshot.anyServiceActive
     if !safeToExit {
       alertMessage = "No se pudieron detener todos los procesos gestionados. Revisa los logs."
       phase = .error
@@ -246,25 +249,73 @@ final class ControllerModel: ObservableObject {
       actionTask = nil
       return
     }
+    appendOperationalLog("inicio del apagado completo")
+    var nativeFailures: [String] = []
+    switch await webAppLauncher.stop() {
+    case .notRunning:
+      appendOperationalLog("aplicación web no estaba ejecutándose")
+    case .terminated:
+      appendOperationalLog("aplicación web cerrada normalmente")
+    case .forceTerminated:
+      appendOperationalLog("aplicación web cerrada con forceTerminate sobre el bundle exacto")
+    case .timedOut(let pids):
+      appendOperationalLog("timeout al cerrar aplicación web; PID \(pids)")
+      nativeFailures.append("aplicación web")
+    }
+
     let executor = ScriptExecutor()
     activeExecutor = executor
     let result = await executor.run(
       script: projectRoot.appendingPathComponent("scripts/stop.sh"),
       projectRoot: projectRoot,
-      environment: ["DEUTSCHOS_LAUNCHER_NO_ALERT": "1"]
+      environment: [
+        "DEUTSCHOS_LAUNCHER_NO_ALERT": "1",
+        "DEUTSCHOS_LM_APP_WILL_CLOSE": "1",
+      ]
     )
     activeExecutor = nil
+
+    switch await lmStudioApplication.stop() {
+    case .notRunning:
+      appendOperationalLog("LM Studio.app no estaba ejecutándose")
+    case .terminated:
+      appendOperationalLog("LM Studio.app cerrada normalmente")
+    case .forceTerminated:
+      appendOperationalLog("LM Studio.app cerrada con forceTerminate sobre el bundle exacto")
+    case .timedOut(let pids):
+      appendOperationalLog("timeout al cerrar LM Studio.app; PID \(pids)")
+      nativeFailures.append("LM Studio.app")
+    }
+
+    let verificationResult = await executor.run(
+      script: projectRoot.appendingPathComponent("scripts/stop.sh"),
+      projectRoot: projectRoot,
+      environment: ["DEUTSCHOS_LAUNCHER_NO_ALERT": "1"]
+    )
     actionTask = nil
     await refreshStatus()
 
-    if (!result.succeeded || snapshot.anyManagedProcess) && showFailure {
-      phase = .error
-      alertMessage = UserFacingError.message(action: "la detención", result: result)
-      appendOperationalLog("detención fallida (código \(result.exitCode))")
-    } else if snapshot.anyServiceActive && !snapshot.anyManagedProcess
-      && showFailure && !terminationInProgress
+    if (!result.succeeded || !verificationResult.succeeded || !nativeFailures.isEmpty
+      || snapshot.anyManagedProcess
+      || snapshot.anyServiceActive)
+      && showFailure
     {
-      alertMessage = "Los servicios activos son externos y se han preservado."
+      phase = .error
+      let active = [
+        nativeFailures.isEmpty ? nil : nativeFailures.joined(separator: ", "),
+        snapshot.lm_studioActive ? "LM Studio/puerto 1234" : nil,
+        snapshot.apiActive ? "FastAPI/puerto 8000" : nil,
+        snapshot.webActive ? "Next.js/puerto 3000" : nil,
+      ].compactMap { $0 }.joined(separator: ", ")
+      alertMessage = active.isEmpty
+        ? UserFacingError.message(action: "la detención", result: result)
+        : "Detención incompleta: \(active). Revisa los logs."
+      appendOperationalLog(
+        "apagado parcial (código \(result.exitCode)); componentes activos: \(active)"
+      )
+    } else {
+      phase = .stopped
+      appendOperationalLog("apagado completo")
     }
   }
 

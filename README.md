@@ -72,8 +72,9 @@ también puede copiarse a `~/Applications` sin perder el proyecto del SSD.
 - **Iniciar** ejecuta `scripts/start.sh`, espera a LM Studio, FastAPI y Next.js,
   y abre o activa `~/Applications/DeutschOS.app` mediante su bundle exacto.
   Safari se usa una sola vez como respaldo si esa aplicación falta o no abre.
-- **Detener** ejecuta `scripts/stop.sh` y mantiene abierta la ventana.
-- **Salir** detiene los procesos gestionados antes de terminar la aplicación.
+- **Detener** cierra la web app exacta, FastAPI, Next.js, el servidor local y
+  `LM Studio.app`, verifica los puertos y mantiene abierta la ventana.
+- **Salir** realiza el mismo apagado completo antes de terminar la aplicación.
 
 La X roja y `⌘Q` piden confirmación si hay servicios activos o un arranque en
 curso. Cancelar conserva la ventana; **Detener y salir** espera el cierre. La app
@@ -90,8 +91,9 @@ Para consultar o detener desde una shell siguen disponibles:
 ```
 
 Los logs privados están en `logs/` y los PID files en `run/`; ambos directorios,
-`dist/` y `LM Studio/` están excluidos de Git. `stop.sh` no cierra un LM Studio, API o
-web iniciados de otra manera. Si el bundle está copiado fuera del SSD puede
+`dist/` y `LM Studio/` están excluidos de Git. FastAPI y Next.js solo reciben
+señales con PID, huella de inicio y comando validados; LM Studio se cierra por
+su bundle exacto aunque se abriera manualmente. Si el bundle está copiado fuera del SSD puede
 mostrar «SSD no disponible»; si vive en el propio SSD, macOS no podrá abrirlo
 hasta volver a montar `/Volumes/Juegos`. No se instalan LaunchAgents ni se
 configura inicio automático de sesión.

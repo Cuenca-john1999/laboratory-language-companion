@@ -97,7 +97,7 @@ def test_start_reports_missing_lm_studio_with_nonzero_status(tmp_path):
     result = run_script("start.sh", environment)
 
     assert result.returncode == 1
-    assert "LM Studio no responde" in result.stderr
+    assert "LM Studio no está instalado" in result.stderr
     assert not (tmp_path / "run" / "start.lock").exists()
 
 
@@ -380,6 +380,38 @@ def test_stop_rejects_external_command_even_with_valid_start_token(tmp_path):
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def test_stop_is_idempotent_when_all_services_are_closed(tmp_path):
+    environment = launcher_environment(tmp_path)
+    environment["DEUTSCHOS_LAUNCHER_LMS_BIN"] = str(tmp_path / "missing-lms")
+
+    first = run_script("stop.sh", environment)
+    second = run_script("stop.sh", environment)
+
+    assert first.returncode == 0
+    assert second.returncode == 0
+    assert "Servidor local de LM Studio no estaba ejecutándose" in first.stdout
+    assert "Apagado parcial" not in second.stdout
+
+
+def test_full_stop_has_no_ambiguous_process_kills_or_safari_target():
+    stop_script = (SCRIPTS / "stop.sh").read_text(encoding="utf-8")
+    common = (SCRIPTS / "launcher-common.sh").read_text(encoding="utf-8")
+    controller_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/DeutschOSController").glob(
+            "*.swift"
+        )
+    )
+
+    combined = "\n".join((stop_script, common, controller_source))
+    assert "killall" not in combined
+    assert "pkill -f" not in combined
+    assert 'withBundleIdentifier: "com.apple.Safari"' not in combined
+    assert "lms server stop" in stop_script
+    assert "forceTerminate()" in controller_source
+    assert combined.index("terminate()") < combined.index("forceTerminate()")
 
 
 @pytest.mark.skip(reason="DeutschOS no longer manages LM Studio processes")

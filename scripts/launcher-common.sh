@@ -32,6 +32,7 @@ LM_STUDIO_URL="http://127.0.0.1:$LM_STUDIO_PORT"
 API_URL="http://127.0.0.1:$API_PORT"
 WEB_URL="http://127.0.0.1:$WEB_PORT"
 LAUNCHER_LOG="$LOG_DIR/launcher.log"
+LMS_BIN="${DEUTSCHOS_LAUNCHER_LMS_BIN:-${DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN:-$HOME/.lmstudio/bin/lms}}"
 
 ensure_launcher_directories() {
   umask 077
@@ -301,4 +302,28 @@ stop_validated_role() {
   done
   rm -f -- "$(pid_file_path "$role")"
   ! process_is_running "$pid"
+}
+
+wait_for_port_free() {
+  local label port timeout attempt state
+  label="$1"
+  port="$2"
+  timeout="$3"
+  attempt=0
+  while ((attempt < timeout)); do
+    port_is_busy "$port"
+    state=$?
+    if [[ "$state" == 1 ]]; then
+      launcher_log "$label: puerto $port libre."
+      return 0
+    fi
+    if [[ "$state" == 2 ]]; then
+      launcher_log "ERROR: no se puede comprobar el puerto $port de $label."
+      return 1
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  launcher_log "ERROR: timeout; $label conserva el listener 127.0.0.1:$port."
+  return 1
 }

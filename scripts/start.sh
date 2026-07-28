@@ -143,9 +143,16 @@ else
 fi
 
 if lm_studio_ready; then
-  launcher_log "LM Studio está activo; se reutiliza como servicio externo."
+  launcher_log "LM Studio está activo; se reutiliza sin reiniciarlo."
 else
-  fail_launcher "LM Studio no responde en $LM_STUDIO_URL. Inicia su servidor local."
+  [[ -x "$LMS_BIN" ]] \
+    || fail_launcher "LM Studio no está instalado o no se encontró el comando lms."
+  launcher_log "LM Studio está inactivo; iniciando su servidor local en loopback."
+  "$LMS_BIN" server start --port "$LM_STUDIO_PORT" --bind 127.0.0.1 \
+    >>"$LAUNCHER_LOG" 2>&1 \
+    || fail_launcher "LM Studio no pudo iniciar su servidor local."
+  wait_for_probe "LM Studio" lm_studio_ready "" "$START_TIMEOUT" \
+    || fail_launcher "LM Studio no arrancó antes del tiempo límite."
 fi
 
 if ! api_ready; then

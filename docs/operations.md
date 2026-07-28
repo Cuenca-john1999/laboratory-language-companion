@@ -83,9 +83,8 @@ real; las acciones incompatibles quedan deshabilitadas.
 La X roja y `⌘Q` se interceptan antes de cerrar la ventana. Si hay actividad,
 una alerta ofrece **Detener y salir** o **Cancelar**. Confirmar cancela de forma
 segura cualquier `start.sh` en curso, ejecuta `stop.sh`, verifica que no queden
-PID gestionados y solo entonces termina. **Salir** hace el mismo cierre sin
-dejar la app oculta. Un servicio externo puede seguir respondiendo porque la
-política existente prohíbe adquirirlo o señalarlo.
+PID gestionados ni listeners y solo entonces termina. **Salir** hace el mismo
+cierre sin dejar la app oculta.
 
 ```bash
 ./scripts/test-macos-app.sh
@@ -119,8 +118,8 @@ control. `dist/` sigue ignorado por Git porque contiene binarios locales.
 `start.sh` mantiene logs separados en `logs/` y PID files en `run/`. Un bloqueo
 atómico evita dos arranques simultáneos. Cada PID file incluye el PID y la hora
 de inicio del proceso; antes de reutilizarlo o detenerlo también se comprueba el
-comando esperado. Si un servicio DeutschOS válido ya responde sin PID file, se
-considera externo: se reutiliza, pero el launcher no adquiere su propiedad.
+comando esperado. Si FastAPI o Next.js ya responden sin PID file, se reutilizan
+sin adquirir su propiedad y nunca reciben señales sin una identidad demostrada.
 Un puerto ocupado por una respuesta que no corresponde al servicio esperado se
 trata como error y nunca se mata ese proceso.
 
@@ -147,9 +146,14 @@ Comandos operativos:
 ./scripts/stop.sh
 ```
 
-`stop.sh` envía primero SIGTERM y reserva SIGKILL para el último recurso. Solo
-actúa sobre procesos cuyo PID file, hora de inicio y comando coinciden; limpia
-archivos obsoletos sin señalar procesos ajenos. `status.sh` devuelve cero cuando
+`stop.sh` envía primero SIGTERM y reserva SIGKILL para el último recurso sobre
+FastAPI y Next.js. Solo actúa sobre procesos cuyo PID file, hora de inicio y
+comando coinciden; limpia archivos obsoletos sin señalar procesos ajenos. El
+servidor LM Studio recibe primero `lms server stop`; el controlador cierra
+después `ai.elementlabs.lmstudio` mediante `NSRunningApplication.terminate()` y
+solo escala a `forceTerminate()` sobre esa instancia exacta tras el timeout.
+La web app se cierra del mismo modo por su bundle exacto, sin señalar Safari.
+`status.sh` devuelve cero cuando
 LM Studio, API y web responden y no hay PID files huérfanos. Los artefactos
 `dist/`, `.build/`, `logs/`, `run/` y el almacén `LM Studio/` son locales y están
 ignorados por Git. No hay LaunchAgent, permisos de administrador, telemetría ni

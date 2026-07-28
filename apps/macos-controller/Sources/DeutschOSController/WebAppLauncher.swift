@@ -7,10 +7,19 @@ enum WebAppLaunchOutcome: Equatable {
   case safariFallback(reason: String)
 }
 
+enum ApplicationStopOutcome: Equatable {
+  case notRunning
+  case terminated
+  case forceTerminated
+  case timedOut(processIdentifiers: [pid_t])
+}
+
 protocol WorkspaceOpening {
   func activateApplication(bundleIdentifier: String, at url: URL) async throws -> Bool
   func openApplication(at url: URL) async throws
   func openURL(_ url: URL) -> Bool
+  func stopApplications(bundleIdentifier: String, timeoutNanoseconds: UInt64) async
+    -> ApplicationStopOutcome
 }
 
 struct SystemWorkspace: WorkspaceOpening {
@@ -49,6 +58,46 @@ struct SystemWorkspace: WorkspaceOpening {
   func openURL(_ url: URL) -> Bool {
     NSWorkspace.shared.open(url)
   }
+
+  func stopApplications(bundleIdentifier: String, timeoutNanoseconds: UInt64) async
+    -> ApplicationStopOutcome
+  {
+    let applications = NSRunningApplication.runningApplications(
+      withBundleIdentifier: bundleIdentifier
+    )
+    guard !applications.isEmpty else { return .notRunning }
+
+    applications.forEach { _ = $0.terminate() }
+    if await waitUntilStopped(applications, timeoutNanoseconds: timeoutNanoseconds) {
+      return .terminated
+    }
+
+    let remaining = applications.filter(\.isTerminated.not)
+    remaining.forEach { _ = $0.forceTerminate() }
+    if await waitUntilStopped(remaining, timeoutNanoseconds: timeoutNanoseconds) {
+      return .forceTerminated
+    }
+    return .timedOut(
+      processIdentifiers: remaining.filter(\.isTerminated.not).map(\.processIdentifier)
+    )
+  }
+
+  private func waitUntilStopped(
+    _ applications: [NSRunningApplication],
+    timeoutNanoseconds: UInt64
+  ) async -> Bool {
+    let interval: UInt64 = 100_000_000
+    var waited: UInt64 = 0
+    while applications.contains(where: { !$0.isTerminated }) && waited < timeoutNanoseconds {
+      try? await Task.sleep(nanoseconds: interval)
+      waited += interval
+    }
+    return applications.allSatisfy(\.isTerminated)
+  }
+}
+
+private extension Bool {
+  var not: Bool { !self }
 }
 
 struct WebAppLauncher {
@@ -100,11 +149,35 @@ struct WebAppLauncher {
     }
   }
 
+  func stop(timeoutNanoseconds: UInt64 = 2_000_000_000) async -> ApplicationStopOutcome {
+    await workspace.stopApplications(
+      bundleIdentifier: Self.bundleIdentifier,
+      timeoutNanoseconds: timeoutNanoseconds
+    )
+  }
+
   private func safariFallback(reason: String) throws -> WebAppLaunchOutcome {
     guard workspace.openURL(Self.webURL) else {
       throw WebAppLaunchError.fallbackFailed(reason)
     }
     return .safariFallback(reason: reason)
+  }
+}
+
+struct LMStudioApplication {
+  static let bundleIdentifier = "ai.elementlabs.lmstudio"
+
+  let workspace: WorkspaceOpening
+
+  init(workspace: WorkspaceOpening = SystemWorkspace()) {
+    self.workspace = workspace
+  }
+
+  func stop(timeoutNanoseconds: UInt64 = 5_000_000_000) async -> ApplicationStopOutcome {
+    await workspace.stopApplications(
+      bundleIdentifier: Self.bundleIdentifier,
+      timeoutNanoseconds: timeoutNanoseconds
+    )
   }
 }
 

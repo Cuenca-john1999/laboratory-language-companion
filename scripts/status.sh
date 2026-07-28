@@ -150,7 +150,7 @@ for ROLE in api web; do
       printf '! %s: PID file huérfano (%s)\n' "$ROLE" "$PID_REASON"
       STALE_PID_FILES=$((STALE_PID_FILES + 1))
     else
-      printf '· %s: sin PID gestionado; un servicio activo sería externo\n' "$ROLE"
+      printf '· %s: sin PID gestionado\n' "$ROLE"
     fi
   fi
 done
