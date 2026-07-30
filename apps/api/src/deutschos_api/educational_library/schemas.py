@@ -28,6 +28,22 @@ class ProcessingState(StrEnum):
     ERROR = "error"
 
 
+class DocumentState(StrEnum):
+    UNCHANGED = "unchanged"
+    DETECTED = "detected"
+    CANDIDATE = "candidate"
+    PENDING_EXTRACTION = "pending_extraction"
+    NEEDS_OCR = "needs_ocr"
+    PROCESSING = "processing"
+    PENDING_VALIDATION = "pending_validation"
+    READY = "ready"
+    ACTIVE = "active"
+    HISTORICAL = "historical"
+    FAILED = "failed"
+    MISSING = "missing"
+    MANUAL_REVIEW = "manual_review"
+
+
 class JobState(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -438,6 +454,120 @@ class SourceVersionRead(APIModel):
     error_code: str | None
     statistics: dict[str, JsonValue]
     created_at: datetime
+
+
+class LaboratorySummary(APIModel):
+    catalogued_sources: int = Field(ge=0)
+    recoverable_sources: int = Field(ge=0)
+    sources_without_content: int = Field(ge=0)
+    candidate_versions: int = Field(ge=0)
+    needs_ocr_sources: int = Field(ge=0)
+    error_sources: int = Field(ge=0)
+    missing_files: int = Field(ge=0)
+    pending_jobs: int = Field(ge=0)
+
+
+class DocumentVersionRead(APIModel):
+    id: int
+    source_id: str
+    version_number: int
+    content_hash: str
+    size_bytes: int
+    mtime_ns: int
+    observed_path: str | None
+    observed_name: str | None
+    detected_at: datetime
+    page_count: int | None
+    document_state: DocumentState
+    availability_state: str
+    extraction_state: str
+    chunk_state: str
+    embedding_state: str
+    activation_state: str
+    is_active: bool
+    extractor: str | None
+    extractor_version: str | None
+    extraction_tool: str | None
+    extraction_tool_version: str | None
+    ocr_tool: str | None
+    ocr_tool_version: str | None
+    ocr_languages: list[str]
+    technical_metadata: dict[str, JsonValue]
+    provenance: str
+    change_reason: str | None
+    previous_version_id: int | None
+    error_code: str | None
+    error_detail: str | None
+    statistics: dict[str, JsonValue]
+    processed_at: datetime | None
+    chunks: int = Field(ge=0)
+    embeddings: int = Field(ge=0)
+
+
+class LaboratorySourceRead(APIModel):
+    id: str
+    title: str
+    collection: str | None
+    format: str
+    current_path: str
+    source_status: SourceStatus
+    document_state: DocumentState
+    needs_manual_review: bool
+    active_version_id: int | None
+    active_version_number: int | None
+    latest_version_id: int | None
+    latest_version_number: int | None
+    page_count: int | None
+    active_chunks: int = Field(ge=0)
+    active_embeddings: int = Field(ge=0)
+    needs_ocr: bool
+    error_code: str | None
+    change_pending: bool
+
+
+class LaboratorySourceDetail(LaboratorySourceRead):
+    canonical_title: str | None
+    display_alias: str | None
+    author: str | None
+    publisher: str | None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    versions: list[DocumentVersionRead]
+
+
+class InventoryChangeRead(APIModel):
+    outcome: Literal[
+        "unchanged",
+        "modified",
+        "new",
+        "renamed",
+        "missing",
+        "duplicate",
+        "manual_review",
+    ]
+    source_id: str
+    relative_path: str
+    title: str
+    previous_hash: str | None
+    current_hash: str | None
+    active_version_id: int | None
+    candidate_version_id: int | None
+    message: str
+
+
+class DocumentInventoryResult(APIModel):
+    job_id: str
+    generated_at: datetime
+    files_scanned: int = Field(ge=0)
+    unchanged: int = Field(ge=0)
+    modified: int = Field(ge=0)
+    new: int = Field(ge=0)
+    renamed: int = Field(ge=0)
+    missing: int = Field(ge=0)
+    duplicates: int = Field(ge=0)
+    manual_review: int = Field(ge=0)
+    candidate_versions_created: int = Field(ge=0)
+    changes: list[InventoryChangeRead]
 
 
 class ChunkRead(APIModel):

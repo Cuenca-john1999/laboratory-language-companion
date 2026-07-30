@@ -10,6 +10,7 @@ const sections = [
   { href: "/skills", label: "Fähigkeiten" },
   { href: "/chat", label: "Lehrer" },
   { href: "/library", label: "Bibliothek" },
+  { href: "/laboratory", label: "Laboratorio documental" },
   { href: "/mistakes", label: "Fehler" },
   { href: "/data", label: "Datos y memoria" },
   { href: "/profile", label: "Profil" },

@@ -4,6 +4,8 @@ import type {
   DailyPlan,
   DailyPlanRequest,
   Dashboard,
+  DocumentInventoryResult,
+  DocumentVersion,
   LearningAttemptCreate,
   LearningAttemptReceipt,
   LearningReviewsResponse,
@@ -13,6 +15,9 @@ import type {
   KnowledgeUnit,
   LibraryChunk,
   LibraryJob,
+  LaboratorySource,
+  LaboratorySourceDetail,
+  LaboratorySummary,
   LibrarySearchResponse,
   LibrarySource,
   LibrarySourceVersion,
@@ -399,6 +404,28 @@ export const recordLearningAttempt = (payload: LearningAttemptCreate) =>
 
 export const getLibrarySummary = () =>
   api<LibrarySummary>("/api/library/status");
+export const getLaboratorySummary = () =>
+  api<LaboratorySummary>("/api/library/laboratory/summary");
+export const getLaboratorySources = (filter = "all") =>
+  api<LaboratorySource[]>(
+    `/api/library/laboratory/sources?filter=${encodeURIComponent(filter)}`,
+  );
+export const getLaboratorySource = (sourceId: string) =>
+  api<LaboratorySourceDetail>(
+    `/api/library/laboratory/sources/${encodeURIComponent(sourceId)}`,
+  );
+export const getDocumentVersions = (sourceId: string) =>
+  api<DocumentVersion[]>(
+    `/api/library/laboratory/sources/${encodeURIComponent(sourceId)}/versions`,
+  );
+export const getDocumentVersion = (versionId: number) =>
+  api<DocumentVersion>(`/api/library/laboratory/versions/${versionId}`);
+export const detectDocumentChanges = () =>
+  api<DocumentInventoryResult>("/api/library/laboratory/inventory", {
+    method: "POST",
+  });
+export const getLatestDocumentInventory = () =>
+  api<DocumentInventoryResult>("/api/library/laboratory/inventory/latest");
 export const getLibrarySources = () =>
   api<LibrarySource[]>("/api/library/sources?limit=100");
 export const getLibraryJobs = () =>

@@ -333,7 +333,7 @@ async def test_embeddings_incremental_cached_multilingual_and_role_aware(
 
     core.write_text("# Artikel\n\nDer Artikel zeigt Genus und Kasus.", encoding="utf-8")
     intelligence_library.scan()
-    assert await search.index_embeddings() == 1
+    assert await search.index_embeddings() == 0
 
     provider.digest = "digest-b"
     assert (await search.search("Artikel", mode="semantic")).results == []
@@ -513,7 +513,7 @@ def test_schema_v5_contains_documental_memory_and_route_tables_without_main_alem
     intelligence_library: EducationalLibraryService,
 ):
     with intelligence_library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 5
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 6
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")

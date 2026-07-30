@@ -18,6 +18,9 @@ settings.ensure_data_directory()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    from deutschos_api.educational_library.service import EducationalLibraryService
+
+    EducationalLibraryService(settings)
     task = None
     if settings.educational_library_scan_on_startup:
         from deutschos_api.educational_library.lifecycle import library_polling_loop

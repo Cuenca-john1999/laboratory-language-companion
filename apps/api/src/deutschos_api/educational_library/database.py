@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 5
+LIBRARY_SCHEMA_VERSION = 6
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -764,6 +764,150 @@ CREATE INDEX ix_canonical_audits_target
     ON canonical_route_audits(import_id, target_type, target_id, created_at);
 """
 
+_MIGRATION_0006 = """
+ALTER TABLE sources ADD COLUMN latest_version_id INTEGER REFERENCES source_versions(id);
+ALTER TABLE sources ADD COLUMN document_state TEXT NOT NULL DEFAULT 'detected';
+ALTER TABLE sources ADD COLUMN needs_manual_review INTEGER NOT NULL DEFAULT 0
+    CHECK(needs_manual_review IN (0, 1));
+ALTER TABLE sources ADD COLUMN last_inventory_at TEXT;
+
+ALTER TABLE source_versions ADD COLUMN observed_path TEXT;
+ALTER TABLE source_versions ADD COLUMN observed_name TEXT;
+ALTER TABLE source_versions ADD COLUMN detected_at TEXT;
+ALTER TABLE source_versions ADD COLUMN page_count INTEGER CHECK(page_count IS NULL OR page_count >= 0);
+ALTER TABLE source_versions ADD COLUMN document_state TEXT NOT NULL DEFAULT 'detected';
+ALTER TABLE source_versions ADD COLUMN availability_state TEXT NOT NULL DEFAULT 'present';
+ALTER TABLE source_versions ADD COLUMN extraction_state TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE source_versions ADD COLUMN chunk_state TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE source_versions ADD COLUMN embedding_state TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE source_versions ADD COLUMN activation_state TEXT NOT NULL DEFAULT 'candidate';
+ALTER TABLE source_versions ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0
+    CHECK(is_active IN (0, 1));
+ALTER TABLE source_versions ADD COLUMN extraction_tool TEXT;
+ALTER TABLE source_versions ADD COLUMN extraction_tool_version TEXT;
+ALTER TABLE source_versions ADD COLUMN ocr_tool TEXT;
+ALTER TABLE source_versions ADD COLUMN ocr_tool_version TEXT;
+ALTER TABLE source_versions ADD COLUMN ocr_languages_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE source_versions ADD COLUMN technical_metadata_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE source_versions ADD COLUMN version_provenance TEXT NOT NULL DEFAULT 'inventory';
+ALTER TABLE source_versions ADD COLUMN change_reason TEXT;
+ALTER TABLE source_versions ADD COLUMN superseded_at TEXT;
+
+UPDATE sources
+SET latest_version_id=(
+        SELECT sv.id FROM source_versions sv
+        WHERE sv.source_id=sources.id
+        ORDER BY sv.version_number DESC LIMIT 1
+    ),
+    document_state=CASE
+        WHEN status='missing' THEN 'missing'
+        WHEN status='error' OR processing_state='error' THEN 'failed'
+        WHEN processing_state='needs_ocr' THEN 'needs_ocr'
+        WHEN current_version_id IS NOT NULL THEN 'active'
+        ELSE 'detected'
+    END;
+
+UPDATE source_versions
+SET observed_path=(SELECT current_path FROM sources WHERE sources.id=source_versions.source_id),
+    observed_name=(SELECT name FROM sources WHERE sources.id=source_versions.source_id),
+    detected_at=created_at,
+    page_count=(SELECT page_count FROM documents WHERE documents.source_version_id=source_versions.id),
+    document_state=CASE
+        WHEN id=(SELECT current_version_id FROM sources WHERE sources.id=source_versions.source_id)
+            THEN 'active'
+        ELSE 'historical'
+    END,
+    availability_state=CASE
+        WHEN (SELECT status FROM sources WHERE sources.id=source_versions.source_id)='missing'
+            AND id=(SELECT latest_version_id FROM sources WHERE sources.id=source_versions.source_id)
+            THEN 'missing'
+        ELSE 'present'
+    END,
+    extraction_state=CASE
+        WHEN processing_state='processed' OR processing_state='partial' THEN 'extracted'
+        WHEN processing_state='needs_ocr' THEN 'needs_ocr'
+        WHEN processing_state='processing' THEN 'processing'
+        WHEN processing_state='error' THEN 'failed'
+        WHEN processing_state='unsupported' THEN 'unsupported'
+        ELSE 'pending'
+    END,
+    chunk_state=CASE
+        WHEN EXISTS(SELECT 1 FROM chunks WHERE chunks.source_version_id=source_versions.id)
+            THEN 'available'
+        ELSE 'pending'
+    END,
+    embedding_state=CASE
+        WHEN EXISTS(SELECT 1 FROM embeddings WHERE embeddings.source_version_id=source_versions.id)
+            THEN 'available'
+        ELSE 'pending'
+    END,
+    activation_state=CASE
+        WHEN id=(SELECT current_version_id FROM sources WHERE sources.id=source_versions.source_id)
+            THEN 'active'
+        ELSE 'historical'
+    END,
+    is_active=CASE
+        WHEN id=(SELECT current_version_id FROM sources WHERE sources.id=source_versions.source_id)
+            THEN 1
+        ELSE 0
+    END,
+    extraction_tool=extractor,
+    extraction_tool_version=extractor_version,
+    version_provenance='legacy_backfill';
+
+CREATE UNIQUE INDEX ux_source_versions_one_active
+    ON source_versions(source_id) WHERE is_active=1;
+CREATE INDEX ix_sources_latest_version ON sources(latest_version_id);
+CREATE INDEX ix_sources_document_state
+    ON sources(document_state, needs_manual_review, status);
+CREATE INDEX ix_source_versions_lifecycle
+    ON source_versions(source_id, activation_state, document_state);
+
+CREATE TABLE document_inventory_runs (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES processing_jobs(id),
+    generated_at TEXT NOT NULL,
+    result_json TEXT NOT NULL
+);
+CREATE INDEX ix_document_inventory_runs_generated
+    ON document_inventory_runs(generated_at DESC);
+"""
+
+_ROLLBACK_0006 = """
+DROP INDEX IF EXISTS ix_source_versions_lifecycle;
+DROP INDEX IF EXISTS ix_sources_document_state;
+DROP INDEX IF EXISTS ix_sources_latest_version;
+DROP INDEX IF EXISTS ux_source_versions_one_active;
+DROP TABLE IF EXISTS document_inventory_runs;
+
+ALTER TABLE source_versions DROP COLUMN superseded_at;
+ALTER TABLE source_versions DROP COLUMN change_reason;
+ALTER TABLE source_versions DROP COLUMN version_provenance;
+ALTER TABLE source_versions DROP COLUMN technical_metadata_json;
+ALTER TABLE source_versions DROP COLUMN ocr_languages_json;
+ALTER TABLE source_versions DROP COLUMN ocr_tool_version;
+ALTER TABLE source_versions DROP COLUMN ocr_tool;
+ALTER TABLE source_versions DROP COLUMN extraction_tool_version;
+ALTER TABLE source_versions DROP COLUMN extraction_tool;
+ALTER TABLE source_versions DROP COLUMN is_active;
+ALTER TABLE source_versions DROP COLUMN activation_state;
+ALTER TABLE source_versions DROP COLUMN embedding_state;
+ALTER TABLE source_versions DROP COLUMN chunk_state;
+ALTER TABLE source_versions DROP COLUMN extraction_state;
+ALTER TABLE source_versions DROP COLUMN availability_state;
+ALTER TABLE source_versions DROP COLUMN document_state;
+ALTER TABLE source_versions DROP COLUMN page_count;
+ALTER TABLE source_versions DROP COLUMN detected_at;
+ALTER TABLE source_versions DROP COLUMN observed_name;
+ALTER TABLE source_versions DROP COLUMN observed_path;
+
+ALTER TABLE sources DROP COLUMN last_inventory_at;
+ALTER TABLE sources DROP COLUMN needs_manual_review;
+ALTER TABLE sources DROP COLUMN document_state;
+ALTER TABLE sources DROP COLUMN latest_version_id;
+DELETE FROM library_schema WHERE version=6;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -803,6 +947,22 @@ class LibraryDatabase:
                 if current == 4:
                     self._backup_before_v5(connection)
                 self._apply_migration(connection, 5, _MIGRATION_0005)
+                current = 5
+            if current < 6:
+                self._apply_migration(connection, 6, _MIGRATION_0006)
+            return self._current_version(connection)
+
+    def rollback_version_6(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 6:
+                raise RuntimeError("library schema rollback requires version 6")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0006)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
             return self._current_version(connection)
 
     def _backup_before_v4(self, connection: sqlite3.Connection) -> Path | None:

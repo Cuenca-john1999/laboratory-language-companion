@@ -20,9 +20,15 @@ from .extractors import extract, supported_extensions
 from .inventory import InventoryEntry, collect_inventory, sha256_file
 from .schemas import (
     ChunkRead,
+    DocumentInventoryResult,
+    DocumentVersionRead,
+    InventoryChangeRead,
     InventoryReport,
     JobRead,
     JobState,
+    LaboratorySourceDetail,
+    LaboratorySourceRead,
+    LaboratorySummary,
     LibraryBusyError,
     LibraryCapabilities,
     LibraryContractError,
@@ -60,14 +66,15 @@ def json_load(value: str | None, fallback: object) -> object:
 
 
 class EducationalLibraryService:
-    def __init__(self, settings: Settings | None = None):
+    def __init__(self, settings: Settings | None = None, *, recover_interrupted: bool = True):
         self.settings = settings or get_settings()
         self.root = self.settings.educational_materials_dir
         self.runtime = self.settings.educational_library_runtime_dir
         self.database = LibraryDatabase(self.settings.educational_library_database_path)
         self.runtime.mkdir(parents=True, exist_ok=True)
         self.schema_version = self.database.migrate()
-        self._recover_interrupted_jobs()
+        if recover_interrupted:
+            self._recover_interrupted_jobs()
 
     def _recover_interrupted_jobs(self) -> None:
         lock_path = self.runtime / "scan.lock"
@@ -276,6 +283,7 @@ class EducationalLibraryService:
             )
 
     def scan(self, *, process_documents: bool = True, job_id: str | None = None) -> ScanSummary:
+        self._recover_interrupted_jobs()
         root = self._ensure_source_root()
         if job_id is None:
             job_id = self.create_job("scan", payload={"process_documents": process_documents}).id
@@ -349,8 +357,10 @@ class EducationalLibraryService:
     ) -> tuple[str, ProcessingState | None]:
         with self.database.connect() as connection:
             row = connection.execute(
-                "SELECT s.*, sv.processing_state AS version_state FROM sources s "
-                "LEFT JOIN source_versions sv ON sv.id=s.current_version_id "
+                "SELECT s.*, av.processing_state AS version_state,"
+                "lv.processing_state AS latest_version_state FROM sources s "
+                "LEFT JOIN source_versions av ON av.id=s.current_version_id "
+                "LEFT JOIN source_versions lv ON lv.id=s.latest_version_id "
                 "WHERE s.current_path=?",
                 (entry.relative_path,),
             ).fetchone()
@@ -410,15 +420,22 @@ class EducationalLibraryService:
                         "missing_since=NULL WHERE id=?",
                         (entry.size_bytes, entry.mtime_ns, now, row["id"]),
                     )
+                if (
+                    process_documents
+                    and row["latest_version_id"] is not None
+                    and row["latest_version_state"] in {"pending", "error"}
+                ):
+                    state = self._process_version(entry, row["id"], row["latest_version_id"])
+                    self._activate_initial_version(row["id"], row["latest_version_id"], state)
+                    return "unchanged", state
                 return "unchanged", None
             source_id = row["id"]
             version_id = self._create_version(
                 source_id,
                 content_hash,
                 entry,
-                previous_version_id=row["current_version_id"],
+                previous_version_id=row["latest_version_id"] or row["current_version_id"],
             )
-            self._mark_knowledge_stale(row["current_version_id"])
             outcome = "modified"
         else:
             renamed = self._rename_candidate(content_hash, seen_paths, entry)
@@ -454,6 +471,7 @@ class EducationalLibraryService:
                 outcome = "new"
         if process_documents:
             state = self._process_version(entry, source_id, version_id)
+            self._activate_initial_version(source_id, version_id, state)
             return outcome, state
         return outcome, None
 
@@ -465,6 +483,7 @@ class EducationalLibraryService:
         *,
         previous_version_id: int | None = None,
     ) -> int:
+        now = utc_text()
         with self.database.transaction(immediate=True) as connection:
             version = connection.execute(
                 "SELECT coalesce(max(version_number),0)+1 FROM source_versions WHERE source_id=?",
@@ -472,7 +491,11 @@ class EducationalLibraryService:
             ).fetchone()[0]
             cursor = connection.execute(
                 "INSERT INTO source_versions(source_id,version_number,content_hash,size_bytes,"
-                "mtime_ns,processing_state,previous_version_id,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                "mtime_ns,processing_state,previous_version_id,created_at,observed_path,observed_name,"
+                "detected_at,document_state,availability_state,extraction_state,chunk_state,"
+                "embedding_state,activation_state,is_active,version_provenance,change_reason) "
+                "VALUES (?,?,?,?,?,?,?, ?,?,?,?,'candidate','present','pending','pending','pending',"
+                "'candidate',0,'scanner',?)",
                 (
                     source_id,
                     version,
@@ -481,14 +504,22 @@ class EducationalLibraryService:
                     entry.mtime_ns,
                     ProcessingState.PENDING.value,
                     previous_version_id,
-                    utc_text(),
+                    now,
+                    entry.relative_path,
+                    entry.name,
+                    now,
+                    (
+                        "initial_file_detected"
+                        if previous_version_id is None
+                        else "content_hash_changed_at_same_path"
+                    ),
                 ),
             )
             version_id = int(cursor.lastrowid)
             connection.execute(
-                "UPDATE sources SET current_version_id=?, current_hash=?, size_bytes=?, mtime_ns=?, "
+                "UPDATE sources SET latest_version_id=?, current_hash=?, size_bytes=?, mtime_ns=?, "
                 "name=?, kind=?, format=?, status='present', processing_state='pending', "
-                "last_seen_at=?, missing_since=NULL WHERE id=?",
+                "document_state='candidate',last_seen_at=?, missing_since=NULL WHERE id=?",
                 (
                     version_id,
                     content_hash,
@@ -502,6 +533,28 @@ class EducationalLibraryService:
                 ),
             )
         return version_id
+
+    def _activate_initial_version(
+        self, source_id: str, version_id: int, state: ProcessingState
+    ) -> None:
+        if state not in {ProcessingState.PROCESSED, ProcessingState.PARTIAL}:
+            return
+        with self.database.transaction(immediate=True) as connection:
+            source = connection.execute(
+                "SELECT current_version_id FROM sources WHERE id=?", (source_id,)
+            ).fetchone()
+            if source is None or source["current_version_id"] is not None:
+                return
+            connection.execute(
+                "UPDATE source_versions SET is_active=1,activation_state='active',"
+                "document_state='active' WHERE id=? AND source_id=?",
+                (version_id, source_id),
+            )
+            connection.execute(
+                "UPDATE sources SET current_version_id=?,document_state='active',"
+                "processing_state=? WHERE id=?",
+                (version_id, state.value, source_id),
+            )
 
     def _rename_candidate(
         self, content_hash: str, seen_paths: set[str], entry: InventoryEntry
@@ -548,6 +601,639 @@ class EducationalLibraryService:
             ).fetchone()
         return str(row["id"]) if row else None
 
+    def detect_document_changes(self) -> DocumentInventoryResult:
+        """Inventory files and hashes without extracting or changing the active corpus."""
+        root = self._ensure_source_root()
+        snapshot = collect_inventory(root, confirm_duplicates=False)
+        entries = [
+            entry for entry in snapshot.entries if not entry.is_ignored and not entry.is_symlink
+        ]
+        observed = [(entry, sha256_file(entry.path)) for entry in entries]
+        job_id = str(uuid4())
+        generated_at = utc_text()
+        changes: list[InventoryChangeRead] = []
+        counters: Counter[str] = Counter()
+        seen_source_ids: set[str] = set()
+
+        try:
+            with self.database.transaction(immediate=True) as connection:
+                connection.execute(
+                    "INSERT INTO processing_jobs(id,kind,state,priority,payload_json,progress_current,"
+                    "progress_total,attempts,created_at,started_at,updated_at) "
+                    "VALUES (?, 'document_inventory', 'running', 0, '{}', 0, ?, 1, ?, ?, ?)",
+                    (job_id, len(observed), generated_at, generated_at, generated_at),
+                )
+                for index, (entry, content_hash) in enumerate(observed, start=1):
+                    change = self._apply_inventory_entry(
+                        connection, entry, content_hash, seen_source_ids, generated_at
+                    )
+                    counters[change.outcome] += 1
+                    if change.outcome in {"modified", "new", "duplicate", "manual_review"}:
+                        counters["candidate_versions_created"] += 1
+                    if change.outcome != "unchanged":
+                        changes.append(change)
+                    connection.execute(
+                        "UPDATE processing_jobs SET progress_current=?,cursor=?,updated_at=? WHERE id=?",
+                        (index, entry.relative_path, utc_text(), job_id),
+                    )
+
+                rows = connection.execute(
+                    "SELECT id,current_path,name,current_hash,current_version_id,latest_version_id "
+                    "FROM sources WHERE excluded=0 AND status!='excluded'"
+                ).fetchall()
+                for row in rows:
+                    if row["id"] in seen_source_ids:
+                        continue
+                    connection.execute(
+                        "UPDATE sources SET status='missing',document_state='missing',"
+                        "missing_since=coalesce(missing_since,?),last_inventory_at=? WHERE id=?",
+                        (generated_at, generated_at, row["id"]),
+                    )
+                    if row["latest_version_id"] is not None:
+                        connection.execute(
+                            "UPDATE source_versions SET availability_state='missing',"
+                            "document_state=CASE WHEN is_active=1 THEN document_state ELSE 'missing' END "
+                            "WHERE id=?",
+                            (row["latest_version_id"],),
+                        )
+                    counters["missing"] += 1
+                    changes.append(
+                        InventoryChangeRead(
+                            outcome="missing",
+                            source_id=row["id"],
+                            relative_path=row["current_path"],
+                            title=row["name"],
+                            previous_hash=row["current_hash"],
+                            current_hash=None,
+                            active_version_id=row["current_version_id"],
+                            candidate_version_id=(
+                                row["latest_version_id"]
+                                if row["latest_version_id"] != row["current_version_id"]
+                                else None
+                            ),
+                            message="El archivo no está disponible; se conserva todo su historial.",
+                        )
+                    )
+
+                result = DocumentInventoryResult(
+                    job_id=job_id,
+                    generated_at=generated_at,
+                    files_scanned=len(observed),
+                    unchanged=counters["unchanged"],
+                    modified=counters["modified"],
+                    new=counters["new"],
+                    renamed=counters["renamed"],
+                    missing=counters["missing"],
+                    duplicates=counters["duplicate"],
+                    manual_review=counters["manual_review"],
+                    candidate_versions_created=counters["candidate_versions_created"],
+                    changes=changes,
+                )
+                connection.execute(
+                    "UPDATE processing_jobs SET state='completed',progress_current=?,updated_at=?,"
+                    "completed_at=? WHERE id=?",
+                    (len(observed), generated_at, generated_at, job_id),
+                )
+                connection.execute(
+                    "INSERT INTO document_inventory_runs(id,job_id,generated_at,result_json) "
+                    "VALUES (?,?,?,?)",
+                    (str(uuid4()), job_id, generated_at, result.model_dump_json()),
+                )
+            return result
+        except Exception as exc:
+            failed_at = utc_text()
+            with self.database.transaction(immediate=True) as connection:
+                connection.execute(
+                    "INSERT INTO processing_jobs(id,kind,state,priority,payload_json,progress_current,"
+                    "progress_total,attempts,error_code,error_detail,created_at,started_at,updated_at,"
+                    "completed_at) VALUES (?, 'document_inventory', 'failed', 0, '{}', 0, ?, 1, ?, ?,"
+                    "?,?,?,?)",
+                    (
+                        job_id,
+                        len(observed),
+                        type(exc).__name__,
+                        str(exc)[:1_000],
+                        generated_at,
+                        generated_at,
+                        failed_at,
+                        failed_at,
+                    ),
+                )
+            raise
+
+    def _apply_inventory_entry(
+        self,
+        connection: sqlite3.Connection,
+        entry: InventoryEntry,
+        content_hash: str,
+        seen_source_ids: set[str],
+        detected_at: str,
+    ) -> InventoryChangeRead:
+        row = connection.execute(
+            "SELECT * FROM sources WHERE current_path=?", (entry.relative_path,)
+        ).fetchone()
+        if row is not None:
+            seen_source_ids.add(str(row["id"]))
+            existing = connection.execute(
+                "SELECT * FROM source_versions WHERE source_id=? AND content_hash=?",
+                (row["id"], content_hash),
+            ).fetchone()
+            if existing is not None:
+                active = existing["id"] == row["current_version_id"]
+                if not active and existing["activation_state"] == "historical":
+                    connection.execute(
+                        "UPDATE source_versions SET activation_state='candidate',"
+                        "document_state='candidate',availability_state='present' WHERE id=?",
+                        (existing["id"],),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE source_versions SET availability_state='present' WHERE id=?",
+                        (existing["id"],),
+                    )
+                connection.execute(
+                    "UPDATE sources SET current_hash=?,size_bytes=?,mtime_ns=?,name=?,kind=?,format=?,"
+                    "latest_version_id=?,status='present',missing_since=NULL,last_seen_at=?,"
+                    "last_inventory_at=?,document_state=? WHERE id=?",
+                    (
+                        content_hash,
+                        entry.size_bytes,
+                        entry.mtime_ns,
+                        entry.name,
+                        entry.kind.value,
+                        entry.extension or "[none]",
+                        existing["id"],
+                        detected_at,
+                        detected_at,
+                        "failed"
+                        if existing["processing_state"] == "error"
+                        else "needs_ocr"
+                        if existing["processing_state"] == "needs_ocr"
+                        else "active"
+                        if active
+                        else existing["document_state"],
+                        row["id"],
+                    ),
+                )
+                return InventoryChangeRead(
+                    outcome="unchanged",
+                    source_id=row["id"],
+                    relative_path=entry.relative_path,
+                    title=row["name"],
+                    previous_hash=row["current_hash"],
+                    current_hash=content_hash,
+                    active_version_id=row["current_version_id"],
+                    candidate_version_id=None if active else existing["id"],
+                    message="El hash ya estaba registrado; no se creó otra versión.",
+                )
+
+            version_id = self._insert_candidate_version(
+                connection,
+                source_id=row["id"],
+                entry=entry,
+                content_hash=content_hash,
+                previous_version_id=row["latest_version_id"] or row["current_version_id"],
+                detected_at=detected_at,
+                change_reason="content_hash_changed_at_same_path",
+            )
+            connection.execute(
+                "UPDATE sources SET current_hash=?,size_bytes=?,mtime_ns=?,name=?,kind=?,format=?,"
+                "latest_version_id=?,status='present',processing_state='pending',"
+                "document_state='candidate',missing_since=NULL,last_seen_at=?,last_inventory_at=? "
+                "WHERE id=?",
+                (
+                    content_hash,
+                    entry.size_bytes,
+                    entry.mtime_ns,
+                    entry.name,
+                    entry.kind.value,
+                    entry.extension or "[none]",
+                    version_id,
+                    detected_at,
+                    detected_at,
+                    row["id"],
+                ),
+            )
+            return InventoryChangeRead(
+                outcome="modified",
+                source_id=row["id"],
+                relative_path=entry.relative_path,
+                title=row["name"],
+                previous_hash=row["current_hash"],
+                current_hash=content_hash,
+                active_version_id=row["current_version_id"],
+                candidate_version_id=version_id,
+                message="Nueva versión candidata; la versión activa no cambió.",
+            )
+
+        candidates = connection.execute(
+            "SELECT s.* FROM sources s JOIN source_versions sv "
+            "ON sv.id=s.latest_version_id WHERE sv.content_hash=? AND s.excluded=0",
+            (content_hash,),
+        ).fetchall()
+        rename_candidates = []
+        for candidate in candidates:
+            if candidate["id"] in seen_source_ids:
+                continue
+            previous_path = (self.root / candidate["current_path"]).resolve(strict=False)
+            try:
+                previous_path.relative_to(self.root.resolve(strict=True))
+            except ValueError:
+                continue
+            if not previous_path.exists():
+                rename_candidates.append(candidate)
+        if len(rename_candidates) == 1:
+            candidate = rename_candidates[0]
+            seen_source_ids.add(str(candidate["id"]))
+            connection.execute(
+                "UPDATE sources SET current_path=?,name=?,kind=?,format=?,size_bytes=?,mtime_ns=?,"
+                "current_hash=?,status='present',missing_since=NULL,last_seen_at=?,last_inventory_at=? "
+                "WHERE id=?",
+                (
+                    entry.relative_path,
+                    entry.name,
+                    entry.kind.value,
+                    entry.extension or "[none]",
+                    entry.size_bytes,
+                    entry.mtime_ns,
+                    content_hash,
+                    detected_at,
+                    detected_at,
+                    candidate["id"],
+                ),
+            )
+            connection.execute(
+                "UPDATE source_versions SET availability_state='present' WHERE id=?",
+                (candidate["latest_version_id"],),
+            )
+            return InventoryChangeRead(
+                outcome="renamed",
+                source_id=candidate["id"],
+                relative_path=entry.relative_path,
+                title=candidate["name"],
+                previous_hash=content_hash,
+                current_hash=content_hash,
+                active_version_id=candidate["current_version_id"],
+                candidate_version_id=(
+                    candidate["latest_version_id"]
+                    if candidate["latest_version_id"] != candidate["current_version_id"]
+                    else None
+                ),
+                message="Se registró la ubicación nueva conservando la identidad y el historial.",
+            )
+
+        ambiguous = len(rename_candidates) > 1
+        duplicate_of = candidates[0]["id"] if candidates and not ambiguous else None
+        source_id = str(uuid4())
+        connection.execute(
+            "INSERT INTO sources(id,current_path,name,kind,format,size_bytes,mtime_ns,current_hash,"
+            "status,processing_state,duplicate_of_source_id,first_seen_at,last_seen_at,"
+            "document_state,needs_manual_review,last_inventory_at) "
+            "VALUES (?,?,?,?,?,?,?,?, 'present','pending',?,?,?,?,?,?)",
+            (
+                source_id,
+                entry.relative_path,
+                entry.name,
+                entry.kind.value,
+                entry.extension or "[none]",
+                entry.size_bytes,
+                entry.mtime_ns,
+                content_hash,
+                duplicate_of,
+                detected_at,
+                detected_at,
+                "manual_review" if ambiguous else "candidate",
+                int(ambiguous),
+                detected_at,
+            ),
+        )
+        version_id = self._insert_candidate_version(
+            connection,
+            source_id=source_id,
+            entry=entry,
+            content_hash=content_hash,
+            previous_version_id=None,
+            detected_at=detected_at,
+            change_reason="new_file_detected",
+            document_state="manual_review" if ambiguous else "candidate",
+        )
+        connection.execute(
+            "UPDATE sources SET latest_version_id=? WHERE id=?", (version_id, source_id)
+        )
+        seen_source_ids.add(source_id)
+        outcome = "manual_review" if ambiguous else "duplicate" if duplicate_of else "new"
+        return InventoryChangeRead(
+            outcome=outcome,
+            source_id=source_id,
+            relative_path=entry.relative_path,
+            title=entry.name,
+            previous_hash=None,
+            current_hash=content_hash,
+            active_version_id=None,
+            candidate_version_id=version_id,
+            message=(
+                "La coincidencia es ambigua; se creó un caso separado para revisión manual."
+                if ambiguous
+                else "Se detectó un duplicado físico sin fusionar identidades."
+                if duplicate_of
+                else "Nueva fuente con una versión candidata pendiente de procesamiento."
+            ),
+        )
+
+    @staticmethod
+    def _insert_candidate_version(
+        connection: sqlite3.Connection,
+        *,
+        source_id: str,
+        entry: InventoryEntry,
+        content_hash: str,
+        previous_version_id: int | None,
+        detected_at: str,
+        change_reason: str,
+        document_state: str = "candidate",
+    ) -> int:
+        version_number = int(
+            connection.execute(
+                "SELECT coalesce(max(version_number),0)+1 FROM source_versions WHERE source_id=?",
+                (source_id,),
+            ).fetchone()[0]
+        )
+        cursor = connection.execute(
+            "INSERT INTO source_versions(source_id,version_number,content_hash,size_bytes,mtime_ns,"
+            "processing_state,previous_version_id,created_at,observed_path,observed_name,detected_at,"
+            "document_state,availability_state,extraction_state,chunk_state,embedding_state,"
+            "activation_state,is_active,version_provenance,change_reason) "
+            "VALUES (?,?,?,?,?,'pending',?,?,?,?,?,?,'present','pending','pending','pending',"
+            "'candidate',0,'inventory',?)",
+            (
+                source_id,
+                version_number,
+                content_hash,
+                entry.size_bytes,
+                entry.mtime_ns,
+                previous_version_id,
+                detected_at,
+                entry.relative_path,
+                entry.name,
+                detected_at,
+                document_state,
+                change_reason,
+            ),
+        )
+        return int(cursor.lastrowid)
+
+    def latest_document_inventory(self) -> DocumentInventoryResult:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT result_json FROM document_inventory_runs ORDER BY generated_at DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            raise LibraryNotFoundError("Todavía no existe un inventario documental.")
+        return DocumentInventoryResult.model_validate_json(row["result_json"])
+
+    def laboratory_summary(self) -> LaboratorySummary:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                "SELECT count(*) catalogued_sources,"
+                "sum(CASE WHEN current_version_id IS NOT NULL AND EXISTS("
+                "SELECT 1 FROM chunks c WHERE c.source_version_id=sources.current_version_id"
+                ") THEN 1 ELSE 0 END) recoverable_sources,"
+                "sum(CASE WHEN current_version_id IS NULL OR NOT EXISTS("
+                "SELECT 1 FROM chunks c WHERE c.source_version_id=sources.current_version_id"
+                ") THEN 1 ELSE 0 END) sources_without_content,"
+                "(SELECT count(*) FROM source_versions WHERE activation_state='candidate') "
+                "candidate_versions,"
+                "sum(CASE WHEN EXISTS(SELECT 1 FROM source_versions sv WHERE sv.source_id=sources.id "
+                "AND sv.extraction_state='needs_ocr' AND sv.id=sources.latest_version_id) "
+                "THEN 1 ELSE 0 END) needs_ocr_sources,"
+                "sum(CASE WHEN document_state='failed' THEN 1 ELSE 0 END) error_sources,"
+                "sum(CASE WHEN status='missing' THEN 1 ELSE 0 END) missing_files "
+                "FROM sources"
+            ).fetchone()
+            pending_jobs = connection.execute(
+                "SELECT count(*) FROM processing_jobs WHERE state IN ('queued','running','paused')"
+            ).fetchone()[0]
+        return LaboratorySummary(
+            catalogued_sources=int(row["catalogued_sources"] or 0),
+            recoverable_sources=int(row["recoverable_sources"] or 0),
+            sources_without_content=int(row["sources_without_content"] or 0),
+            candidate_versions=int(row["candidate_versions"] or 0),
+            needs_ocr_sources=int(row["needs_ocr_sources"] or 0),
+            error_sources=int(row["error_sources"] or 0),
+            missing_files=int(row["missing_files"] or 0),
+            pending_jobs=int(pending_jobs or 0),
+        )
+
+    def laboratory_sources(self, *, filter_name: str = "all") -> list[LaboratorySourceRead]:
+        clauses = {
+            "all": "",
+            "active": " AND s.current_version_id IS NOT NULL",
+            "candidates": " AND s.latest_version_id IS NOT s.current_version_id",
+            "needs_ocr": " AND lv.extraction_state='needs_ocr'",
+            "errors": " AND s.document_state='failed'",
+            "without_content": " AND (s.current_version_id IS NULL OR ac.active_chunks=0)",
+            "missing": " AND s.status='missing'",
+        }
+        if filter_name not in clauses:
+            raise LibraryContractError("El filtro documental no es válido.")
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                self._laboratory_source_query()
+                + clauses[filter_name]
+                + " ORDER BY s.priority DESC,s.name COLLATE NOCASE"
+            ).fetchall()
+        return [self._laboratory_source_read(row) for row in rows]
+
+    def laboratory_source(self, source_id: str) -> LaboratorySourceDetail:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                self._laboratory_source_query() + " AND s.id=?", (source_id,)
+            ).fetchone()
+            if row is None:
+                raise LibraryNotFoundError("La fuente no existe.")
+            versions = self._document_versions(connection, source_id)
+        base = self._laboratory_source_read(row)
+        return LaboratorySourceDetail(
+            **base.model_dump(),
+            canonical_title=row["canonical_title"],
+            display_alias=row["display_alias"],
+            author=row["author"],
+            publisher=row["publisher"],
+            first_seen_at=row["first_seen_at"],
+            last_seen_at=row["last_seen_at"],
+            versions=versions,
+        )
+
+    def document_versions(self, source_id: str) -> list[DocumentVersionRead]:
+        with self.database.connect() as connection:
+            exists = connection.execute("SELECT 1 FROM sources WHERE id=?", (source_id,)).fetchone()
+            if exists is None:
+                raise LibraryNotFoundError("La fuente no existe.")
+            return self._document_versions(connection, source_id)
+
+    def document_version(self, version_id: int) -> DocumentVersionRead:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                self._document_version_query() + " WHERE sv.id=?", (version_id,)
+            ).fetchone()
+        if row is None:
+            raise LibraryNotFoundError("La versión documental no existe.")
+        return self._document_version_read(row)
+
+    def _document_versions(
+        self, connection: sqlite3.Connection, source_id: str
+    ) -> list[DocumentVersionRead]:
+        rows = connection.execute(
+            self._document_version_query()
+            + " WHERE sv.source_id=? ORDER BY sv.version_number DESC",
+            (source_id,),
+        ).fetchall()
+        return [self._document_version_read(row) for row in rows]
+
+    @staticmethod
+    def _document_version_query() -> str:
+        return (
+            "SELECT sv.*,(SELECT count(*) FROM chunks c WHERE c.source_version_id=sv.id) chunks,"
+            "(SELECT count(*) FROM embeddings e WHERE e.source_version_id=sv.id) embeddings "
+            "FROM source_versions sv"
+        )
+
+    @staticmethod
+    def _document_version_read(row: sqlite3.Row) -> DocumentVersionRead:
+        return DocumentVersionRead(
+            id=row["id"],
+            source_id=row["source_id"],
+            version_number=row["version_number"],
+            content_hash=row["content_hash"],
+            size_bytes=row["size_bytes"],
+            mtime_ns=row["mtime_ns"],
+            observed_path=row["observed_path"],
+            observed_name=row["observed_name"],
+            detected_at=row["detected_at"] or row["created_at"],
+            page_count=row["page_count"],
+            document_state=row["document_state"],
+            availability_state=row["availability_state"],
+            extraction_state=row["extraction_state"],
+            chunk_state=row["chunk_state"],
+            embedding_state=row["embedding_state"],
+            activation_state=row["activation_state"],
+            is_active=bool(row["is_active"]),
+            extractor=row["extractor"],
+            extractor_version=row["extractor_version"],
+            extraction_tool=row["extraction_tool"],
+            extraction_tool_version=row["extraction_tool_version"],
+            ocr_tool=row["ocr_tool"],
+            ocr_tool_version=row["ocr_tool_version"],
+            ocr_languages=json_load(row["ocr_languages_json"], []),
+            technical_metadata=json_load(row["technical_metadata_json"], {}),
+            provenance=row["version_provenance"],
+            change_reason=row["change_reason"],
+            previous_version_id=row["previous_version_id"],
+            error_code=row["error_code"],
+            error_detail=row["error_detail"],
+            statistics=json_load(row["statistics_json"], {}),
+            processed_at=row["processed_at"],
+            chunks=int(row["chunks"] or 0),
+            embeddings=int(row["embeddings"] or 0),
+        )
+
+    @staticmethod
+    def _laboratory_source_query() -> str:
+        return (
+            "SELECT s.*,av.version_number active_version_number,"
+            "lv.version_number latest_version_number,lv.page_count,"
+            "lv.extraction_state latest_extraction_state,lv.error_code,"
+            "coalesce(ac.active_chunks,0) active_chunks,"
+            "coalesce(ae.active_embeddings,0) active_embeddings "
+            "FROM sources s "
+            "LEFT JOIN source_versions av ON av.id=s.current_version_id "
+            "LEFT JOIN source_versions lv ON lv.id=s.latest_version_id "
+            "LEFT JOIN (SELECT source_version_id,count(*) active_chunks FROM chunks "
+            "GROUP BY source_version_id) ac ON ac.source_version_id=s.current_version_id "
+            "LEFT JOIN (SELECT source_version_id,count(*) active_embeddings FROM embeddings "
+            "GROUP BY source_version_id) ae ON ae.source_version_id=s.current_version_id "
+            "WHERE 1=1"
+        )
+
+    @staticmethod
+    def _laboratory_source_read(row: sqlite3.Row) -> LaboratorySourceRead:
+        path = Path(row["current_path"])
+        collection = path.parts[0] if len(path.parts) > 1 else None
+        return LaboratorySourceRead(
+            id=row["id"],
+            title=row["display_alias"] or row["canonical_title"] or row["name"],
+            collection=collection,
+            format=row["format"],
+            current_path=row["current_path"],
+            source_status=row["status"],
+            document_state=row["document_state"],
+            needs_manual_review=bool(row["needs_manual_review"]),
+            active_version_id=row["current_version_id"],
+            active_version_number=row["active_version_number"],
+            latest_version_id=row["latest_version_id"],
+            latest_version_number=row["latest_version_number"],
+            page_count=row["page_count"],
+            active_chunks=int(row["active_chunks"] or 0),
+            active_embeddings=int(row["active_embeddings"] or 0),
+            needs_ocr=row["latest_extraction_state"] == "needs_ocr",
+            error_code=row["error_code"],
+            change_pending=(
+                row["latest_version_id"] is not None
+                and row["latest_version_id"] != row["current_version_id"]
+            ),
+        )
+
+    def reconcile_latest_as_candidate(self, source_id: str) -> LaboratorySourceDetail:
+        """Repair a legacy silent replacement without deleting extracted artifacts."""
+        with self.database.transaction(immediate=True) as connection:
+            source = connection.execute("SELECT * FROM sources WHERE id=?", (source_id,)).fetchone()
+            if source is None or source["latest_version_id"] is None:
+                raise LibraryNotFoundError("La fuente o su última versión no existe.")
+            latest_id = int(source["latest_version_id"])
+            latest = connection.execute(
+                "SELECT * FROM source_versions WHERE id=?", (latest_id,)
+            ).fetchone()
+            previous = connection.execute(
+                "SELECT sv.id FROM source_versions sv WHERE sv.source_id=? AND sv.id!=? "
+                "AND EXISTS(SELECT 1 FROM chunks c WHERE c.source_version_id=sv.id) "
+                "ORDER BY sv.version_number DESC LIMIT 1",
+                (source_id, latest_id),
+            ).fetchone()
+            active_id = int(previous["id"]) if previous else None
+            connection.execute(
+                "UPDATE source_versions SET is_active=0,"
+                "activation_state=CASE WHEN id=? THEN 'candidate' ELSE 'historical' END,"
+                "document_state=CASE WHEN id=? THEN ? ELSE 'historical' END "
+                "WHERE source_id=?",
+                (
+                    latest_id,
+                    latest_id,
+                    "pending_validation"
+                    if latest["processing_state"] in {"processed", "partial"}
+                    else "candidate",
+                    source_id,
+                ),
+            )
+            if active_id is not None:
+                connection.execute(
+                    "UPDATE source_versions SET is_active=1,activation_state='active',"
+                    "document_state='active' WHERE id=?",
+                    (active_id,),
+                )
+            connection.execute(
+                "UPDATE sources SET current_version_id=?,document_state=?,processing_state=? "
+                "WHERE id=?",
+                (
+                    active_id,
+                    "pending_validation"
+                    if latest["processing_state"] in {"processed", "partial"}
+                    else "candidate",
+                    latest["processing_state"],
+                    source_id,
+                ),
+            )
+        return self.laboratory_source(source_id)
+
     def _mark_knowledge_stale(self, version_id: int | None) -> None:
         if version_id is None:
             return
@@ -574,12 +1260,15 @@ class EducationalLibraryService:
     ) -> ProcessingState:
         with self.database.transaction(immediate=True) as connection:
             connection.execute(
-                "UPDATE source_versions SET processing_state='processing',error_code=NULL,error_detail=NULL "
-                "WHERE id=?",
+                "UPDATE source_versions SET processing_state='processing',document_state='processing',"
+                "extraction_state='processing',error_code=NULL,error_detail=NULL WHERE id=?",
                 (version_id,),
             )
             connection.execute(
-                "UPDATE sources SET processing_state='processing' WHERE id=?", (source_id,)
+                "UPDATE sources SET processing_state='processing',"
+                "document_state=CASE WHEN latest_version_id=? THEN 'processing' "
+                "ELSE document_state END WHERE id=?",
+                (version_id, source_id),
             )
         try:
             result = extract(entry, self.settings)
@@ -696,20 +1385,45 @@ class EducationalLibraryService:
                 }
                 connection.execute(
                     "UPDATE source_versions SET extractor=?,extractor_version=?,processing_state=?,"
-                    "statistics_json=?,processed_at=? WHERE id=?",
+                    "statistics_json=?,processed_at=?,page_count=?,document_state=?,"
+                    "extraction_state=?,chunk_state=?,extraction_tool=?,"
+                    "extraction_tool_version=?,technical_metadata_json=? WHERE id=?",
                     (
                         result.extractor,
                         result.extractor_version,
                         result.processing_state.value,
                         json_dump(statistics),
                         utc_text(),
+                        result.page_count,
+                        (
+                            "needs_ocr"
+                            if result.processing_state == ProcessingState.NEEDS_OCR
+                            else "failed"
+                            if result.processing_state == ProcessingState.ERROR
+                            else "pending_validation"
+                        ),
+                        (
+                            "needs_ocr"
+                            if result.processing_state == ProcessingState.NEEDS_OCR
+                            else "failed"
+                            if result.processing_state == ProcessingState.ERROR
+                            else "unsupported"
+                            if result.processing_state == ProcessingState.UNSUPPORTED
+                            else "extracted"
+                        ),
+                        "available" if chunks else "pending",
+                        result.extractor,
+                        result.extractor_version,
+                        json_dump(result.metadata),
                         version_id,
                     ),
                 )
                 connection.execute(
                     "UPDATE sources SET processing_state=?,language=coalesce(language,?),"
                     "cefr_level=coalesce(cefr_level,?),topics_json=CASE WHEN topics_json='[]' THEN ? "
-                    "ELSE topics_json END,author=coalesce(author,?),status=? WHERE id=?",
+                    "ELSE topics_json END,author=coalesce(author,?),status=?,"
+                    "document_state=CASE WHEN latest_version_id=? THEN ? ELSE document_state END "
+                    "WHERE id=?",
                     (
                         result.processing_state.value,
                         languages.most_common(1)[0][0] if languages else result.language,
@@ -719,6 +1433,14 @@ class EducationalLibraryService:
                         SourceStatus.UNSUPPORTED.value
                         if result.processing_state == ProcessingState.UNSUPPORTED
                         else SourceStatus.PRESENT.value,
+                        version_id,
+                        (
+                            "needs_ocr"
+                            if result.processing_state == ProcessingState.NEEDS_OCR
+                            else "failed"
+                            if result.processing_state == ProcessingState.ERROR
+                            else "pending_validation"
+                        ),
                         source_id,
                     ),
                 )
@@ -732,12 +1454,14 @@ class EducationalLibraryService:
         with self.database.transaction(immediate=True) as connection:
             connection.execute(
                 "UPDATE source_versions SET processing_state='error',error_code=?,error_detail=?,"
-                "processed_at=? WHERE id=?",
+                "processed_at=?,document_state='failed',extraction_state='failed' WHERE id=?",
                 (error_code, str(exc)[:500], utc_text(), version_id),
             )
             connection.execute(
-                "UPDATE sources SET processing_state='error',status='error' WHERE id=?",
-                (source_id,),
+                "UPDATE sources SET processing_state='error',status='error',"
+                "document_state=CASE WHEN latest_version_id=? THEN 'failed' "
+                "ELSE document_state END WHERE id=?",
+                (version_id, source_id),
             )
 
     def _record_file_error(self, entry: InventoryEntry, exc: Exception) -> None:

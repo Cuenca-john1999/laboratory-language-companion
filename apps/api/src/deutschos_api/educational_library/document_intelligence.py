@@ -172,10 +172,11 @@ class DocumentIntelligenceService:
     def list_variants(self, source_id: str, page_number: int) -> list[PageVariantRead]:
         with self.database.connect() as connection:
             source = self._source(connection, source_id)
+            version_id = source["current_version_id"] or source["latest_version_id"]
             rows = connection.execute(
                 "SELECT * FROM page_extraction_variants WHERE source_version_id=? AND page_number=? "
                 "ORDER BY created_at,id",
-                (source["current_version_id"], page_number),
+                (version_id, page_number),
             ).fetchall()
         return [self._variant_read(row) for row in rows]
 
@@ -274,11 +275,7 @@ class DocumentIntelligenceService:
                     "El modelo visual local no pudo transcribir la página."
                 ) from exc
         choices = payload.get("choices", []) if isinstance(payload, dict) else []
-        text = (
-            str(choices[0].get("message", {}).get("content", "")).strip()
-            if choices
-            else ""
-        )
+        text = str(choices[0].get("message", {}).get("content", "")).strip() if choices else ""
         if not text:
             raise LibraryProviderUnavailableError(
                 "El modelo visual devolvió una transcripción vacía."
@@ -300,23 +297,24 @@ class DocumentIntelligenceService:
     def review_variant(self, source_id: str, page_number: int, variant_id: int) -> PageQualityRead:
         with self.database.transaction(immediate=True) as connection:
             source = self._source(connection, source_id)
+            version_id = source["current_version_id"] or source["latest_version_id"]
             variant = connection.execute(
                 "SELECT id FROM page_extraction_variants WHERE id=? AND source_version_id=? "
                 "AND page_number=?",
-                (variant_id, source["current_version_id"], page_number),
+                (variant_id, version_id, page_number),
             ).fetchone()
             if not variant:
                 raise LibraryNotFoundError("La variante de extracción no existe.")
             cursor = connection.execute(
                 "UPDATE page_quality SET reviewed_variant_id=?,review_status='user_confirmed',"
                 "updated_at=? WHERE source_version_id=? AND page_number=?",
-                (variant_id, utc_text(), source["current_version_id"], page_number),
+                (variant_id, utc_text(), version_id, page_number),
             )
             if cursor.rowcount != 1:
                 raise LibraryNotFoundError("La calidad de la página todavía no fue analizada.")
             row = connection.execute(
                 "SELECT * FROM page_quality WHERE source_version_id=? AND page_number=?",
-                (source["current_version_id"], page_number),
+                (version_id, page_number),
             ).fetchone()
         return self._quality_read(row)
 
@@ -336,13 +334,16 @@ class DocumentIntelligenceService:
             str(metrics["quality"])
         ]
         text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        version_id = source["current_version_id"] or source["latest_version_id"]
+        if version_id is None:
+            raise LibraryContractError("La fuente no tiene una versión documental.")
         with self.database.transaction(immediate=True) as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO page_extraction_variants(source_version_id,page_number,"
                 "method,method_version,text,text_hash,quality_score,warnings_json,provenance_json,"
                 "created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
-                    source["current_version_id"],
+                    version_id,
                     page_number,
                     method,
                     method_version,
@@ -357,7 +358,7 @@ class DocumentIntelligenceService:
             row = connection.execute(
                 "SELECT * FROM page_extraction_variants WHERE source_version_id=? AND page_number=? "
                 "AND method=? AND method_version=? AND text_hash=?",
-                (source["current_version_id"], page_number, method, method_version, text_hash),
+                (version_id, page_number, method, method_version, text_hash),
             ).fetchone()
         return self._variant_read(row)
 

@@ -679,6 +679,134 @@ export type LibrarySourceVersion = {
   created_at: string;
 };
 
+export type LaboratorySummary = {
+  catalogued_sources: number;
+  recoverable_sources: number;
+  sources_without_content: number;
+  candidate_versions: number;
+  needs_ocr_sources: number;
+  error_sources: number;
+  missing_files: number;
+  pending_jobs: number;
+};
+
+export type DocumentState =
+  | "unchanged"
+  | "detected"
+  | "candidate"
+  | "pending_extraction"
+  | "needs_ocr"
+  | "processing"
+  | "pending_validation"
+  | "ready"
+  | "active"
+  | "historical"
+  | "failed"
+  | "missing"
+  | "manual_review";
+
+export type DocumentVersion = {
+  id: number;
+  source_id: string;
+  version_number: number;
+  content_hash: string;
+  size_bytes: number;
+  mtime_ns: number;
+  observed_path: string | null;
+  observed_name: string | null;
+  detected_at: string;
+  page_count: number | null;
+  document_state: DocumentState;
+  availability_state: string;
+  extraction_state: string;
+  chunk_state: string;
+  embedding_state: string;
+  activation_state: string;
+  is_active: boolean;
+  extractor: string | null;
+  extractor_version: string | null;
+  extraction_tool: string | null;
+  extraction_tool_version: string | null;
+  ocr_tool: string | null;
+  ocr_tool_version: string | null;
+  ocr_languages: string[];
+  technical_metadata: Record<string, unknown>;
+  provenance: string;
+  change_reason: string | null;
+  previous_version_id: number | null;
+  error_code: string | null;
+  error_detail: string | null;
+  statistics: Record<string, unknown>;
+  processed_at: string | null;
+  chunks: number;
+  embeddings: number;
+};
+
+export type LaboratorySource = {
+  id: string;
+  title: string;
+  collection: string | null;
+  format: string;
+  current_path: string;
+  source_status: string;
+  document_state: DocumentState;
+  needs_manual_review: boolean;
+  active_version_id: number | null;
+  active_version_number: number | null;
+  latest_version_id: number | null;
+  latest_version_number: number | null;
+  page_count: number | null;
+  active_chunks: number;
+  active_embeddings: number;
+  needs_ocr: boolean;
+  error_code: string | null;
+  change_pending: boolean;
+};
+
+export type LaboratorySourceDetail = LaboratorySource & {
+  canonical_title: string | null;
+  display_alias: string | null;
+  author: string | null;
+  publisher: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  versions: DocumentVersion[];
+};
+
+export type InventoryChange = {
+  outcome:
+    | "unchanged"
+    | "modified"
+    | "new"
+    | "renamed"
+    | "missing"
+    | "duplicate"
+    | "manual_review";
+  source_id: string;
+  relative_path: string;
+  title: string;
+  previous_hash: string | null;
+  current_hash: string | null;
+  active_version_id: number | null;
+  candidate_version_id: number | null;
+  message: string;
+};
+
+export type DocumentInventoryResult = {
+  job_id: string;
+  generated_at: string;
+  files_scanned: number;
+  unchanged: number;
+  modified: number;
+  new: number;
+  renamed: number;
+  missing: number;
+  duplicates: number;
+  manual_review: number;
+  candidate_versions_created: number;
+  changes: InventoryChange[];
+};
+
 export type LibraryChunk = {
   id: number;
   source_id: string;

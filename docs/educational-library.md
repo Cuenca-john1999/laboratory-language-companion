@@ -22,7 +22,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 5 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 6 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -34,15 +34,28 @@ La versión 5 añade la ruta canónica Herder derivada del índice editorial:
 importaciones versionadas, 51 temas, outline jerárquico, reconciliación no destructiva
 de secciones legacy, variantes documentales y auditoría reversible. El diseño se
 documenta en el [ADR 0012](adr/0012-canonical-herder-route.md).
+La versión 6 separa la identidad estable de la fuente, la última versión
+detectada y la única versión activa para recuperación. Registra ruta y nombre
+observados, hash, tamaño, páginas, estados de disponibilidad/extracción/chunks/
+embeddings/activación, procedencia técnica y relación con la versión anterior.
+Un índice parcial impide que una fuente tenga dos versiones activas. La migración
+incluye backfill conservador y rollback formal a la versión 5.
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 
-Un escaneo compara ruta, tamaño y `mtime`; solo calcula SHA-256 para entradas
-nuevas o potencialmente modificadas. Un contenido nuevo crea `SourceVersion`,
-un hash conocido permite reconocer renombres y una ruta ausente queda `missing`.
-Los duplicados se confirman por hash. Al cambiar una versión, las unidades que
-dependen de la anterior quedan `stale`. Un lock de proceso evita escaneos
-simultáneos y no queda bloqueado tras una caída.
+El inventario documental explícito calcula SHA-256 sin extraer texto. La misma
+ruta con hash nuevo crea una `SourceVersion` candidata dentro de la misma fuente,
+sin mover el puntero activo ni invalidar su recuperación. Un hash conocido y una
+ubicación anterior ausente permiten reconocer un renombre; coincidencias múltiples
+quedan separadas para revisión manual. Una ruta ausente queda `missing` sin borrar
+historial, chunks o embeddings. La operación completa es transaccional e
+idempotente. El escaneo automático al iniciar está desactivado por defecto.
+
+`/laboratory` muestra métricas separadas, fuentes, historial de versiones y la
+acción confirmada «Detectar cambios». La API correspondiente vive bajo
+`/api/library/laboratory`: resumen, listado, detalle de fuente, versiones, detalle
+de versión, ejecución de inventario y último resultado. Los GET no ejecutan
+inventario. Esta fase no expone acciones de OCR, chunking, embeddings ni promoción.
 
 ## Fuentes nucleares y mapa Herder
 

@@ -170,7 +170,7 @@ def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 5
+    assert database.migrate() == 6
     backups = list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as backup:
@@ -193,7 +193,7 @@ def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
         "canonical_topics",
     } <= tables
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 5
+    assert database.migrate() == 6
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))) == 1
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema4-*.bak"))) == 1
     assert not list((tmp_path / "backups").glob("*.partial*"))
@@ -556,7 +556,13 @@ def test_source_rename_preserves_memory_and_content_change_invalidates_it(
     assert source["current_path"].endswith("Herder-Grammatik.md")
     renamed.write_text("# Akkusativ\n\nContenido realmente modificado.", encoding="utf-8")
     memory_library.scan()
-    assert memory.get_location(location.id).status.value == "stale"
+    assert memory.get_location(location.id).status.value == "user_confirmed"
+    with memory_library.database.connect() as connection:
+        source = connection.execute(
+            "SELECT current_version_id,latest_version_id FROM sources"
+        ).fetchone()
+        assert source["current_version_id"] == evidence["current_version_id"]
+        assert source["latest_version_id"] != source["current_version_id"]
 
 
 def test_import_is_prudent_idempotent_and_represents_confirmed_akkusativ(

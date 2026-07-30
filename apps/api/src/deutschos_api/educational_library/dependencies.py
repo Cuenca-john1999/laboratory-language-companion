@@ -22,7 +22,7 @@ from .teacher import EducationalTeacherService, TeacherLimits
 
 
 def get_library_service(settings: Settings = Depends(get_settings)) -> EducationalLibraryService:
-    return EducationalLibraryService(settings)
+    return EducationalLibraryService(settings, recover_interrupted=False)
 
 
 def get_library_search(

@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://127.0.0.1:3000", "http://localhost:3000"]
     educational_materials_dir: Path = PROJECT_ROOT / "material educativo"
     educational_library_runtime_dir: Path = PROJECT_ROOT / "var" / "educational-library"
-    educational_library_scan_on_startup: bool = True
+    educational_library_scan_on_startup: bool = False
     educational_library_scan_interval_seconds: int = 900
     educational_library_embedding_model: str = EMBEDDING_MODEL
     educational_library_planner_model: str = TEACHER_MODEL

@@ -588,11 +588,12 @@ async def test_knowledge_provenance_review_conflict_stale_and_grounded_generatio
 
     path.write_text("# Artikel\n\nDer Artikel kann Genus und Kasus zeigen.", encoding="utf-8")
     library.scan()
-    stale = knowledge.get_knowledge(unit.id)
-    assert stale.status.value == "stale"
-    assert stale.stale
-    with pytest.raises(LibraryContractError):
-        knowledge.review(unit.id, KnowledgeReviewRequest(action="approve"))
+    still_active = knowledge.get_knowledge(unit.id)
+    assert still_active.status.value == "approved"
+    source = library.list_sources()[0]
+    assert source.current_version == 1
+    assert len(library.source_versions(source.id)) == 2
+    assert not still_active.stale
 
 
 @pytest.mark.anyio
@@ -699,7 +700,7 @@ def test_library_database_integrity_and_no_main_schema_migration(
     assert quick == "ok"
     assert foreign == []
     with library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 5
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 6
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE name='chunk_fts'").fetchone()
 
 

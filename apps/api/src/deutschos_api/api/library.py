@@ -38,6 +38,8 @@ from deutschos_api.educational_library.schemas import (
     ConceptRelationCreate,
     CoreSourceAssignmentRequest,
     CoreSourcePairRead,
+    DocumentInventoryResult,
+    DocumentVersionRead,
     EditorialSectionLinkRequest,
     EditorialSectionRead,
     EditorialSectionUpdate,
@@ -52,6 +54,9 @@ from deutschos_api.educational_library.schemas import (
     KnowledgeReviewRequest,
     KnowledgeStatus,
     KnowledgeUnitRead,
+    LaboratorySourceDetail,
+    LaboratorySourceRead,
+    LaboratorySummary,
     LibraryBusyError,
     LibraryContractError,
     LibraryNotFoundError,
@@ -152,6 +157,85 @@ async def _installed_models(provider: ModelProvider) -> list[str]:
         return [model.name for model in await provider.list_models()]
     except Exception:
         return []
+
+
+@router.get("/laboratory/summary", response_model=LaboratorySummary)
+def laboratory_summary(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> LaboratorySummary:
+    try:
+        return service.laboratory_summary()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/sources", response_model=list[LaboratorySourceRead])
+def laboratory_sources(
+    filter_name: Literal[
+        "all", "active", "candidates", "needs_ocr", "errors", "without_content", "missing"
+    ] = Query(default="all", alias="filter"),
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> list[LaboratorySourceRead]:
+    try:
+        return service.laboratory_sources(filter_name=filter_name)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/sources/{source_id}", response_model=LaboratorySourceDetail)
+def laboratory_source(
+    source_id: str,
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> LaboratorySourceDetail:
+    try:
+        return service.laboratory_source(source_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/sources/{source_id}/versions",
+    response_model=list[DocumentVersionRead],
+)
+def laboratory_source_versions(
+    source_id: str,
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> list[DocumentVersionRead]:
+    try:
+        return service.document_versions(source_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/versions/{version_id}", response_model=DocumentVersionRead)
+def laboratory_version(
+    version_id: int,
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentVersionRead:
+    try:
+        return service.document_version(version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/inventory", response_model=DocumentInventoryResult)
+def run_document_inventory(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentInventoryResult:
+    try:
+        return service.detect_document_changes()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/inventory/latest", response_model=DocumentInventoryResult)
+def latest_document_inventory(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentInventoryResult:
+    try:
+        return service.latest_document_inventory()
+    except Exception as exc:
+        raise _translate(exc) from exc
 
 
 @router.get("/status", response_model=LibrarySummary)
