@@ -156,12 +156,13 @@ class GuidedStudyService:
             )
         return pair.theory, pair.workbook, sections
 
-    def _preferences(self) -> StudyPreference:
+    def _preferences(self, *, create: bool = True) -> StudyPreference:
         preference = self.db.get(StudyPreference, 1)
         if preference is None:
             preference = StudyPreference(profile_id=1, mission_preference="automatic")
-            self.db.add(preference)
-            self.db.flush()
+            if create:
+                self.db.add(preference)
+                self.db.flush()
         return preference
 
     @staticmethod
@@ -317,8 +318,7 @@ class GuidedStudyService:
         recent = self.db.scalars(
             select(StudySession).order_by(StudySession.updated_at.desc()).limit(5)
         ).all()
-        preference = self._preferences()
-        self.db.commit()
+        preference = self._preferences(create=False)
         return StudyDashboardRead(
             path_ready=True,
             total_sections=len(path.sections),
@@ -1133,6 +1133,20 @@ class GuidedStudyService:
             if not session.section_stable_key or session.section_stable_key.startswith("herder:")
             else self.canonical_route.resolve_legacy_exact(session.section_id)
         )
+        mission_payload = session.mission
+        if isinstance(mission_payload, dict) and "verifiable_task" not in mission_payload:
+            # Sessions created before the calibrated mission contract are valid
+            # persisted data. Complete only that known legacy field in memory;
+            # all other contract violations still fail validation.
+            generated = build_mission(
+                StudyMissionType(mission_payload["type"]),
+                concept=str(mission_payload["concept"]),
+                objective=str(mission_payload["objective"]),
+            )
+            mission_payload = {
+                **mission_payload,
+                "verifiable_task": generated["verifiable_task"],
+            }
         return StudySessionRead(
             id=session.id,
             kind=session.kind,
@@ -1153,7 +1167,7 @@ class GuidedStudyService:
             current_pdf_page=session.current_pdf_page,
             printed_page_label=session.printed_page_label,
             objective=session.objective,
-            mission=StudyMissionRead.model_validate(session.mission),
+            mission=StudyMissionRead.model_validate(mission_payload),
             plan=session.plan,
             checklist=session.checklist,
             planned_minutes=session.planned_minutes,

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
 from deutschos_api.core.config import Settings
 from deutschos_api.educational_library.dependencies import (
@@ -25,10 +27,13 @@ from deutschos_api.models import (
     StudentSkill,
     StudyEvent,
     StudyPracticalStatus,
+    StudyPreference,
     StudyQuestion,
     StudySectionState,
     StudySession,
 )
+from deutschos_api.providers.dependencies import get_model_provider
+from deutschos_api.study.dependencies import get_study_service
 from deutschos_api.study.missions import build_mission, build_plan, resolve_mission_type
 from deutschos_api.study.schemas import (
     StudyNoteWrite,
@@ -267,6 +272,97 @@ def test_canonical_route_replaces_legacy_display_without_deleting_it(
     refreshed = service.path()
     assert len(refreshed.sections) == 51
     assert refreshed.sections[0].editorial_status == "rejected"
+
+
+@pytest.mark.anyio
+async def test_local_study_reads_are_empty_ai_independent_and_side_effect_free(
+    client, db_session_factory, study_editorial
+):
+    _activate_canonical_route(study_editorial)
+
+    def unexpected_ai_dependency():
+        raise AssertionError("local Study reads must not initialize an AI provider")
+
+    app.dependency_overrides[get_library_editorial] = lambda: study_editorial
+    app.dependency_overrides[get_library_teacher] = unexpected_ai_dependency
+    app.dependency_overrides[get_model_provider] = unexpected_ai_dependency
+    with db_session_factory() as db:
+        before = (
+            db.scalar(select(func.count(StudySession.id))),
+            db.scalar(select(func.count(StudyPreference.profile_id))),
+            db.scalar(select(func.count(StudentSkill.id))),
+            db.scalar(select(func.count(SkillEvidence.id))),
+        )
+
+    route = await client.get("/api/study/path")
+    dashboard = await client.get("/api/study/dashboard")
+    history = await client.get("/api/study/history")
+
+    assert route.status_code == 200
+    assert len(route.json()["sections"]) == 51
+    assert dashboard.status_code == 200
+    assert dashboard.json()["total_sections"] == 51
+    assert dashboard.json()["active_session"] is None
+    assert dashboard.json()["recent_sessions"] == []
+    assert dashboard.json()["open_questions"] == 0
+    assert history.status_code == 200
+    assert history.json() == []
+    with db_session_factory() as db:
+        after = (
+            db.scalar(select(func.count(StudySession.id))),
+            db.scalar(select(func.count(StudyPreference.profile_id))),
+            db.scalar(select(func.count(StudentSkill.id))),
+            db.scalar(select(func.count(SkillEvidence.id))),
+        )
+    assert after == before == (0, 0, 0, 0)
+
+
+@pytest.mark.anyio
+async def test_legacy_mission_contract_is_completed_in_memory_without_rewriting_data(
+    client, db_session_factory, study_editorial
+):
+    service = _service(db_session_factory, study_editorial)
+    created = service.start(
+        StudySessionCreate(operation_id="legacy-contract-session", section_id=1)
+    )
+    row = service.db.get(StudySession, created.id)
+    legacy_mission = dict(row.mission)
+    legacy_mission.pop("verifiable_task")
+    row.mission = legacy_mission
+    service.db.commit()
+    service.db.close()
+    app.dependency_overrides[get_library_editorial] = lambda: study_editorial
+
+    dashboard = await client.get("/api/study/dashboard")
+    history = await client.get("/api/study/history")
+
+    assert dashboard.status_code == 200
+    assert history.status_code == 200
+    assert history.json()[0]["mission"]["verifiable_task"]
+    with db_session_factory() as db:
+        persisted = db.get(StudySession, created.id)
+        assert "verifiable_task" not in persisted.mission
+
+
+@pytest.mark.anyio
+async def test_real_study_database_error_is_logged_and_not_returned_as_empty(client, caplog):
+    class BrokenStudyService:
+        def history(self, **_filters):
+            raise OperationalError(
+                "SELECT study_sessions",
+                {},
+                RuntimeError("/private/runtime/database.sqlite3"),
+            )
+
+    app.dependency_overrides[get_study_service] = lambda: BrokenStudyService()
+    caplog.set_level(logging.ERROR, logger="deutschos_api.api.study")
+
+    response = await client.get("/api/study/history")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "No se pudieron leer los datos locales de estudio."}
+    assert "private/runtime" not in response.text
+    assert "OperationalError" in caplog.text
 
 
 def test_exact_legacy_mapping_surfaces_personal_state_without_rewriting_it(

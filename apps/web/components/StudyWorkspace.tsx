@@ -127,6 +127,10 @@ function pageLabel(
     : `PDF pp. ${section.pdf_page_start}–${section.pdf_page_end}`;
 }
 
+function errorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
 export function StudyWorkspace() {
   const [dashboard, setDashboard] = useState<StudyDashboard | null>(null);
   const [path, setPath] = useState<StudyPath | null>(null);
@@ -144,6 +148,10 @@ export function StudyWorkspace() {
   const [selectedNoteIds, setSelectedNoteIds] = useState<string[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
+  const [pathError, setPathError] = useState("");
+  const [historyError, setHistoryError] = useState("");
   const [closeResult, setCloseResult] = useState("needs_review");
   const [historyFilter, setHistoryFilter] = useState("all");
   const [editingWorkbook, setEditingWorkbook] = useState(false);
@@ -162,41 +170,75 @@ export function StudyWorkspace() {
   });
 
   const refresh = useCallback(async () => {
-    const [nextDashboard, nextPath, nextHistory] = await Promise.all([
-      getStudyDashboard(),
-      getStudyPath(),
-      getStudyHistory(),
-    ]);
-    setDashboard(nextDashboard);
-    setPath(nextPath);
-    setHistory(nextHistory);
-    const current = nextDashboard.active_session;
-    setSession(
-      (existing) =>
-        current ??
-        (existing && nextHistory.some((item) => item.id === existing.id)
+    setLoading(true);
+    const [dashboardResult, pathResult, historyResult] =
+      await Promise.allSettled([
+        getStudyDashboard(),
+        getStudyPath(),
+        getStudyHistory(),
+      ]);
+    if (dashboardResult.status === "fulfilled") {
+      setDashboard(dashboardResult.value);
+      setDashboardError("");
+    } else {
+      setDashboardError(
+        errorMessage(
+          dashboardResult.reason,
+          "No se pudo cargar el resumen de estudio.",
+        ),
+      );
+    }
+    if (pathResult.status === "fulfilled") {
+      setPath(pathResult.value);
+      setPathError("");
+    } else {
+      setPathError(
+        errorMessage(pathResult.reason, "No se pudo cargar la ruta Herder."),
+      );
+    }
+    if (historyResult.status === "fulfilled") {
+      setHistory(historyResult.value);
+      setHistoryError("");
+    } else {
+      setHistoryError(
+        errorMessage(
+          historyResult.reason,
+          "No se pudo cargar el historial de estudio.",
+        ),
+      );
+    }
+    const current =
+      dashboardResult.status === "fulfilled"
+        ? dashboardResult.value.active_session
+        : null;
+    const nextHistory =
+      historyResult.status === "fulfilled" ? historyResult.value : null;
+    if (current || nextHistory) {
+      setSession((existing) => {
+        if (current) return current;
+        return existing && nextHistory?.some((item) => item.id === existing.id)
           ? existing
-          : null),
-    );
+          : null;
+      });
+    }
     if (current) {
-      const [nextNotes, nextQuestions] = await Promise.all([
+      const [notesResult, questionsResult] = await Promise.allSettled([
         getStudyNotes(current.id),
         getStudyQuestions(current.id),
       ]);
-      setNotes(nextNotes);
-      setQuestions(nextQuestions);
+      if (notesResult.status === "fulfilled") setNotes(notesResult.value);
+      if (questionsResult.status === "fulfilled")
+        setQuestions(questionsResult.value);
     }
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      refresh().catch((cause: unknown) =>
-        setError(
-          cause instanceof Error
-            ? cause.message
-            : "No se pudo cargar el modo estudio.",
-        ),
-      );
+      refresh().catch((cause: unknown) => {
+        setLoading(false);
+        setPathError(errorMessage(cause, "No se pudo cargar el modo estudio."));
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, [refresh]);
@@ -539,18 +581,18 @@ export function StudyWorkspace() {
     });
   };
 
-  if (!dashboard || !path) {
+  if (!path) {
     return (
-      <section className="study-shell" aria-busy={!error}>
+      <section className="study-shell" aria-busy={loading}>
         <p className="eyebrow">MODO ESTUDIO</p>
         <h1>
-          {error
+          {pathError
             ? "No se pudo abrir el recorrido"
             : "Preparando tu ruta Herder…"}
         </h1>
-        {error ? (
+        {pathError ? (
           <p className="study-error" role="alert">
-            {error}
+            {pathError}
           </p>
         ) : (
           <div className="study-loading" />
@@ -573,7 +615,7 @@ export function StudyWorkspace() {
           </p>
         </div>
         <div className="study-count">
-          <strong>{dashboard.total_sections}</strong>
+          <strong>{dashboard?.total_sections ?? path.sections.length}</strong>
           <span>temas disponibles</span>
         </div>
       </header>
@@ -605,7 +647,7 @@ export function StudyWorkspace() {
         </p>
       ) : null}
 
-      {view === "dashboard" ? (
+      {view === "dashboard" && dashboard ? (
         <div className="study-dashboard">
           {dashboard.active_session ? (
             <article className="continue-card">
@@ -721,6 +763,19 @@ export function StudyWorkspace() {
               <small>Es opcional y nunca altera la gramática del manual.</small>
             </article>
           </div>
+        </div>
+      ) : view === "dashboard" ? (
+        <div className="study-dashboard">
+          <article className="empty-study">
+            <p className="eyebrow">RESUMEN LOCAL</p>
+            <h2>No se pudo cargar el dashboard.</h2>
+            <p className="study-error" role="alert">
+              {dashboardError || "Los datos de resumen no están disponibles."}
+            </p>
+            <button onClick={() => setView("path")} type="button">
+              Abrir la ruta Herder
+            </button>
+          </article>
         </div>
       ) : null}
 
@@ -1371,7 +1426,16 @@ export function StudyWorkspace() {
               </select>
             </label>
           </div>
-          {filteredHistory.length ? (
+          {historyError ? (
+            <div className="empty-study">
+              <p className="study-error" role="alert">
+                {historyError}
+              </p>
+              <button onClick={() => setView("path")} type="button">
+                Abrir la ruta Herder
+              </button>
+            </div>
+          ) : filteredHistory.length ? (
             filteredHistory.map((item) => (
               <article key={item.id}>
                 <div>
@@ -1423,7 +1487,20 @@ export function StudyWorkspace() {
               </article>
             ))
           ) : (
-            <p>No hay sesiones que coincidan con este filtro.</p>
+            <div className="empty-study">
+              <h3>
+                {history.length
+                  ? "No hay sesiones que coincidan con este filtro."
+                  : "Todavía no hay sesiones de estudio."}
+              </h3>
+              <p>
+                Empieza el primer tema cuando quieras; la ruta Herder ya está
+                disponible.
+              </p>
+              <button onClick={() => setView("path")} type="button">
+                Elegir un tema
+              </button>
+            </div>
           )}
           {history.length ? (
             <div className="history-danger-zone">

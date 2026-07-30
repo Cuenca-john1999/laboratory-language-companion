@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,7 @@ from deutschos_api.study.schemas import (
 from deutschos_api.study.service import GuidedStudyService
 
 router = APIRouter(prefix="/api/study", tags=["guided-study"])
+logger = logging.getLogger(__name__)
 
 
 def _translate(exc: Exception) -> HTTPException:
@@ -60,9 +63,10 @@ def _translate(exc: Exception) -> HTTPException:
         return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     if isinstance(exc, StudyLibraryUnavailableError):
         return HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+    logger.exception("local Study request failed: %s", type(exc).__name__)
     return HTTPException(
-        status.HTTP_503_SERVICE_UNAVAILABLE,
-        "El modo estudio local no está disponible en este momento.",
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "No se pudieron leer los datos locales de estudio.",
     )
 
 
