@@ -1,0 +1,7 @@
+{
+  "fixture": "B",
+  "description": "Dos pliegos sintéticos divididos en páginas individuales.",
+  "base": ["cover", "sheet-1+2", "sheet-3+4", "back"],
+  "target": ["cover", "page-1", "page-2", "page-3", "page-4", "back"],
+  "expected": ["one_to_one", "one_to_many", "one_to_many", "one_to_one"]
+}

@@ -1,0 +1,6 @@
+{
+  "fixture": "D",
+  "description": "Dos páginas sintéticas intercambiadas.",
+  "base": ["a", "b", "c", "d"],
+  "target": ["a", "c", "b", "d"]
+}

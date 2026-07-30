@@ -1,0 +1,6 @@
+{
+  "fixture": "A",
+  "description": "Cuatro páginas sintéticas con pequeñas diferencias de texto.",
+  "base": ["Kapitel eins", "Grüße aus Köln", "Übung drei", "Lösung vier"],
+  "target": ["Kapitel eins.", "Grüße aus Köln!", "Übung drei", "Lösung vier"]
+}

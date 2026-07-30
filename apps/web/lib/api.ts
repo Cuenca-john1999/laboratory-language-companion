@@ -1,5 +1,6 @@
 import type {
   CurriculumResponse,
+  ComparisonEvent,
   CoreSourcePair,
   DailyPlan,
   DailyPlanRequest,
@@ -31,6 +32,8 @@ import type {
   MemoryFeedbackVerdict,
   MemoryReviewQueueItem,
   PageQuality,
+  PageCorrespondence,
+  PageCorrespondenceList,
   PedagogicalConcept,
   PedagogicalConceptSummary,
   PedagogicalMemorySummary,
@@ -54,6 +57,7 @@ import type {
   StudySessionDeleteResult,
   StudySessionStatus,
   StudyWorkbookLink,
+  VersionComparison,
 } from "@deutschos/shared";
 
 export const API_URL =
@@ -423,6 +427,121 @@ export const getDocumentVersions = (sourceId: string) =>
   );
 export const getDocumentVersion = (versionId: number) =>
   api<DocumentVersion>(`/api/library/laboratory/versions/${versionId}`);
+export const getVersionComparisons = () =>
+  api<VersionComparison[]>("/api/library/laboratory/comparisons?limit=50");
+export const createVersionComparison = (
+  baseSourceVersionId: number,
+  targetSourceVersionId: number,
+  algorithmVersion = "page-match.v1",
+  window = 12,
+) =>
+  api<VersionComparison>("/api/library/laboratory/comparisons", {
+    method: "POST",
+    body: JSON.stringify({
+      base_source_version_id: baseSourceVersionId,
+      target_source_version_id: targetSourceVersionId,
+      algorithm_version: algorithmVersion,
+      configuration: { window, minimum_score: 0.55, ocr: false },
+      initiated_by: "laboratory",
+    }),
+  });
+export const executeVersionComparison = (comparisonId: string) =>
+  api<VersionComparison>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/execute`,
+    { method: "POST" },
+  );
+export const getPageCorrespondences = (comparisonId: string, page = 1) =>
+  api<PageCorrespondenceList>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/correspondences?page=${page}&page_size=50`,
+  );
+export const confirmPageCorrespondence = (
+  comparisonId: string,
+  correspondenceId: string,
+) =>
+  api<PageCorrespondence>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/correspondences/${encodeURIComponent(correspondenceId)}/confirm`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor: "laboratory", note: null }),
+    },
+  );
+export const rejectPageCorrespondence = (
+  comparisonId: string,
+  correspondenceId: string,
+) =>
+  api<PageCorrespondence>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/correspondences/${encodeURIComponent(correspondenceId)}/reject`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor: "laboratory", note: null }),
+    },
+  );
+export const adjustPageCorrespondence = (
+  comparisonId: string,
+  correspondenceId: string,
+  payload: {
+    base_pages: number[];
+    target_pages: number[];
+    relation_type: string;
+    note: string | null;
+  },
+) =>
+  api<PageCorrespondence>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/correspondences/${encodeURIComponent(correspondenceId)}/adjust`,
+    {
+      method: "POST",
+      body: JSON.stringify({ ...payload, actor: "laboratory" }),
+    },
+  );
+export const markPageWithoutEquivalent = (
+  comparisonId: string,
+  payload: {
+    side: "base" | "target";
+    page_number: number;
+    reason: "inserted" | "deleted" | "blank" | "duplicate" | "unresolved";
+  },
+) =>
+  api<PageCorrespondence>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/no-equivalent`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...payload,
+        actor: "laboratory",
+        note: "Decisión manual desde Laboratorio",
+      }),
+    },
+  );
+export const getVersionComparisonEvents = (comparisonId: string) =>
+  api<ComparisonEvent[]>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/events`,
+  );
+export const revertVersionComparisonEvent = (
+  comparisonId: string,
+  eventId: string,
+) =>
+  api<ComparisonEvent>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/events/${encodeURIComponent(eventId)}/revert`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        actor: "laboratory",
+        note: "Reversión desde el historial",
+      }),
+    },
+  );
+export const cancelVersionComparison = (comparisonId: string) =>
+  api<VersionComparison>(
+    `/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/cancel`,
+    { method: "POST" },
+  );
+export const getComparisonThumbnailUrl = (
+  comparisonId: string,
+  correspondenceId: string,
+  side: "base" | "target",
+  position: number,
+) =>
+  `${API_URL}/api/library/laboratory/comparisons/${encodeURIComponent(comparisonId)}/correspondences/${encodeURIComponent(correspondenceId)}/thumbnail/${side}/${position}`;
 export const detectDocumentChanges = () =>
   api<DocumentInventoryResult>("/api/library/laboratory/inventory", {
     method: "POST",

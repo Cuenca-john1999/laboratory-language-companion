@@ -1,0 +1,6 @@
+{
+  "fixture": "G",
+  "description": "Dos páginas sintéticas visualmente idénticas.",
+  "base": ["same"],
+  "target": ["same", "same"]
+}

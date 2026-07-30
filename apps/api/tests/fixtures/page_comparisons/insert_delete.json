@@ -1,0 +1,6 @@
+{
+  "fixture": "C",
+  "description": "Una inserción y una eliminación sintéticas.",
+  "base": ["a", "removed", "c"],
+  "target": ["a", "inserted", "c"]
+}

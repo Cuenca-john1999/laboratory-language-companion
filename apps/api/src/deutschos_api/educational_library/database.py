@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 7
+LIBRARY_SCHEMA_VERSION = 8
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1108,6 +1108,162 @@ DROP TABLE IF EXISTS document_processing_runs;
 DELETE FROM library_schema WHERE version=7;
 """
 
+_MIGRATION_0008 = """
+CREATE TABLE document_page_artifacts (
+    page_id INTEGER PRIMARY KEY REFERENCES document_pages(id) ON DELETE CASCADE,
+    artifact_version TEXT NOT NULL,
+    text_content TEXT,
+    normalized_text TEXT,
+    text_hash TEXT,
+    text_metrics_json TEXT NOT NULL DEFAULT '{}',
+    visual_hash TEXT,
+    perceptual_hash TEXT,
+    region_hashes_json TEXT NOT NULL DEFAULT '{}',
+    visual_metrics_json TEXT NOT NULL DEFAULT '{}',
+    geometry_hash TEXT,
+    cache_key TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE document_version_comparisons (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    base_source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    target_source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    base_hash TEXT NOT NULL,
+    target_hash TEXT NOT NULL,
+    algorithm_version TEXT NOT NULL,
+    configuration_json TEXT NOT NULL,
+    configuration_hash TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+    supersedes_comparison_id TEXT REFERENCES document_version_comparisons(id)
+        ON DELETE SET NULL,
+    state TEXT NOT NULL CHECK(state IN (
+        'planned','running','completed','completed_with_issues','failed',
+        'cancelled','stale','superseded'
+    )),
+    initiated_by TEXT,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    error_detail TEXT,
+    needs_review INTEGER NOT NULL DEFAULT 0 CHECK(needs_review IN (0, 1)),
+    transfer_plan_revision INTEGER NOT NULL DEFAULT 0 CHECK(transfer_plan_revision >= 0),
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK(base_source_version_id <> target_source_version_id),
+    UNIQUE(id, source_id)
+);
+
+CREATE TABLE document_page_correspondences (
+    id TEXT PRIMARY KEY,
+    comparison_id TEXT NOT NULL REFERENCES document_version_comparisons(id)
+        ON DELETE CASCADE,
+    relation_type TEXT NOT NULL CHECK(relation_type IN (
+        'one_to_one','one_to_many','many_to_one','many_to_many',
+        'inserted','deleted','blank','duplicate','unresolved','ambiguous'
+    )),
+    review_state TEXT NOT NULL CHECK(review_state IN (
+        'proposed','auto_supported','needs_review','confirmed','rejected',
+        'manually_adjusted','superseded'
+    )),
+    confidence TEXT NOT NULL CHECK(confidence IN (
+        'very_high','high','medium','low','ambiguous'
+    )),
+    text_similarity REAL CHECK(text_similarity IS NULL OR text_similarity BETWEEN 0 AND 1),
+    visual_similarity REAL CHECK(visual_similarity IS NULL OR visual_similarity BETWEEN 0 AND 1),
+    geometry_similarity REAL CHECK(geometry_similarity IS NULL OR geometry_similarity BETWEEN 0 AND 1),
+    ordinal_similarity REAL CHECK(ordinal_similarity IS NULL OR ordinal_similarity BETWEEN 0 AND 1),
+    printed_page_similarity REAL CHECK(
+        printed_page_similarity IS NULL OR printed_page_similarity BETWEEN 0 AND 1
+    ),
+    split_similarity REAL CHECK(split_similarity IS NULL OR split_similarity BETWEEN 0 AND 1),
+    aggregate_score REAL NOT NULL CHECK(aggregate_score BETWEEN 0 AND 1),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    text_difference_json TEXT NOT NULL DEFAULT '{}',
+    recommendation TEXT NOT NULL CHECK(recommendation IN (
+        'target_preferred','base_preferred','mixed','manual_review','insufficient_evidence'
+    )),
+    review_note TEXT,
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE document_correspondence_pages (
+    correspondence_id TEXT NOT NULL REFERENCES document_page_correspondences(id)
+        ON DELETE CASCADE,
+    side TEXT NOT NULL CHECK(side IN ('base','target')),
+    page_id INTEGER NOT NULL REFERENCES document_pages(id) ON DELETE RESTRICT,
+    position INTEGER NOT NULL CHECK(position >= 0),
+    PRIMARY KEY(correspondence_id, side, page_id),
+    UNIQUE(correspondence_id, side, position)
+);
+
+CREATE TABLE document_comparison_events (
+    id TEXT PRIMARY KEY,
+    comparison_id TEXT NOT NULL REFERENCES document_version_comparisons(id)
+        ON DELETE CASCADE,
+    correspondence_id TEXT REFERENCES document_page_correspondences(id)
+        ON DELETE SET NULL,
+    event_type TEXT NOT NULL,
+    actor TEXT,
+    previous_state TEXT,
+    new_state TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE document_transfer_plans (
+    id TEXT PRIMARY KEY,
+    comparison_id TEXT NOT NULL REFERENCES document_version_comparisons(id)
+        ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    state TEXT NOT NULL DEFAULT 'proposal' CHECK(state IN ('proposal','invalidated')),
+    plan_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    invalidated_at TEXT,
+    UNIQUE(comparison_id, revision)
+);
+
+CREATE INDEX ix_page_artifacts_text_hash ON document_page_artifacts(text_hash);
+CREATE INDEX ix_page_artifacts_visual_hash ON document_page_artifacts(visual_hash);
+CREATE INDEX ix_comparisons_versions ON document_version_comparisons(
+    source_id, base_source_version_id, target_source_version_id, created_at DESC
+);
+CREATE INDEX ix_comparisons_state ON document_version_comparisons(state, updated_at DESC);
+CREATE UNIQUE INDEX ux_comparisons_active_configuration
+    ON document_version_comparisons(base_source_version_id, target_source_version_id)
+    WHERE state IN ('planned','running');
+CREATE INDEX ix_correspondences_comparison ON document_page_correspondences(
+    comparison_id, review_state, confidence, relation_type, created_at
+);
+CREATE INDEX ix_correspondence_pages_page ON document_correspondence_pages(page_id, side);
+CREATE INDEX ix_comparison_events ON document_comparison_events(
+    comparison_id, created_at, id
+);
+"""
+
+_ROLLBACK_0008 = """
+DROP INDEX IF EXISTS ix_comparison_events;
+DROP INDEX IF EXISTS ix_correspondence_pages_page;
+DROP INDEX IF EXISTS ix_correspondences_comparison;
+DROP INDEX IF EXISTS ux_comparisons_active_configuration;
+DROP INDEX IF EXISTS ix_comparisons_state;
+DROP INDEX IF EXISTS ix_comparisons_versions;
+DROP INDEX IF EXISTS ix_page_artifacts_visual_hash;
+DROP INDEX IF EXISTS ix_page_artifacts_text_hash;
+DROP TABLE IF EXISTS document_transfer_plans;
+DROP TABLE IF EXISTS document_comparison_events;
+DROP TABLE IF EXISTS document_correspondence_pages;
+DROP TABLE IF EXISTS document_page_correspondences;
+DROP TABLE IF EXISTS document_version_comparisons;
+DROP TABLE IF EXISTS document_page_artifacts;
+DELETE FROM library_schema WHERE version=8;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1153,6 +1309,9 @@ class LibraryDatabase:
                 current = 6
             if current < 7:
                 self._apply_migration(connection, 7, _MIGRATION_0007)
+                current = 7
+            if current < 8:
+                self._apply_migration(connection, 8, _MIGRATION_0008)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -1174,6 +1333,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 7")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0007)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_8(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 8:
+                raise RuntimeError("library schema rollback requires version 8")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0008)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

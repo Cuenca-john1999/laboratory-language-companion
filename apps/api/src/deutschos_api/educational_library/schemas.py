@@ -67,6 +67,17 @@ class DocumentRunState(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class ComparisonState(StrEnum):
+    PLANNED = "planned"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    COMPLETED_WITH_ISSUES = "completed_with_issues"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    STALE = "stale"
+    SUPERSEDED = "superseded"
+
+
 class DocumentStageState(StrEnum):
     NOT_SCHEDULED = "not_scheduled"
     PENDING = "pending"
@@ -736,6 +747,141 @@ class DocumentRunPassCreate(APIModel):
 
 class DocumentStageRetryRequest(APIModel):
     failed_pages_only: bool = True
+
+
+class VersionComparisonCreate(APIModel):
+    base_source_version_id: int = Field(gt=0)
+    target_source_version_id: int = Field(gt=0)
+    algorithm_version: str = Field(min_length=1, max_length=100, pattern=r"^[a-z0-9_.-]+$")
+    configuration: dict[str, JsonValue]
+    initiated_by: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def versions_must_differ(self):
+        if self.base_source_version_id == self.target_source_version_id:
+            raise ValueError("base and target versions must differ")
+        if self.configuration.get("ocr") or self.configuration.get("use_ocr"):
+            raise ValueError("comparison never permits OCR")
+        return self
+
+
+class VersionComparisonRead(APIModel):
+    id: str
+    source_id: str
+    source_title: str
+    base_source_version_id: int
+    base_version_number: int
+    target_source_version_id: int
+    target_version_number: int
+    base_hash: str
+    target_hash: str
+    algorithm_version: str
+    configuration: dict[str, JsonValue]
+    configuration_hash: str
+    revision: int = Field(gt=0)
+    supersedes_comparison_id: str | None
+    state: ComparisonState
+    initiated_by: str | None
+    summary: dict[str, JsonValue]
+    error_code: str | None
+    error_detail: str | None
+    needs_review: bool
+    transfer_plan_revision: int = Field(ge=0)
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime
+
+
+class CorrespondenceRead(APIModel):
+    id: str
+    comparison_id: str
+    relation_type: str
+    review_state: str
+    confidence: str
+    base_pages: list[int]
+    target_pages: list[int]
+    text_similarity: float | None
+    visual_similarity: float | None
+    geometry_similarity: float | None
+    ordinal_similarity: float | None
+    printed_page_similarity: float | None
+    split_similarity: float | None
+    aggregate_score: float
+    evidence: dict[str, JsonValue]
+    text_difference: dict[str, JsonValue]
+    recommendation: str
+    review_note: str | None
+    created_by: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CorrespondenceList(APIModel):
+    items: list[CorrespondenceRead]
+    page: int = Field(gt=0)
+    page_size: int = Field(gt=0)
+    total: int = Field(ge=0)
+    pages: int = Field(ge=0)
+
+
+class CorrespondenceDecision(APIModel):
+    actor: str = Field(min_length=1, max_length=120)
+    note: str | None = Field(default=None, max_length=1_000)
+
+
+class CorrespondenceAdjust(CorrespondenceDecision):
+    base_pages: list[int] = Field(default_factory=list, max_length=100)
+    target_pages: list[int] = Field(default_factory=list, max_length=100)
+    relation_type: Literal[
+        "one_to_one",
+        "one_to_many",
+        "many_to_one",
+        "many_to_many",
+        "inserted",
+        "deleted",
+        "blank",
+        "duplicate",
+        "unresolved",
+        "ambiguous",
+    ]
+
+    @field_validator("base_pages", "target_pages")
+    @classmethod
+    def valid_page_numbers(cls, value: list[int]) -> list[int]:
+        if any(page < 1 for page in value) or len(value) != len(set(value)):
+            raise ValueError("page numbers must be unique and one-based")
+        return value
+
+
+class NoEquivalentRequest(APIModel):
+    side: Literal["base", "target"]
+    page_number: int = Field(gt=0)
+    reason: Literal["inserted", "deleted", "blank", "duplicate", "unresolved"]
+    actor: str = Field(min_length=1, max_length=120)
+    note: str | None = Field(default=None, max_length=1_000)
+
+
+class ComparisonEventRead(APIModel):
+    id: str
+    comparison_id: str
+    correspondence_id: str | None
+    event_type: str
+    actor: str | None
+    previous_state: str | None
+    new_state: str | None
+    detail: dict[str, JsonValue]
+    created_at: datetime
+
+
+class TransferPlanRead(APIModel):
+    id: str
+    comparison_id: str
+    revision: int
+    state: str
+    plan: dict[str, JsonValue]
+    created_at: datetime
+    invalidated_at: datetime | None
 
 
 class InventoryChangeRead(APIModel):

@@ -16,6 +16,7 @@ import {
   getLaboratorySummary,
 } from "../lib/api";
 import { DocumentRunsPanel } from "./DocumentRunsPanel";
+import { DocumentComparisonsPanel } from "./DocumentComparisonsPanel";
 
 const FILTERS = [
   ["all", "Todas"],
@@ -216,6 +217,7 @@ export function DocumentLaboratory() {
       </div>
 
       <DocumentRunsPanel sources={sources} />
+      <DocumentComparisonsPanel sources={sources} />
 
       {inventory ? (
         <section className="inventory-result" aria-live="polite">

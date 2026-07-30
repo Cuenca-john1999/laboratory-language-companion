@@ -1,0 +1,6 @@
+{
+  "fixture": "F",
+  "description": "Imagen sintética presente sin capa textual.",
+  "text": null,
+  "render": "ink-present"
+}

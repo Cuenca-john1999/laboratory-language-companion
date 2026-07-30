@@ -11,6 +11,7 @@ from deutschos_api.providers.dependencies import get_model_provider
 
 from .cache import LibraryCache
 from .canonical_route import CanonicalRouteService
+from .comparisons import DocumentComparisonService
 from .document_intelligence import DocumentIntelligenceService
 from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
@@ -30,6 +31,12 @@ def get_document_runs(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> DocumentRunService:
     return DocumentRunService(service.database, service.root)
+
+
+def get_document_comparisons(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentComparisonService:
+    return DocumentComparisonService(service.database)
 
 
 def get_library_search(

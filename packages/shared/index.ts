@@ -956,6 +956,88 @@ export type DocumentRunPageList = {
   pages: number;
 };
 
+export type VersionComparisonState =
+  | "planned"
+  | "running"
+  | "completed"
+  | "completed_with_issues"
+  | "failed"
+  | "cancelled"
+  | "stale"
+  | "superseded";
+
+export type VersionComparison = {
+  id: string;
+  source_id: string;
+  source_title: string;
+  base_source_version_id: number;
+  base_version_number: number;
+  target_source_version_id: number;
+  target_version_number: number;
+  base_hash: string;
+  target_hash: string;
+  algorithm_version: string;
+  configuration: Record<string, unknown>;
+  configuration_hash: string;
+  revision: number;
+  supersedes_comparison_id: string | null;
+  state: VersionComparisonState;
+  initiated_by: string | null;
+  summary: Record<string, unknown>;
+  error_code: string | null;
+  error_detail: string | null;
+  needs_review: boolean;
+  transfer_plan_revision: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+};
+
+export type PageCorrespondence = {
+  id: string;
+  comparison_id: string;
+  relation_type: string;
+  review_state: string;
+  confidence: string;
+  base_pages: number[];
+  target_pages: number[];
+  text_similarity: number | null;
+  visual_similarity: number | null;
+  geometry_similarity: number | null;
+  ordinal_similarity: number | null;
+  printed_page_similarity: number | null;
+  split_similarity: number | null;
+  aggregate_score: number;
+  evidence: Record<string, unknown>;
+  text_difference: Record<string, unknown>;
+  recommendation: string;
+  review_note: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PageCorrespondenceList = {
+  items: PageCorrespondence[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+};
+
+export type ComparisonEvent = {
+  id: string;
+  comparison_id: string;
+  correspondence_id: string | null;
+  event_type: string;
+  actor: string | null;
+  previous_state: string | null;
+  new_state: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+};
+
 export type LibraryChunk = {
   id: number;
   source_id: string;

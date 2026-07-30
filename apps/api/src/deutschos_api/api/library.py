@@ -10,8 +10,10 @@ from sqlalchemy.orm import Session
 
 from deutschos_api.db.session import get_db
 from deutschos_api.educational_library.canonical_route import CanonicalRouteService
+from deutschos_api.educational_library.comparisons import DocumentComparisonService
 from deutschos_api.educational_library.dependencies import (
     get_canonical_route,
+    get_document_comparisons,
     get_document_intelligence,
     get_document_runs,
     get_library_editorial,
@@ -36,10 +38,15 @@ from deutschos_api.educational_library.schemas import (
     CanonicalTopicRead,
     CanonicalTopicReviewRequest,
     ChunkRead,
+    ComparisonEventRead,
     ConceptAliasCreate,
     ConceptRelationCreate,
     CoreSourceAssignmentRequest,
     CoreSourcePairRead,
+    CorrespondenceAdjust,
+    CorrespondenceDecision,
+    CorrespondenceList,
+    CorrespondenceRead,
     CoverageSnapshotRead,
     DocumentInventoryResult,
     DocumentPageList,
@@ -83,6 +90,7 @@ from deutschos_api.educational_library.schemas import (
     MemoryReviewQueueItem,
     MemoryReviewRequest,
     ModelRoutingRead,
+    NoEquivalentRequest,
     PageMappingRead,
     PageMappingUpdate,
     PageQualityRead,
@@ -110,6 +118,9 @@ from deutschos_api.educational_library.schemas import (
     TeacherFailureReason,
     TeacherQueryRead,
     TeacherStreamEvent,
+    TransferPlanRead,
+    VersionComparisonCreate,
+    VersionComparisonRead,
 )
 from deutschos_api.educational_library.search import EducationalSearchService
 from deutschos_api.educational_library.semantic import SemanticIndexCoordinator
@@ -226,6 +237,319 @@ def laboratory_version(
 ) -> DocumentVersionRead:
     try:
         return service.document_version(version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons",
+    response_model=list[VersionComparisonRead],
+)
+def list_version_comparisons(
+    state: str | None = None,
+    source_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> list[VersionComparisonRead]:
+    try:
+        return service.list(state=state, source_id=source_id, limit=limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons",
+    response_model=VersionComparisonRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_version_comparison(
+    request: VersionComparisonCreate,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> VersionComparisonRead:
+    try:
+        return service.create(request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}",
+    response_model=VersionComparisonRead,
+)
+def version_comparison_detail(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> VersionComparisonRead:
+    try:
+        return service.get(comparison_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/execute",
+    response_model=VersionComparisonRead,
+)
+def execute_version_comparison(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> VersionComparisonRead:
+    try:
+        return service.execute(comparison_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/metrics",
+    response_model=VersionComparisonRead,
+)
+def version_comparison_metrics(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> VersionComparisonRead:
+    try:
+        return service.get(comparison_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/correspondences",
+    response_model=CorrespondenceList,
+)
+def list_page_correspondences(
+    comparison_id: str,
+    confidence: str | None = None,
+    review_state: str | None = None,
+    relation_type: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceList:
+    try:
+        return service.correspondences(
+            comparison_id,
+            confidence=confidence,
+            review_state=review_state,
+            relation_type=relation_type,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}",
+    response_model=CorrespondenceRead,
+)
+def page_correspondence_detail(
+    comparison_id: str,
+    correspondence_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    try:
+        result = service.correspondence(correspondence_id)
+        if result.comparison_id != comparison_id:
+            raise LibraryNotFoundError("La correspondencia no pertenece a la comparación.")
+        return result
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}/text-difference",
+    response_model=CorrespondenceRead,
+)
+def page_correspondence_text_difference(
+    comparison_id: str,
+    correspondence_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    return page_correspondence_detail(comparison_id, correspondence_id, service)
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}/evidence",
+    response_model=CorrespondenceRead,
+)
+def page_correspondence_evidence(
+    comparison_id: str,
+    correspondence_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    return page_correspondence_detail(comparison_id, correspondence_id, service)
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}/"
+    "thumbnail/{side}/{position}",
+    response_class=Response,
+)
+def page_correspondence_thumbnail(
+    comparison_id: str,
+    correspondence_id: str,
+    side: Literal["base", "target"],
+    position: int,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> Response:
+    try:
+        relation = service.correspondence(correspondence_id)
+        if relation.comparison_id != comparison_id:
+            raise LibraryNotFoundError("La correspondencia no pertenece a la comparación.")
+        svg = service.technical_thumbnail(correspondence_id, side, position)
+        return Response(
+            content=svg,
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}/confirm",
+    response_model=CorrespondenceRead,
+)
+def confirm_page_correspondence(
+    comparison_id: str,
+    correspondence_id: str,
+    request: CorrespondenceDecision,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    try:
+        existing = service.correspondence(correspondence_id)
+        if existing.comparison_id != comparison_id:
+            raise LibraryNotFoundError("La correspondencia no pertenece a la comparación.")
+        result = service.decide(correspondence_id, "confirm", request)
+        return result
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}/reject",
+    response_model=CorrespondenceRead,
+)
+def reject_page_correspondence(
+    comparison_id: str,
+    correspondence_id: str,
+    request: CorrespondenceDecision,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    try:
+        existing = service.correspondence(correspondence_id)
+        if existing.comparison_id != comparison_id:
+            raise LibraryNotFoundError("La correspondencia no pertenece a la comparación.")
+        result = service.decide(correspondence_id, "reject", request)
+        return result
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/correspondences/{correspondence_id}/adjust",
+    response_model=CorrespondenceRead,
+)
+def adjust_page_correspondence(
+    comparison_id: str,
+    correspondence_id: str,
+    request: CorrespondenceAdjust,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    try:
+        existing = service.correspondence(correspondence_id)
+        if existing.comparison_id != comparison_id:
+            raise LibraryNotFoundError("La correspondencia no pertenece a la comparación.")
+        return service.adjust(correspondence_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/no-equivalent",
+    response_model=CorrespondenceRead,
+)
+def mark_page_without_equivalent(
+    comparison_id: str,
+    request: NoEquivalentRequest,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> CorrespondenceRead:
+    try:
+        return service.mark_no_equivalent(comparison_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/transfer-plan",
+    response_model=TransferPlanRead,
+)
+def version_comparison_transfer_plan(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> TransferPlanRead:
+    try:
+        return service.transfer_plan(comparison_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/comparisons/{comparison_id}/events",
+    response_model=list[ComparisonEventRead],
+)
+def version_comparison_events(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> list[ComparisonEventRead]:
+    try:
+        return service.events(comparison_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/events/{event_id}/revert",
+    response_model=ComparisonEventRead,
+)
+def revert_version_comparison_event(
+    comparison_id: str,
+    event_id: str,
+    request: CorrespondenceDecision,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> ComparisonEventRead:
+    try:
+        return service.revert_event(comparison_id, event_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/cancel",
+    response_model=VersionComparisonRead,
+)
+def cancel_version_comparison(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> VersionComparisonRead:
+    try:
+        return service.cancel(comparison_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/comparisons/{comparison_id}/recalculate",
+    response_model=VersionComparisonRead,
+)
+def recalculate_version_comparison(
+    comparison_id: str,
+    service: DocumentComparisonService = Depends(get_document_comparisons),
+) -> VersionComparisonRead:
+    try:
+        return service.execute(comparison_id, recalculate=True)
     except Exception as exc:
         raise _translate(exc) from exc
 

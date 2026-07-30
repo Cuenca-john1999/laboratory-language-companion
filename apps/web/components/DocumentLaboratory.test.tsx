@@ -17,16 +17,29 @@ import { DocumentLaboratory } from "./DocumentLaboratory";
 
 vi.mock("../lib/api", () => ({
   cancelDocumentRun: vi.fn(),
+  cancelVersionComparison: vi.fn(),
   createDocumentRun: vi.fn(),
   createDocumentRunPass: vi.fn(),
   detectDocumentChanges: vi.fn(),
   executeDocumentPreflight: vi.fn(),
+  executeVersionComparison: vi.fn(),
   getDocumentRun: vi.fn(),
   getDocumentRunPages: vi.fn(),
   getDocumentRuns: vi.fn().mockResolvedValue([]),
+  getPageCorrespondences: vi.fn(),
   getLaboratorySource: vi.fn(),
   getLaboratorySources: vi.fn(),
   getLaboratorySummary: vi.fn(),
+  getVersionComparisons: vi.fn().mockResolvedValue([]),
+  getDocumentVersions: vi.fn(),
+  getComparisonThumbnailUrl: vi.fn(),
+  getVersionComparisonEvents: vi.fn(),
+  createVersionComparison: vi.fn(),
+  confirmPageCorrespondence: vi.fn(),
+  rejectPageCorrespondence: vi.fn(),
+  revertVersionComparisonEvent: vi.fn(),
+  adjustPageCorrespondence: vi.fn(),
+  markPageWithoutEquivalent: vi.fn(),
   pauseDocumentRun: vi.fn(),
   reconcileDocumentCoverage: vi.fn(),
   resumeDocumentRun: vi.fn(),
@@ -130,7 +143,7 @@ describe("document laboratory", () => {
     expect(await screen.findByText("581")).toBeInTheDocument();
     expect(screen.getByText("Fuentes catalogadas")).toBeInTheDocument();
     expect(screen.getByText("Fuentes recuperables")).toBeInTheDocument();
-    expect(screen.getByText("Herder · Gramática")).toBeInTheDocument();
+    expect(screen.getAllByText("Herder · Gramática").length).toBeGreaterThan(0);
     expect(screen.getByText("Activa: v1")).toBeInTheDocument();
     expect(screen.getByText("Detectada: v2")).toBeInTheDocument();
 
