@@ -88,11 +88,52 @@ class EducationalLibraryService:
             except BlockingIOError:
                 return
             with self.database.transaction(immediate=True) as connection:
+                now = utc_text()
                 connection.execute(
                     "UPDATE processing_jobs SET state='interrupted',updated_at=?,"
                     "error_code='process_restarted' WHERE state='running' AND kind='scan'",
-                    (utc_text(),),
+                    (now,),
                 )
+                has_runs = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='document_processing_runs'"
+                ).fetchone()
+                if has_runs:
+                    connection.execute(
+                        "UPDATE processing_jobs SET state='interrupted',updated_at=?,"
+                        "error_code='process_restarted' WHERE state='running' "
+                        "AND document_run_id IS NOT NULL",
+                        (now,),
+                    )
+                    connection.execute(
+                        "UPDATE document_run_stages SET state='failed',updated_at=?,"
+                        "completed_at=?,error_code='process_restarted',"
+                        "error_detail='La etapa se interrumpió al reiniciar el proceso.' "
+                        "WHERE state='running'",
+                        (now, now),
+                    )
+                    interrupted = connection.execute(
+                        "SELECT id,state FROM document_processing_runs WHERE state='running'"
+                    ).fetchall()
+                    for run in interrupted:
+                        connection.execute(
+                            "UPDATE document_processing_runs SET state='paused',resumable=1,"
+                            "updated_at=?,error_code='process_restarted',"
+                            "error_detail='La ejecución quedó pausada tras reiniciar el proceso.' "
+                            "WHERE id=?",
+                            (now, run["id"]),
+                        )
+                        connection.execute(
+                            "INSERT INTO document_run_events("
+                            "id,run_id,event_type,from_state,to_state,detail_json,created_at"
+                            ") VALUES (?,?,?,'running','paused','{}',?)",
+                            (
+                                str(uuid4()),
+                                run["id"],
+                                "process_restart_recovery",
+                                now,
+                            ),
+                        )
         finally:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_UN)

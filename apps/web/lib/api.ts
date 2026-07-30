@@ -5,6 +5,9 @@ import type {
   DailyPlanRequest,
   Dashboard,
   DocumentInventoryResult,
+  DocumentRun,
+  DocumentRunDetail,
+  DocumentRunPageList,
   DocumentVersion,
   LearningAttemptCreate,
   LearningAttemptReceipt,
@@ -426,6 +429,75 @@ export const detectDocumentChanges = () =>
   });
 export const getLatestDocumentInventory = () =>
   api<DocumentInventoryResult>("/api/library/laboratory/inventory/latest");
+export const getDocumentRuns = () =>
+  api<DocumentRun[]>("/api/library/laboratory/runs?limit=50");
+export const getDocumentRun = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}`,
+  );
+export const getDocumentRunPages = (
+  runId: string,
+  page: number,
+  filter = "all",
+) =>
+  api<DocumentRunPageList>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/pages?page=${page}&page_size=25&filter=${encodeURIComponent(filter)}`,
+  );
+export const createDocumentRun = (sourceVersionId: number) =>
+  api<DocumentRunDetail>("/api/library/laboratory/runs", {
+    method: "POST",
+    body: JSON.stringify({
+      source_version_id: sourceVersionId,
+      run_type: "document_analysis",
+      pipeline_version: "document-pipeline.v1",
+      configuration: { safe_stages_only: true },
+      selection_strategy: "all_pages",
+      reason: "Ejecución planificada desde el Laboratorio documental",
+    }),
+  });
+export const executeDocumentPreflight = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/preflight`,
+    { method: "POST" },
+  );
+export const reconcileDocumentCoverage = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/coverage/reconcile`,
+    { method: "POST" },
+  );
+export const pauseDocumentRun = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/pause`,
+    { method: "POST" },
+  );
+export const resumeDocumentRun = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/resume`,
+    { method: "POST" },
+  );
+export const cancelDocumentRun = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+export const retryDocumentRunStage = (runId: string, stageName: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/stages/${encodeURIComponent(stageName)}/retry`,
+    {
+      method: "POST",
+      body: JSON.stringify({ failed_pages_only: true }),
+    },
+  );
+export const createDocumentRunPass = (runId: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/passes`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Nueva pasada sobre páginas pendientes o problemáticas",
+      }),
+    },
+  );
 export const getLibrarySources = () =>
   api<LibrarySource[]>("/api/library/sources?limit=100");
 export const getLibraryJobs = () =>

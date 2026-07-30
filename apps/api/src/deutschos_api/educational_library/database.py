@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 6
+LIBRARY_SCHEMA_VERSION = 7
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -908,6 +908,206 @@ ALTER TABLE sources DROP COLUMN latest_version_id;
 DELETE FROM library_schema WHERE version=6;
 """
 
+_MIGRATION_0007 = """
+CREATE TABLE document_processing_runs (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    target_hash TEXT NOT NULL,
+    run_type TEXT NOT NULL,
+    pipeline_version TEXT NOT NULL,
+    configuration_json TEXT NOT NULL,
+    configuration_hash TEXT NOT NULL,
+    selection_strategy TEXT NOT NULL,
+    selected_pages_json TEXT NOT NULL DEFAULT '[]',
+    reused_results_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL CHECK(state IN (
+        'planned','queued','running','paused','completed','completed_with_issues',
+        'failed','cancelled','stale','superseded'
+    )),
+    parent_run_id TEXT REFERENCES document_processing_runs(id) ON DELETE SET NULL,
+    base_run_id TEXT REFERENCES document_processing_runs(id) ON DELETE SET NULL,
+    initiated_by TEXT,
+    reason TEXT,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    error_detail TEXT,
+    resumable INTEGER NOT NULL DEFAULT 1 CHECK(resumable IN (0, 1)),
+    exclusive INTEGER NOT NULL DEFAULT 1 CHECK(exclusive IN (0, 1)),
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE document_run_stages (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN (
+        'not_scheduled','pending','queued','running','paused','completed',
+        'completed_with_issues','failed','skipped','cancelled'
+    )),
+    attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt > 0),
+    configuration_json TEXT NOT NULL DEFAULT '{}',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    dependencies_json TEXT NOT NULL DEFAULT '[]',
+    error_code TEXT,
+    error_detail TEXT,
+    resumable INTEGER NOT NULL DEFAULT 1 CHECK(resumable IN (0, 1)),
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, name, attempt)
+);
+
+CREATE TABLE document_pages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    pdf_page_index INTEGER NOT NULL CHECK(pdf_page_index >= 0),
+    printed_page_number TEXT,
+    fingerprint TEXT,
+    width_points REAL CHECK(width_points IS NULL OR width_points > 0),
+    height_points REAL CHECK(height_points IS NULL OR height_points > 0),
+    rotation_degrees INTEGER,
+    has_text INTEGER CHECK(has_text IS NULL OR has_text IN (0, 1)),
+    character_count INTEGER CHECK(character_count IS NULL OR character_count >= 0),
+    text_quality TEXT,
+    layout_state TEXT,
+    structure_state TEXT,
+    review_state TEXT,
+    issue_count INTEGER NOT NULL DEFAULT 0 CHECK(issue_count >= 0),
+    last_run_id TEXT REFERENCES document_processing_runs(id) ON DELETE SET NULL,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source_version_id, pdf_page_index)
+);
+
+CREATE TABLE document_page_stage_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    page_id INTEGER NOT NULL REFERENCES document_pages(id) ON DELETE CASCADE,
+    stage_name TEXT NOT NULL,
+    attempt INTEGER NOT NULL DEFAULT 1 CHECK(attempt > 0),
+    state TEXT NOT NULL CHECK(state IN (
+        'not_scheduled','pending','running','completed','completed_with_issues',
+        'failed','skipped','needs_review','superseded'
+    )),
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    reused_from_run_id TEXT REFERENCES document_processing_runs(id) ON DELETE SET NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, page_id, stage_name, attempt)
+);
+
+CREATE TABLE document_coverage_snapshots (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    stage_name TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    execution_status TEXT NOT NULL CHECK(execution_status IN (
+        'executed','not_executed','no_data'
+    )),
+    denominator INTEGER CHECK(denominator IS NULL OR denominator >= 0),
+    completed INTEGER CHECK(completed IS NULL OR completed >= 0),
+    with_issues INTEGER CHECK(with_issues IS NULL OR with_issues >= 0),
+    failed INTEGER CHECK(failed IS NULL OR failed >= 0),
+    pending INTEGER CHECK(pending IS NULL OR pending >= 0),
+    not_applicable INTEGER CHECK(not_applicable IS NULL OR not_applicable >= 0),
+    unknown INTEGER CHECK(unknown IS NULL OR unknown >= 0),
+    breakdown_json TEXT NOT NULL DEFAULT '{}',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    captured_at TEXT NOT NULL
+);
+
+CREATE TABLE document_run_issues (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    page_id INTEGER REFERENCES document_pages(id) ON DELETE CASCADE,
+    stage_name TEXT,
+    code TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    message TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    resolved_at TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE document_run_events (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    actor TEXT,
+    from_state TEXT,
+    to_state TEXT,
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+ALTER TABLE processing_jobs
+    ADD COLUMN document_run_id TEXT REFERENCES document_processing_runs(id) ON DELETE SET NULL;
+ALTER TABLE processing_jobs
+    ADD COLUMN document_run_stage_id TEXT REFERENCES document_run_stages(id) ON DELETE SET NULL;
+ALTER TABLE processing_jobs ADD COLUMN legacy INTEGER NOT NULL DEFAULT 1
+    CHECK(legacy IN (0, 1));
+
+CREATE INDEX ix_document_runs_target
+    ON document_processing_runs(source_id, source_version_id, created_at DESC);
+CREATE INDEX ix_document_runs_state
+    ON document_processing_runs(state, updated_at DESC);
+CREATE UNIQUE INDEX ux_document_runs_exclusive_active
+    ON document_processing_runs(source_version_id)
+    WHERE exclusive=1 AND state IN ('queued','running','paused');
+CREATE INDEX ix_document_stages_run
+    ON document_run_stages(run_id, name, attempt DESC);
+CREATE INDEX ix_document_pages_version
+    ON document_pages(source_version_id, pdf_page_index);
+CREATE INDEX ix_document_page_results_run
+    ON document_page_stage_results(run_id, stage_name, state, page_id);
+CREATE INDEX ix_document_coverage_run
+    ON document_coverage_snapshots(run_id, captured_at DESC, dimension);
+CREATE INDEX ix_document_issues_run
+    ON document_run_issues(run_id, resolved_at, severity);
+CREATE INDEX ix_document_events_run
+    ON document_run_events(run_id, created_at);
+CREATE INDEX ix_jobs_document_run
+    ON processing_jobs(document_run_id, document_run_stage_id);
+"""
+
+_ROLLBACK_0007 = """
+DROP INDEX IF EXISTS ix_jobs_document_run;
+DROP INDEX IF EXISTS ix_document_events_run;
+DROP INDEX IF EXISTS ix_document_issues_run;
+DROP INDEX IF EXISTS ix_document_coverage_run;
+DROP INDEX IF EXISTS ix_document_page_results_run;
+DROP INDEX IF EXISTS ix_document_pages_version;
+DROP INDEX IF EXISTS ix_document_stages_run;
+DROP INDEX IF EXISTS ux_document_runs_exclusive_active;
+DROP INDEX IF EXISTS ix_document_runs_state;
+DROP INDEX IF EXISTS ix_document_runs_target;
+
+ALTER TABLE processing_jobs DROP COLUMN legacy;
+ALTER TABLE processing_jobs DROP COLUMN document_run_stage_id;
+ALTER TABLE processing_jobs DROP COLUMN document_run_id;
+
+DROP TABLE IF EXISTS document_run_events;
+DROP TABLE IF EXISTS document_run_issues;
+DROP TABLE IF EXISTS document_coverage_snapshots;
+DROP TABLE IF EXISTS document_page_stage_results;
+DROP TABLE IF EXISTS document_pages;
+DROP TABLE IF EXISTS document_run_stages;
+DROP TABLE IF EXISTS document_processing_runs;
+DELETE FROM library_schema WHERE version=7;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -950,6 +1150,9 @@ class LibraryDatabase:
                 current = 5
             if current < 6:
                 self._apply_migration(connection, 6, _MIGRATION_0006)
+                current = 6
+            if current < 7:
+                self._apply_migration(connection, 7, _MIGRATION_0007)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -958,6 +1161,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 6")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0006)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_7(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 7:
+                raise RuntimeError("library schema rollback requires version 7")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0007)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

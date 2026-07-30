@@ -13,6 +13,7 @@ from deutschos_api.educational_library.canonical_route import CanonicalRouteServ
 from deutschos_api.educational_library.dependencies import (
     get_canonical_route,
     get_document_intelligence,
+    get_document_runs,
     get_library_editorial,
     get_library_knowledge,
     get_library_memory,
@@ -26,6 +27,7 @@ from deutschos_api.educational_library.editorial import LibraryEditorialService
 from deutschos_api.educational_library.knowledge import EducationalKnowledgeService
 from deutschos_api.educational_library.memory import PedagogicalMemoryService
 from deutschos_api.educational_library.routing import LibraryModelRouter
+from deutschos_api.educational_library.runs import DocumentRunService
 from deutschos_api.educational_library.schemas import (
     CanonicalLegacyMappingRead,
     CanonicalRouteAuditRead,
@@ -38,7 +40,17 @@ from deutschos_api.educational_library.schemas import (
     ConceptRelationCreate,
     CoreSourceAssignmentRequest,
     CoreSourcePairRead,
+    CoverageSnapshotRead,
     DocumentInventoryResult,
+    DocumentPageList,
+    DocumentRunCreate,
+    DocumentRunDetail,
+    DocumentRunEventRead,
+    DocumentRunIssueRead,
+    DocumentRunPassCreate,
+    DocumentRunRead,
+    DocumentRunStageRead,
+    DocumentStageRetryRequest,
     DocumentVersionRead,
     EditorialSectionLinkRequest,
     EditorialSectionRead,
@@ -234,6 +246,228 @@ def latest_document_inventory(
 ) -> DocumentInventoryResult:
     try:
         return service.latest_document_inventory()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/runs", response_model=list[DocumentRunRead])
+def list_document_runs(
+    source_id: str | None = None,
+    source_version_id: int | None = Query(default=None, gt=0),
+    state: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    service: DocumentRunService = Depends(get_document_runs),
+) -> list[DocumentRunRead]:
+    try:
+        return service.list_runs(
+            source_id=source_id,
+            source_version_id=source_version_id,
+            state=state,
+            limit=limit,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs",
+    response_model=DocumentRunDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_document_run(
+    request: DocumentRunCreate,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.create_run(request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/runs/{run_id}", response_model=DocumentRunDetail)
+def document_run_detail(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.get_run(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/runs/{run_id}/stages",
+    response_model=list[DocumentRunStageRead],
+)
+def document_run_stages(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> list[DocumentRunStageRead]:
+    try:
+        return service.stages(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/runs/{run_id}/coverage",
+    response_model=list[CoverageSnapshotRead],
+)
+def document_run_coverage(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> list[CoverageSnapshotRead]:
+    try:
+        return service.coverage(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/runs/{run_id}/pages", response_model=DocumentPageList)
+def document_run_pages(
+    run_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=10, le=100),
+    filter_name: Literal[
+        "all",
+        "pending",
+        "completed",
+        "issues",
+        "failed",
+        "needs_review",
+        "without_text",
+    ] = Query(default="all", alias="filter"),
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentPageList:
+    try:
+        return service.pages(
+            run_id,
+            page=page,
+            page_size=page_size,
+            filter_name=filter_name,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/runs/{run_id}/issues",
+    response_model=list[DocumentRunIssueRead],
+)
+def document_run_issues(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> list[DocumentRunIssueRead]:
+    try:
+        return service.issues(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/runs/{run_id}/events",
+    response_model=list[DocumentRunEventRead],
+)
+def document_run_events(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> list[DocumentRunEventRead]:
+    try:
+        return service.events(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/runs/{run_id}/preflight", response_model=DocumentRunDetail)
+def execute_document_preflight(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.run_preflight(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/coverage/reconcile",
+    response_model=DocumentRunDetail,
+)
+def reconcile_document_coverage(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.reconcile_coverage(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/runs/{run_id}/pause", response_model=DocumentRunDetail)
+def pause_document_run(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.pause(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/runs/{run_id}/resume", response_model=DocumentRunDetail)
+def resume_document_run(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.resume(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/runs/{run_id}/cancel", response_model=DocumentRunDetail)
+def cancel_document_run(
+    run_id: str,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.cancel(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/stages/{stage_name}/retry",
+    response_model=DocumentRunDetail,
+)
+def retry_document_stage(
+    run_id: str,
+    stage_name: str,
+    request: DocumentStageRetryRequest,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.retry_stage(
+            run_id,
+            stage_name,
+            failed_pages_only=request.failed_pages_only,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/passes",
+    response_model=DocumentRunDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_document_run_pass(
+    run_id: str,
+    request: DocumentRunPassCreate,
+    service: DocumentRunService = Depends(get_document_runs),
+) -> DocumentRunDetail:
+    try:
+        return service.create_pass(run_id, request)
     except Exception as exc:
         raise _translate(exc) from exc
 

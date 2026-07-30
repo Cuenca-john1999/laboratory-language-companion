@@ -287,10 +287,11 @@ async def test_laboratory_api_exposes_summary_history_versions_and_inventory(
     assert latest.json()["job_id"] == inventory.json()["job_id"]
 
 
-def test_schema_6_preserves_legacy_rows_and_is_reversible(tmp_path: Path):
+def test_schema_6_and_7_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     database = LibraryDatabase(path)
-    assert database.migrate() == 6
+    assert database.migrate() == 7
+    assert database.rollback_version_7() == 6
     assert database.rollback_version_6() == 5
     with database.transaction(immediate=True) as connection:
         connection.execute(
@@ -306,7 +307,7 @@ def test_schema_6_preserves_legacy_rows_and_is_reversible(tmp_path: Path):
             "UPDATE sources SET current_version_id=? WHERE id='legacy'", (cursor.lastrowid,)
         )
 
-    assert database.migrate() == 6
+    assert database.migrate() == 7
     with database.connect() as connection:
         counts = connection.execute(
             "SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM source_versions),"
@@ -315,6 +316,7 @@ def test_schema_6_preserves_legacy_rows_and_is_reversible(tmp_path: Path):
         assert tuple(counts) == (1, 1, 1)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
+    assert database.rollback_version_7() == 6
     assert database.rollback_version_6() == 5
     with sqlite3.connect(path) as connection:
         assert connection.execute("SELECT count(*) FROM sources").fetchone()[0] == 1

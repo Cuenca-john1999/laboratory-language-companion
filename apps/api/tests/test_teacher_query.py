@@ -521,9 +521,9 @@ def test_library_schema_upgrades_v1_to_v5_without_main_migration(tmp_path: Path)
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 6
+    assert database.migrate() == 7
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 6
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 7
         assert migrated.execute(
             "SELECT 1 FROM sqlite_master WHERE name='teacher_queries'"
         ).fetchone()
@@ -545,9 +545,9 @@ def test_library_schema_upgrades_v2_to_v5_without_rebuilding_data(tmp_path: Path
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 6
+    assert database.migrate() == 7
     with database.connect() as migrated:
-        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 6
+        assert migrated.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 7
         assert migrated.execute("SELECT 1 FROM sqlite_master WHERE name='page_quality'").fetchone()
     assert database.integrity() == ("ok", [])
 

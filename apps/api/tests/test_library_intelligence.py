@@ -513,7 +513,7 @@ def test_schema_v5_contains_documental_memory_and_route_tables_without_main_alem
     intelligence_library: EducationalLibraryService,
 ):
     with intelligence_library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 6
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 7
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")

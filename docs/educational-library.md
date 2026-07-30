@@ -57,6 +57,21 @@ acción confirmada «Detectar cambios». La API correspondiente vive bajo
 de versión, ejecución de inventario y último resultado. Los GET no ejecutan
 inventario. Esta fase no expone acciones de OCR, chunking, embeddings ni promoción.
 
+La pestaña **Ejecuciones** añade procesamiento iterativo fijado a una
+`source_version` y a su SHA-256. Una ejecución de alto nivel conserva
+configuración, pipeline, linaje, etapas, intentos, eventos, resultados por página
+y snapshots de cobertura; los `processing_jobs` siguen siendo tareas técnicas
+hijas. Solo preflight y reconciliación de cobertura están habilitados. El resto
+del catálogo de etapas aparece como «No ejecutado».
+
+La cobertura se presenta por archivo, páginas, texto, calidad, estructura,
+revisión, chunks, embeddings y mapeo canónico. Un denominador desconocido se
+muestra como «Sin denominador» y una etapa futura como «No ejecutado». No se
+almacena ni presenta un porcentaje global de comprensión. La API de ejecuciones
+vive bajo `/api/library/laboratory/runs`; sus GET son de solo lectura y las
+mutaciones (crear, preflight, reconciliar, pausar, reanudar, cancelar, reintentar
+y crear una pasada desde pendientes) son explícitas.
+
 ## Fuentes nucleares y mapa Herder
 
 `pedagogical_role` separa `core_theory`, `core_workbook`, `core_answer_key`,

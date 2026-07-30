@@ -16,10 +16,21 @@ import {
 import { DocumentLaboratory } from "./DocumentLaboratory";
 
 vi.mock("../lib/api", () => ({
+  cancelDocumentRun: vi.fn(),
+  createDocumentRun: vi.fn(),
+  createDocumentRunPass: vi.fn(),
   detectDocumentChanges: vi.fn(),
+  executeDocumentPreflight: vi.fn(),
+  getDocumentRun: vi.fn(),
+  getDocumentRunPages: vi.fn(),
+  getDocumentRuns: vi.fn().mockResolvedValue([]),
   getLaboratorySource: vi.fn(),
   getLaboratorySources: vi.fn(),
   getLaboratorySummary: vi.fn(),
+  pauseDocumentRun: vi.fn(),
+  reconcileDocumentCoverage: vi.fn(),
+  resumeDocumentRun: vi.fn(),
+  retryDocumentRunStage: vi.fn(),
 }));
 
 const source = {

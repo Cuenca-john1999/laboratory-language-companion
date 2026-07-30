@@ -807,6 +807,155 @@ export type DocumentInventoryResult = {
   changes: InventoryChange[];
 };
 
+export type DocumentRunState =
+  | "planned"
+  | "queued"
+  | "running"
+  | "paused"
+  | "completed"
+  | "completed_with_issues"
+  | "failed"
+  | "cancelled"
+  | "stale"
+  | "superseded";
+
+export type DocumentStageState =
+  | "not_scheduled"
+  | "pending"
+  | "queued"
+  | "running"
+  | "paused"
+  | "completed"
+  | "completed_with_issues"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
+export type PageStageState =
+  | "not_scheduled"
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_with_issues"
+  | "failed"
+  | "skipped"
+  | "needs_review"
+  | "superseded";
+
+export type DocumentRunStage = {
+  id: string;
+  run_id: string;
+  name: string;
+  version: string;
+  state: DocumentStageState;
+  attempt: number;
+  configuration: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  dependencies: string[];
+  error_code: string | null;
+  error_detail: string | null;
+  resumable: boolean;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CoverageSnapshot = {
+  id: string;
+  run_id: string;
+  source_version_id: number;
+  stage_name: string;
+  dimension: string;
+  execution_status: "executed" | "not_executed" | "no_data";
+  denominator: number | null;
+  completed: number | null;
+  with_issues: number | null;
+  failed: number | null;
+  pending: number | null;
+  not_applicable: number | null;
+  unknown: number | null;
+  breakdown: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  captured_at: string;
+};
+
+export type DocumentRunEvent = {
+  id: string;
+  run_id: string;
+  event_type: string;
+  actor: string | null;
+  from_state: string | null;
+  to_state: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+};
+
+export type DocumentRun = {
+  id: string;
+  source_id: string;
+  source_title: string;
+  source_version_id: number;
+  source_version_number: number;
+  target_hash: string;
+  run_type: string;
+  pipeline_version: string;
+  configuration: Record<string, unknown>;
+  configuration_hash: string;
+  selection_strategy: string;
+  selected_pages: number[];
+  reused_results: Record<string, unknown>;
+  state: DocumentRunState;
+  parent_run_id: string | null;
+  base_run_id: string | null;
+  initiated_by: string | null;
+  reason: string | null;
+  summary: Record<string, unknown>;
+  error_code: string | null;
+  error_detail: string | null;
+  resumable: boolean;
+  exclusive: boolean;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  updated_at: string;
+  current_stage: string | null;
+  issue_count: number;
+};
+
+export type DocumentRunDetail = DocumentRun & {
+  stages: DocumentRunStage[];
+  coverage: CoverageSnapshot[];
+  events: DocumentRunEvent[];
+};
+
+export type DocumentRunPage = {
+  id: number;
+  source_version_id: number;
+  pdf_page_number: number;
+  printed_page_number: string | null;
+  fingerprint: string | null;
+  width_points: number | null;
+  height_points: number | null;
+  rotation_degrees: number | null;
+  has_text: boolean | null;
+  character_count: number | null;
+  text_quality: string | null;
+  layout_state: string | null;
+  structure_state: string | null;
+  review_state: string | null;
+  issue_count: number;
+  stage_states: Record<string, PageStageState>;
+};
+
+export type DocumentRunPageList = {
+  items: DocumentRunPage[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+};
+
 export type LibraryChunk = {
   id: number;
   source_id: string;

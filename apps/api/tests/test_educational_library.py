@@ -700,7 +700,7 @@ def test_library_database_integrity_and_no_main_schema_migration(
     assert quick == "ok"
     assert foreign == []
     with library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 6
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 7
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE name='chunk_fts'").fetchone()
 
 

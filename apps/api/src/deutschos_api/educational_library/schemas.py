@@ -54,6 +54,44 @@ class JobState(StrEnum):
     INTERRUPTED = "interrupted"
 
 
+class DocumentRunState(StrEnum):
+    PLANNED = "planned"
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    COMPLETED_WITH_ISSUES = "completed_with_issues"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    STALE = "stale"
+    SUPERSEDED = "superseded"
+
+
+class DocumentStageState(StrEnum):
+    NOT_SCHEDULED = "not_scheduled"
+    PENDING = "pending"
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    COMPLETED_WITH_ISSUES = "completed_with_issues"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    CANCELLED = "cancelled"
+
+
+class PageStageState(StrEnum):
+    NOT_SCHEDULED = "not_scheduled"
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    COMPLETED_WITH_ISSUES = "completed_with_issues"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    NEEDS_REVIEW = "needs_review"
+    SUPERSEDED = "superseded"
+
+
 class KnowledgeStatus(StrEnum):
     CANDIDATE = "candidate"
     NEEDS_REVIEW = "needs_review"
@@ -533,6 +571,171 @@ class LaboratorySourceDetail(LaboratorySourceRead):
     first_seen_at: datetime
     last_seen_at: datetime
     versions: list[DocumentVersionRead]
+
+
+class DocumentRunCreate(APIModel):
+    source_version_id: int = Field(gt=0)
+    run_type: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9_.-]+$")
+    pipeline_version: str = Field(min_length=1, max_length=100)
+    configuration: dict[str, JsonValue] = Field(default_factory=dict)
+    selection_strategy: Literal[
+        "all_pages", "pending_only", "failed_only", "issues_only", "explicit_pages"
+    ]
+    selected_pages: list[int] = Field(default_factory=list, max_length=5_000)
+    initiated_by: str | None = Field(default=None, max_length=120)
+    reason: str | None = Field(default=None, max_length=1_000)
+    exclusive: bool = True
+
+    @field_validator("selected_pages")
+    @classmethod
+    def valid_selected_pages(cls, value: list[int]) -> list[int]:
+        if any(page < 1 for page in value):
+            raise ValueError("selected pages use one-based PDF numbers")
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def explicit_pages_require_selection(self):
+        if self.selection_strategy == "explicit_pages" and not self.selected_pages:
+            raise ValueError("explicit_pages requires at least one selected page")
+        if self.selection_strategy != "explicit_pages" and self.selected_pages:
+            raise ValueError("selected_pages is only valid with explicit_pages")
+        return self
+
+
+class DocumentRunRead(APIModel):
+    id: str
+    source_id: str
+    source_title: str
+    source_version_id: int
+    source_version_number: int
+    target_hash: str
+    run_type: str
+    pipeline_version: str
+    configuration: dict[str, JsonValue]
+    configuration_hash: str
+    selection_strategy: str
+    selected_pages: list[int]
+    reused_results: dict[str, JsonValue]
+    state: DocumentRunState
+    parent_run_id: str | None
+    base_run_id: str | None
+    initiated_by: str | None
+    reason: str | None
+    summary: dict[str, JsonValue]
+    error_code: str | None
+    error_detail: str | None
+    resumable: bool
+    exclusive: bool
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime
+    current_stage: str | None = None
+    issue_count: int = Field(default=0, ge=0)
+
+
+class DocumentRunStageRead(APIModel):
+    id: str
+    run_id: str
+    name: str
+    version: str
+    state: DocumentStageState
+    attempt: int = Field(gt=0)
+    configuration: dict[str, JsonValue]
+    metrics: dict[str, JsonValue]
+    dependencies: list[str]
+    error_code: str | None
+    error_detail: str | None
+    resumable: bool
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CoverageSnapshotRead(APIModel):
+    id: str
+    run_id: str
+    source_version_id: int
+    stage_name: str
+    dimension: str
+    execution_status: Literal["executed", "not_executed", "no_data"]
+    denominator: int | None = Field(default=None, ge=0)
+    completed: int | None = Field(default=None, ge=0)
+    with_issues: int | None = Field(default=None, ge=0)
+    failed: int | None = Field(default=None, ge=0)
+    pending: int | None = Field(default=None, ge=0)
+    not_applicable: int | None = Field(default=None, ge=0)
+    unknown: int | None = Field(default=None, ge=0)
+    breakdown: dict[str, JsonValue]
+    provenance: dict[str, JsonValue]
+    captured_at: datetime
+
+
+class DocumentPageRead(APIModel):
+    id: int
+    source_version_id: int
+    pdf_page_number: int = Field(gt=0)
+    printed_page_number: str | None
+    fingerprint: str | None
+    width_points: float | None
+    height_points: float | None
+    rotation_degrees: int | None
+    has_text: bool | None
+    character_count: int | None = Field(default=None, ge=0)
+    text_quality: str | None
+    layout_state: str | None
+    structure_state: str | None
+    review_state: str | None
+    issue_count: int = Field(ge=0)
+    stage_states: dict[str, PageStageState]
+
+
+class DocumentPageList(APIModel):
+    items: list[DocumentPageRead]
+    page: int = Field(gt=0)
+    page_size: int = Field(gt=0)
+    total: int = Field(ge=0)
+    pages: int = Field(ge=0)
+
+
+class DocumentRunIssueRead(APIModel):
+    id: str
+    run_id: str
+    pdf_page_number: int | None
+    stage_name: str | None
+    code: str
+    severity: str
+    message: str
+    evidence: dict[str, JsonValue]
+    resolved_at: datetime | None
+    created_at: datetime
+
+
+class DocumentRunEventRead(APIModel):
+    id: str
+    run_id: str
+    event_type: str
+    actor: str | None
+    from_state: str | None
+    to_state: str | None
+    detail: dict[str, JsonValue]
+    created_at: datetime
+
+
+class DocumentRunDetail(DocumentRunRead):
+    stages: list[DocumentRunStageRead]
+    coverage: list[CoverageSnapshotRead]
+    events: list[DocumentRunEventRead]
+
+
+class DocumentRunPassCreate(APIModel):
+    reason: str | None = Field(default=None, max_length=1_000)
+    initiated_by: str | None = Field(default=None, max_length=120)
+
+
+class DocumentStageRetryRequest(APIModel):
+    failed_pages_only: bool = True
 
 
 class InventoryChangeRead(APIModel):

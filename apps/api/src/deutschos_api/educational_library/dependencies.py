@@ -16,6 +16,7 @@ from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
 from .memory import PedagogicalMemoryService
 from .routing import LibraryModelRouter, ModelRoutingPolicy
+from .runs import DocumentRunService
 from .search import EducationalSearchService, LMStudioEmbeddingProvider
 from .service import EducationalLibraryService
 from .teacher import EducationalTeacherService, TeacherLimits
@@ -23,6 +24,12 @@ from .teacher import EducationalTeacherService, TeacherLimits
 
 def get_library_service(settings: Settings = Depends(get_settings)) -> EducationalLibraryService:
     return EducationalLibraryService(settings, recover_interrupted=False)
+
+
+def get_document_runs(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentRunService:
+    return DocumentRunService(service.database, service.root)
 
 
 def get_library_search(
