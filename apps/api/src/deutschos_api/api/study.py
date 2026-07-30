@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
@@ -26,7 +27,7 @@ from deutschos_api.study.exceptions import (
 )
 from deutschos_api.study.schemas import (
     StudyDashboardRead,
-    StudyDeleteRead,
+    StudyDataRead,
     StudyDeleteRequest,
     StudyNoteRead,
     StudyNoteWrite,
@@ -40,7 +41,10 @@ from deutschos_api.study.schemas import (
     StudyQuickActionRequest,
     StudySectionRead,
     StudySectionStateUpdate,
+    StudySessionBulkDeleteRequest,
+    StudySessionClearRequest,
     StudySessionCreate,
+    StudySessionDeleteRead,
     StudySessionRead,
     StudyTransitionRequest,
     WorkbookLinkCreate,
@@ -118,6 +122,31 @@ def start_session(
 ) -> StudySessionRead:
     try:
         return service.start(request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.delete("/sessions", response_model=StudySessionDeleteRead)
+def delete_sessions(
+    request: StudySessionBulkDeleteRequest,
+    service: GuidedStudyService = Depends(get_study_service),
+) -> StudySessionDeleteRead:
+    try:
+        return service.delete_sessions(
+            [str(session_id) for session_id in request.session_ids],
+            request.operation_id,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.delete("/sessions/all", response_model=StudySessionDeleteRead)
+def clear_sessions(
+    request: StudySessionClearRequest,
+    service: GuidedStudyService = Depends(get_study_service),
+) -> StudySessionDeleteRead:
+    try:
+        return service.clear_sessions(request.operation_id)
     except Exception as exc:
         raise _translate(exc) from exc
 
@@ -224,15 +253,14 @@ def history(
         raise _translate(exc) from exc
 
 
-@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/sessions/{session_id}", response_model=StudySessionDeleteRead)
 def delete_session(
-    session_id: str,
+    session_id: UUID,
     request: StudyDeleteRequest,
     service: GuidedStudyService = Depends(get_study_service),
-) -> Response:
+) -> StudySessionDeleteRead:
     try:
-        service.delete_session(session_id, request.operation_id)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
+        return service.delete_session(str(session_id), request.operation_id)
     except Exception as exc:
         raise _translate(exc) from exc
 
@@ -389,12 +417,11 @@ def update_preferences(
         raise _translate(exc) from exc
 
 
-@router.delete("/data", response_model=StudyDeleteRead)
-def delete_study_data(
-    request: StudyDeleteRequest,
+@router.get("/data", response_model=StudyDataRead)
+def study_data(
     service: GuidedStudyService = Depends(get_study_service),
-) -> StudyDeleteRead:
+) -> StudyDataRead:
     try:
-        return service.delete_all(request.operation_id)
+        return service.data_overview()
     except Exception as exc:
         raise _translate(exc) from exc

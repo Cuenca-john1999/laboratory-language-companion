@@ -26,6 +26,7 @@ from deutschos_api.models import (
     SkillEvidence,
     StudentSkill,
     StudyEvent,
+    StudyNote,
     StudyPracticalStatus,
     StudyPreference,
     StudyQuestion,
@@ -318,19 +319,18 @@ async def test_local_study_reads_are_empty_ai_independent_and_side_effect_free(
 
 
 @pytest.mark.anyio
-async def test_legacy_mission_contract_is_completed_in_memory_without_rewriting_data(
+async def test_new_sessions_persist_the_complete_mission_contract(
     client, db_session_factory, study_editorial
 ):
     service = _service(db_session_factory, study_editorial)
     created = service.start(
-        StudySessionCreate(operation_id="legacy-contract-session", section_id=1)
+        StudySessionCreate(operation_id="current-contract-session", section_id=1)
     )
-    row = service.db.get(StudySession, created.id)
-    legacy_mission = dict(row.mission)
-    legacy_mission.pop("verifiable_task")
-    row.mission = legacy_mission
-    service.db.commit()
-    service.db.close()
+    assert created.mission.verifiable_task
+    with db_session_factory() as db:
+        persisted = db.get(StudySession, created.id)
+        assert persisted.mission["verifiable_task"] == created.mission.verifiable_task
+
     app.dependency_overrides[get_library_editorial] = lambda: study_editorial
 
     dashboard = await client.get("/api/study/dashboard")
@@ -338,10 +338,7 @@ async def test_legacy_mission_contract_is_completed_in_memory_without_rewriting_
 
     assert dashboard.status_code == 200
     assert history.status_code == 200
-    assert history.json()[0]["mission"]["verifiable_task"]
-    with db_session_factory() as db:
-        persisted = db.get(StudySession, created.id)
-        assert "verifiable_task" not in persisted.mission
+    assert history.json()[0]["mission"]["verifiable_task"] == created.mission.verifiable_task
 
 
 @pytest.mark.anyio
@@ -671,23 +668,201 @@ async def test_study_http_contract_and_idempotency(client, study_editorial):
     app.dependency_overrides.pop(get_library_editorial, None)
 
 
-def test_delete_all_requires_explicit_service_call_and_keeps_progress(
+def test_session_deletion_rolls_back_if_a_transaction_step_fails(
     db_session_factory, study_editorial
 ):
     service = _service(db_session_factory, study_editorial)
-    service.start(StudySessionCreate(operation_id="delete-all-session", section_id=1))
+    first = service.start(
+        StudySessionCreate(
+            operation_id="rollback-session-one",
+            section_id=1,
+            activate=False,
+        )
+    )
+    second = service.start(
+        StudySessionCreate(
+            operation_id="rollback-session-two",
+            section_id=2,
+            activate=False,
+        )
+    )
+
+    def fail_event(*_args, **_kwargs):
+        raise RuntimeError("forced audit failure")
+
+    service._record_event = fail_event
+    with pytest.raises(RuntimeError, match="forced audit failure"):
+        service.delete_sessions(
+            [first.id, second.id],
+            "rollback-delete-many",
+        )
+
+    assert service.db.scalar(select(func.count(StudySession.id))) == 2
+
+
+@pytest.mark.anyio
+async def test_session_management_is_atomic_and_preserves_learning_memory(
+    client, db_session_factory, study_editorial
+):
+    _activate_canonical_route(study_editorial)
+    app.dependency_overrides[get_library_editorial] = lambda: study_editorial
+    service = _service(db_session_factory, study_editorial)
+    first = service.start(
+        StudySessionCreate(
+            operation_id="manage-session-one",
+            section_id=1,
+            activate=False,
+        )
+    )
+    second = service.start(
+        StudySessionCreate(
+            operation_id="manage-session-two",
+            section_id=2,
+            activate=False,
+        )
+    )
+    service.create_note(
+        StudyNoteWrite(
+            operation_id="manage-note-one",
+            session_id=first.id,
+            text="Conservar esta nota.",
+        )
+    )
     service.create_question(
-        StudyQuestionWrite(operation_id="delete-all-question", question="¿Por qué?")
+        StudyQuestionWrite(
+            operation_id="manage-question-two",
+            session_id=second.id,
+            question="¿Se conserva esta duda?",
+        )
     )
-    before = (
-        service.db.scalar(select(func.count(StudentSkill.id))),
-        service.db.scalar(select(func.count(SkillEvidence.id))),
+    service.db.close()
+
+    attempt = await client.post(
+        "/api/learning/attempts",
+        json={
+            "submission_id": "17b829be-28c7-44dd-bd38-fba167249295",
+            "skill_code": "grammar.personal_pronouns",
+            "source": "manual_assessment",
+            "exercise_type": "recognition",
+            "prompt": "Selecciona el pronombre.",
+            "student_answer": "sie",
+            "expected_answer": "sie",
+            "outcome": "correct_without_help",
+            "feedback": "Correcto.",
+            "corrects_submission_id": None,
+        },
     )
-    deleted = service.delete_all("delete-all-confirmed")
-    assert deleted.deleted_sessions == 1
-    assert service.db.scalar(select(func.count(StudySession.id))) == 0
-    assert service.db.scalar(select(func.count(StudyQuestion.id))) == 0
-    assert (
-        service.db.scalar(select(func.count(StudentSkill.id))),
-        service.db.scalar(select(func.count(SkillEvidence.id))),
-    ) == before
+    assert attempt.status_code == 201
+
+    overview = await client.get("/api/study/data")
+    assert overview.status_code == 200
+    assert overview.json()["total_sessions"] == 2
+    assert len(overview.json()["sessions"]) == 2
+    assert overview.json()["memory"] == {
+        "route_topics": 51,
+        "started_topics": 0,
+        "student_skills": 1,
+        "skill_evidence": 1,
+        "saved_notes": 1,
+        "saved_questions": 1,
+        "active_session_id": None,
+        "preferences_persisted": True,
+        "mission_preference": "automatic",
+    }
+
+    missing_id = "e46aeb0a-0947-460b-869a-3c4360df863b"
+    missing = await client.request(
+        "DELETE",
+        f"/api/study/sessions/{missing_id}",
+        json={"operation_id": "missing-session-delete", "confirmation": "BORRAR"},
+    )
+    assert missing.status_code == 404
+
+    partial = await client.request(
+        "DELETE",
+        "/api/study/sessions",
+        json={
+            "operation_id": "atomic-session-delete",
+            "confirmation": "BORRAR",
+            "session_ids": [first.id, missing_id],
+        },
+    )
+    assert partial.status_code == 404
+    with db_session_factory() as db:
+        assert db.scalar(select(func.count(StudySession.id))) == 2
+
+    deleted = await client.request(
+        "DELETE",
+        "/api/study/sessions",
+        json={
+            "operation_id": "selected-session-delete",
+            "confirmation": "BORRAR",
+            "session_ids": [first.id, second.id],
+        },
+    )
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted_sessions": 2}
+    with db_session_factory() as db:
+        assert db.scalar(select(func.count(StudySession.id))) == 0
+        assert db.scalar(select(func.count(StudentSkill.id))) == 1
+        assert db.scalar(select(func.count(SkillEvidence.id))) == 1
+        notes = db.scalars(select(StudyNote)).all()
+        questions = db.scalars(select(StudyQuestion)).all()
+        assert len(notes) == len(questions) == 1
+        assert notes[0].session_id is None
+        assert questions[0].session_id is None
+
+    empty = await client.get("/api/study/data")
+    assert empty.status_code == 200
+    assert empty.json()["sessions"] == []
+    assert empty.json()["memory"]["student_skills"] == 1
+    assert empty.json()["memory"]["skill_evidence"] == 1
+    assert empty.json()["memory"]["saved_notes"] == 1
+    assert empty.json()["memory"]["saved_questions"] == 1
+
+
+@pytest.mark.anyio
+async def test_clear_session_history_is_safe_when_empty(
+    client, db_session_factory, study_editorial
+):
+    app.dependency_overrides[get_library_editorial] = lambda: study_editorial
+    service = _service(db_session_factory, study_editorial)
+    service.start(
+        StudySessionCreate(
+            operation_id="clear-session-one",
+            section_id=1,
+            activate=False,
+        )
+    )
+    service.start(
+        StudySessionCreate(
+            operation_id="clear-session-two",
+            section_id=2,
+            activate=False,
+        )
+    )
+    service.db.close()
+
+    cleared = await client.request(
+        "DELETE",
+        "/api/study/sessions/all",
+        json={
+            "operation_id": "clear-session-history",
+            "confirmation": "VACIAR HISTORIAL",
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json() == {"deleted_sessions": 2}
+
+    empty = await client.request(
+        "DELETE",
+        "/api/study/sessions/all",
+        json={
+            "operation_id": "clear-empty-history",
+            "confirmation": "VACIAR HISTORIAL",
+        },
+    )
+    assert empty.status_code == 200
+    assert empty.json() == {"deleted_sessions": 0}
+    with db_session_factory() as db:
+        assert db.scalar(select(func.count(StudySession.id))) == 0

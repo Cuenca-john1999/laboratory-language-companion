@@ -11,6 +11,7 @@ const sections = [
   { href: "/chat", label: "Lehrer" },
   { href: "/library", label: "Bibliothek" },
   { href: "/mistakes", label: "Fehler" },
+  { href: "/data", label: "Datos y memoria" },
   { href: "/profile", label: "Profil" },
 ] as const;
 

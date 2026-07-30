@@ -36,12 +36,14 @@ import type {
   TeacherStreamEvent,
   TeacherRolesResponse,
   StudyDashboard,
+  StudyData,
   StudyMissionType,
   StudyNote,
   StudyPath,
   StudyPreferences,
   StudyQuestion,
   StudySession,
+  StudySessionDeleteResult,
   StudySessionStatus,
   StudyWorkbookLink,
 } from "@deutschos/shared";
@@ -158,6 +160,7 @@ export const getStudyHistory = (
   if (missionType) params.set("mission_type", missionType);
   return api<StudySession[]>(`/api/study/history?${params}`);
 };
+export const getStudyData = () => api<StudyData>("/api/study/data");
 export const startStudySession = (payload: Record<string, unknown>) =>
   api<StudySession>("/api/study/sessions", {
     method: "POST",
@@ -254,25 +257,28 @@ export const reviewStudyWorkbookLink = (
     }),
   });
 export const deleteStudySession = (sessionId: string) =>
-  apiNoContent(`/api/study/sessions/${sessionId}`, {
+  api<StudySessionDeleteResult>(`/api/study/sessions/${sessionId}`, {
     method: "DELETE",
     body: JSON.stringify({
       operation_id: operationId("delete-session"),
       confirmation: "BORRAR",
     }),
   });
-export const deleteAllStudyData = () =>
-  api<{
-    deleted_sessions: number;
-    deleted_notes: number;
-    deleted_questions: number;
-    deleted_workbook_links: number;
-    deleted_section_states: number;
-  }>("/api/study/data", {
+export const deleteStudySessions = (sessionIds: string[]) =>
+  api<StudySessionDeleteResult>("/api/study/sessions", {
     method: "DELETE",
     body: JSON.stringify({
-      operation_id: operationId("delete-study-data"),
+      operation_id: operationId("delete-study-sessions"),
       confirmation: "BORRAR",
+      session_ids: sessionIds,
+    }),
+  });
+export const clearStudySessions = () =>
+  api<StudySessionDeleteResult>("/api/study/sessions/all", {
+    method: "DELETE",
+    body: JSON.stringify({
+      operation_id: operationId("clear-study-sessions"),
+      confirmation: "VACIAR HISTORIAL",
     }),
   });
 export const updateStudyPreferences = (mission: StudyMissionType) =>

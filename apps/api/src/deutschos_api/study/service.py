@@ -19,6 +19,8 @@ from deutschos_api.educational_library.schemas import (
     SourceRead,
 )
 from deutschos_api.models import (
+    SkillEvidence,
+    StudentSkill,
     StudyEvent,
     StudyMissionType,
     StudyNote,
@@ -40,7 +42,8 @@ from .exceptions import (
 from .missions import build_mission, build_plan, resolve_mission_type
 from .schemas import (
     StudyDashboardRead,
-    StudyDeleteRead,
+    StudyDataRead,
+    StudyMemoryRead,
     StudyMissionRead,
     StudyNoteRead,
     StudyNoteWrite,
@@ -55,7 +58,9 @@ from .schemas import (
     StudySectionRead,
     StudySectionStateUpdate,
     StudySessionCreate,
+    StudySessionDeleteRead,
     StudySessionRead,
+    StudySessionSummaryRead,
     StudyTransitionRequest,
     WorkbookLinkCreate,
     WorkbookLinkRead,
@@ -650,6 +655,43 @@ class GuidedStudyService:
         ).all()
         return [self._session_read(item) for item in rows]
 
+    def data_overview(self) -> StudyDataRead:
+        sessions = self.db.scalars(
+            select(StudySession).order_by(StudySession.updated_at.desc())
+        ).all()
+        preference = self.db.get(StudyPreference, 1)
+        active_session_id = self.db.scalar(
+            select(StudySession.id)
+            .where(StudySession.status.in_(("active", "paused")))
+            .order_by((StudySession.status == "active").desc(), StudySession.updated_at.desc())
+        )
+        path = self.path()
+        started_topics = int(
+            self.db.scalar(
+                select(func.count(StudySectionState.id)).where(
+                    StudySectionState.practical_status != StudyPracticalStatus.NOT_STARTED
+                )
+            )
+            or 0
+        )
+        return StudyDataRead(
+            total_sessions=len(sessions),
+            sessions=[self._session_summary(item) for item in sessions],
+            memory=StudyMemoryRead(
+                route_topics=len(path.sections),
+                started_topics=started_topics,
+                student_skills=int(self.db.scalar(select(func.count(StudentSkill.id))) or 0),
+                skill_evidence=int(self.db.scalar(select(func.count(SkillEvidence.id))) or 0),
+                saved_notes=int(self.db.scalar(select(func.count(StudyNote.id))) or 0),
+                saved_questions=int(self.db.scalar(select(func.count(StudyQuestion.id))) or 0),
+                active_session_id=active_session_id,
+                preferences_persisted=preference is not None,
+                mission_preference=(
+                    StudyMissionType(preference.mission_preference) if preference else None
+                ),
+            ),
+        )
+
     def create_note(self, request: StudyNoteWrite) -> StudyNoteRead:
         payload = request.model_dump(mode="json", exclude={"operation_id"})
         existing = self._idempotent(request.operation_id, payload)
@@ -918,58 +960,87 @@ class GuidedStudyService:
         self.db.commit()
         return self._preference_read(preference)
 
-    def delete_session(self, session_id: str, operation_id: str) -> None:
-        session = self._session(session_id)
-        if session.status == "active":
-            raise StudyConflictError("Pausa o cierra la sesión antes de borrarla.")
-        payload = {"deleted": True}
+    def delete_session(self, session_id: str, operation_id: str) -> StudySessionDeleteRead:
+        payload = {"session_ids": [session_id]}
         existing = self._idempotent(operation_id, payload)
         if existing:
-            return
-        self.db.delete(session)
-        self._record_event(
-            operation_id, "session", session_id, "delete", {}, payload, result_id=session_id
-        )
-        self.db.commit()
+            return StudySessionDeleteRead(deleted_sessions=1)
+        self._session(session_id)
+        try:
+            self.db.execute(delete(StudySession).where(StudySession.id == session_id))
+            self._record_event(
+                operation_id,
+                "study_sessions",
+                session_id,
+                "delete",
+                {},
+                payload,
+                result_id=session_id,
+                result={"deleted_sessions": 1},
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return StudySessionDeleteRead(deleted_sessions=1)
 
-    def delete_all(self, operation_id: str) -> StudyDeleteRead:
-        payload = {"delete_all": True}
+    def delete_sessions(self, session_ids: list[str], operation_id: str) -> StudySessionDeleteRead:
+        payload = {"session_ids": session_ids}
         existing = self._idempotent(operation_id, payload)
         if existing:
             values = existing.after_state.get("result", {})
-            return StudyDeleteRead.model_validate(values)
-        counts = StudyDeleteRead(
-            deleted_sessions=int(self.db.scalar(select(func.count(StudySession.id))) or 0),
-            deleted_notes=int(self.db.scalar(select(func.count(StudyNote.id))) or 0),
-            deleted_questions=int(self.db.scalar(select(func.count(StudyQuestion.id))) or 0),
-            deleted_workbook_links=int(
-                self.db.scalar(select(func.count(StudyWorkbookLink.id))) or 0
-            ),
-            deleted_section_states=int(
-                self.db.scalar(select(func.count(StudySectionState.id))) or 0
-            ),
+            return StudySessionDeleteRead.model_validate(values)
+        found = set(
+            self.db.scalars(select(StudySession.id).where(StudySession.id.in_(session_ids))).all()
         )
-        self.db.execute(delete(StudyNote))
-        self.db.execute(delete(StudyQuestion))
-        self.db.execute(delete(StudySession))
-        self.db.execute(delete(StudyWorkbookLink))
-        self.db.execute(delete(StudySectionState))
-        preference = self.db.get(StudyPreference, 1)
-        if preference:
-            preference.active_source_id = None
-            preference.active_section_stable_key = None
-        self._record_event(
-            operation_id,
-            "study_data",
-            "all",
-            "delete_all",
-            {},
-            payload,
-            result_id="all",
-            result=counts.model_dump(mode="json"),
+        missing = [session_id for session_id in session_ids if session_id not in found]
+        if missing:
+            raise StudyNotFoundError("Una o más sesiones de estudio no existen.")
+        result = StudySessionDeleteRead(deleted_sessions=len(session_ids))
+        try:
+            self.db.execute(delete(StudySession).where(StudySession.id.in_(session_ids)))
+            self._record_event(
+                operation_id,
+                "study_sessions",
+                "selection",
+                "delete_many",
+                {},
+                payload,
+                result_id="selection",
+                result=result.model_dump(mode="json"),
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return result
+
+    def clear_sessions(self, operation_id: str) -> StudySessionDeleteRead:
+        payload = {"clear_sessions": True}
+        existing = self._idempotent(operation_id, payload)
+        if existing:
+            values = existing.after_state.get("result", {})
+            return StudySessionDeleteRead.model_validate(values)
+        result = StudySessionDeleteRead(
+            deleted_sessions=int(self.db.scalar(select(func.count(StudySession.id))) or 0)
         )
-        self.db.commit()
-        return counts
+        try:
+            self.db.execute(delete(StudySession))
+            self._record_event(
+                operation_id,
+                "study_sessions",
+                "all",
+                "clear",
+                {},
+                payload,
+                result_id="all",
+                result=result.model_dump(mode="json"),
+            )
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return result
 
     def _idempotent(self, operation_id: str, request: dict[str, object]) -> StudyEvent | None:
         event = self.db.scalar(select(StudyEvent).where(StudyEvent.operation_id == operation_id))
@@ -1133,20 +1204,6 @@ class GuidedStudyService:
             if not session.section_stable_key or session.section_stable_key.startswith("herder:")
             else self.canonical_route.resolve_legacy_exact(session.section_id)
         )
-        mission_payload = session.mission
-        if isinstance(mission_payload, dict) and "verifiable_task" not in mission_payload:
-            # Sessions created before the calibrated mission contract are valid
-            # persisted data. Complete only that known legacy field in memory;
-            # all other contract violations still fail validation.
-            generated = build_mission(
-                StudyMissionType(mission_payload["type"]),
-                concept=str(mission_payload["concept"]),
-                objective=str(mission_payload["objective"]),
-            )
-            mission_payload = {
-                **mission_payload,
-                "verifiable_task": generated["verifiable_task"],
-            }
         return StudySessionRead(
             id=session.id,
             kind=session.kind,
@@ -1167,7 +1224,7 @@ class GuidedStudyService:
             current_pdf_page=session.current_pdf_page,
             printed_page_label=session.printed_page_label,
             objective=session.objective,
-            mission=StudyMissionRead.model_validate(mission_payload),
+            mission=StudyMissionRead.model_validate(session.mission),
             plan=session.plan,
             checklist=session.checklist,
             planned_minutes=session.planned_minutes,
@@ -1181,6 +1238,21 @@ class GuidedStudyService:
             final_workbook_exercise=session.final_workbook_exercise,
             next_action=session.next_action,
             created_at=session.created_at,
+            updated_at=session.updated_at,
+        )
+
+    @staticmethod
+    def _session_summary(session: StudySession) -> StudySessionSummaryRead:
+        mission = session.mission if isinstance(session.mission, dict) else {}
+        label = mission.get("label")
+        return StudySessionSummaryRead(
+            id=session.id,
+            status=session.status,
+            section_title=session.section_title,
+            concept_name=session.concept_name,
+            mission_label=label if isinstance(label, str) else None,
+            active_seconds=session.active_seconds,
+            started_at=session.started_at,
             updated_at=session.updated_at,
         )
 

@@ -11,6 +11,7 @@ import type {
   TeacherQuery,
 } from "@deutschos/shared";
 import type { FormEvent } from "react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -18,10 +19,8 @@ import {
   createStudyNote,
   createStudyQuestion,
   createStudyWorkbookLink,
-  deleteAllStudyData,
   deleteStudyNote,
   deleteStudyQuestion,
-  deleteStudySession,
   getStudyDashboard,
   getStudyHistory,
   getStudyNotes,
@@ -1465,24 +1464,6 @@ export function StudyWorkspace() {
                   <button onClick={() => loadSessionData(item)} type="button">
                     Ver sesión
                   </button>
-                  <button
-                    className="text-danger"
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          "¿Borrar esta sesión y sus notas y dudas asociadas?",
-                        )
-                      )
-                        run("delete-session", async () => {
-                          await deleteStudySession(item.id);
-                          if (session?.id === item.id) setSession(null);
-                          await refresh();
-                        });
-                    }}
-                    type="button"
-                  >
-                    Borrar
-                  </button>
                 </div>
               </article>
             ))
@@ -1505,28 +1486,13 @@ export function StudyWorkspace() {
           {history.length ? (
             <div className="history-danger-zone">
               <div>
-                <strong>Borrar datos del modo estudio</strong>
-                <p>El progreso evaluado y la biblioteca no se modificarán.</p>
+                <strong>Gestionar sesiones guardadas</strong>
+                <p>
+                  Elimina una o varias jornadas sin borrar el progreso ni la
+                  memoria de aprendizaje.
+                </p>
               </div>
-              <button
-                className="text-danger"
-                onClick={() => {
-                  const confirmation = window.prompt(
-                    "Escribe BORRAR para eliminar sesiones, notas, dudas y vínculos de estudio.",
-                  );
-                  if (confirmation === "BORRAR")
-                    run("delete-all", async () => {
-                      await deleteAllStudyData();
-                      setSession(null);
-                      setNotes([]);
-                      setQuestions([]);
-                      await refresh();
-                    });
-                }}
-                type="button"
-              >
-                Borrar todo el modo estudio
-              </button>
+              <Link href="/data">Abrir Datos y memoria</Link>
             </div>
           ) : null}
         </div>

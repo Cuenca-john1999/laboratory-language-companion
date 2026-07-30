@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from typing import Literal
+from uuid import UUID
 
 from pydantic import Field, model_validator
 
@@ -305,12 +306,54 @@ class StudyDeleteRequest(APIModel):
     confirmation: Literal["BORRAR"]
 
 
-class StudyDeleteRead(APIModel):
+class StudySessionSummaryRead(APIModel):
+    id: str
+    status: StudySessionStatus
+    section_title: str
+    concept_name: str | None
+    mission_label: str | None
+    active_seconds: int
+    started_at: datetime
+    updated_at: datetime
+
+
+class StudyMemoryRead(APIModel):
+    route_topics: int
+    started_topics: int
+    student_skills: int
+    skill_evidence: int
+    saved_notes: int
+    saved_questions: int
+    active_session_id: str | None
+    preferences_persisted: bool
+    mission_preference: StudyMissionType | None
+
+
+class StudyDataRead(APIModel):
+    total_sessions: int
+    sessions: list[StudySessionSummaryRead]
+    memory: StudyMemoryRead
+
+
+class StudySessionBulkDeleteRequest(APIModel):
+    operation_id: str = Field(min_length=8, max_length=100)
+    confirmation: Literal["BORRAR"]
+    session_ids: list[UUID] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def session_ids_are_unique(self):
+        if len(set(self.session_ids)) != len(self.session_ids):
+            raise ValueError("session_ids must be unique")
+        return self
+
+
+class StudySessionClearRequest(APIModel):
+    operation_id: str = Field(min_length=8, max_length=100)
+    confirmation: Literal["VACIAR HISTORIAL"]
+
+
+class StudySessionDeleteRead(APIModel):
     deleted_sessions: int
-    deleted_notes: int
-    deleted_questions: int
-    deleted_workbook_links: int
-    deleted_section_states: int
 
 
 class StudyQuickActionRequest(APIModel):

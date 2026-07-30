@@ -21,7 +21,7 @@ describe("dark application shell", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Navegación principal",
     });
-    expect(navigation.querySelectorAll("a")).toHaveLength(8);
+    expect(navigation.querySelectorAll("a")).toHaveLength(9);
     expect(screen.getByRole("link", { name: "Estudio" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -29,6 +29,9 @@ describe("dark application shell", () => {
     expect(screen.getByRole("link", { name: "Lehrer" })).not.toHaveAttribute(
       "aria-current",
     );
+    expect(
+      screen.getByRole("link", { name: "Datos y memoria" }),
+    ).toHaveAttribute("href", "/data");
   });
 
   it("marks only the dashboard active at the root route", () => {

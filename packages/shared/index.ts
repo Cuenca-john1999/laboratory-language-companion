@@ -261,6 +261,39 @@ export type StudyDashboard = {
   preferences: StudyPreferences;
 };
 
+export type StudySessionSummary = {
+  id: string;
+  status: StudySessionStatus;
+  section_title: string;
+  concept_name: string | null;
+  mission_label: string | null;
+  active_seconds: number;
+  started_at: string;
+  updated_at: string;
+};
+
+export type StudyMemory = {
+  route_topics: number;
+  started_topics: number;
+  student_skills: number;
+  skill_evidence: number;
+  saved_notes: number;
+  saved_questions: number;
+  active_session_id: string | null;
+  preferences_persisted: boolean;
+  mission_preference: StudyMissionType | null;
+};
+
+export type StudyData = {
+  total_sessions: number;
+  sessions: StudySessionSummary[];
+  memory: StudyMemory;
+};
+
+export type StudySessionDeleteResult = {
+  deleted_sessions: number;
+};
+
 export type ChatHistoryMessage = {
   role: "user" | "assistant";
   content: string;
