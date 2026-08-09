@@ -1026,6 +1026,157 @@ export type ProposedHierarchyNode = {
   children: ProposedHierarchyNode[];
 };
 
+export type DocumentReviewSummaryItem = {
+  source_id: string;
+  source_version_id: number;
+  source_title: string;
+  version_number: number;
+  hash: string;
+  activation_state: string;
+  run_id: string | null;
+  run_state: string;
+  readiness: string;
+  metrics: Record<string, unknown>;
+  queue: { P0: number; P1: number; P2: number };
+  blockers: unknown[];
+};
+
+export type DocumentReviewSummary = {
+  items: DocumentReviewSummaryItem[];
+};
+
+export type DocumentReviewQueueItem = {
+  id: string;
+  source_id: string;
+  source_version_id: number;
+  candidate_type: string;
+  raw_text: string | null;
+  canonical_topic_number: number | null;
+  observed_pedagogical_level: string | null;
+  confidence: number;
+  pdf_page_number: number;
+  editorial_state: string;
+  effective_confidence: number;
+  priority: "P0" | "P1" | "P2";
+  reason: string | null;
+  primary_candidate_id: string | null;
+  has_issue: boolean;
+};
+
+export type DocumentReviewQueue = {
+  items: DocumentReviewQueueItem[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+};
+
+export type DocumentReviewDetail = StructureCandidate & {
+  editorial_state: string;
+  effective_confidence: number;
+  primary_candidate_id: string | null;
+  priority: "P0" | "P1" | "P2" | null;
+  reason: string | null;
+  decisions: DocumentReviewDecision[];
+  neighbors: Array<{
+    id: string;
+    candidate_type: string;
+    raw_text: string | null;
+    reading_order: number;
+  }>;
+  parent: {
+    id: string;
+    candidate_type: string;
+    raw_text: string | null;
+    reading_order: number;
+  } | null;
+  children: Array<{
+    id: string;
+    candidate_type: string;
+    raw_text: string | null;
+    reading_order: number;
+  }>;
+  page_context: {
+    previous_pdf_page: number;
+    current_pdf_page: number;
+    next_pdf_page: number;
+  };
+};
+
+export type DocumentReviewDecision = {
+  id: string;
+  candidate_id: string;
+  actor: string;
+  method: string;
+  rule: string;
+  previous_state: string;
+  new_state: string;
+  confidence_before: number;
+  confidence_after: number;
+  evidence: Record<string, unknown>;
+  comment: string | null;
+  created_at: string;
+};
+
+export type DocumentReviewBatch = {
+  id: string;
+  source_version_id: number;
+  rule: string;
+  candidate_type: string;
+  proposed_action: string;
+  minimum_confidence: number;
+  member_count: number;
+  pages: number[];
+  sample: unknown[];
+  effect: Record<string, unknown>;
+  state: string;
+  created_at: string;
+  applied_at: string | null;
+  reverted_at: string | null;
+};
+
+export type ConsolidatedTopic = {
+  id: string;
+  source_version_id: number;
+  theme_number: number;
+  state: "located" | "auto_supported" | "confirmed" | "conflicted" | "pending";
+  primary_candidate_id: string | null;
+  alternative_candidate_ids: string[];
+  pdf_page_number: number | null;
+  printed_page: string | null;
+  title_es_observed: string | null;
+  title_de_observed: string | null;
+  observed_level: string | null;
+  confidence: number;
+  issues: unknown[];
+};
+
+export type ConsolidatedNode = {
+  id: string;
+  source_candidate_id: string | null;
+  parent_node_id: string | null;
+  node_type: string;
+  theme_number: number | null;
+  observed_level: string | null;
+  pdf_page_number: number;
+  reading_order: number;
+  state: string;
+  raw_text: string | null;
+  children: ConsolidatedNode[];
+};
+
+export type ExerciseSolutionRelation = {
+  id: string;
+  source_version_id: number;
+  exercise_candidate_ids: string[];
+  solution_candidate_ids: string[];
+  relation_type: string;
+  state: string;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  issues: unknown[];
+};
+
 export type VersionComparisonState =
   | "planned"
   | "running"

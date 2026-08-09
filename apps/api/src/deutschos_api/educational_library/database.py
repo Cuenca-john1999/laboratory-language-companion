@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 9
+LIBRARY_SCHEMA_VERSION = 10
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1372,6 +1372,211 @@ ALTER TABLE source_versions DROP COLUMN superseded_by_version_id;
 DELETE FROM library_schema WHERE version=9;
 """
 
+_MIGRATION_0010 = """
+CREATE TABLE document_review_runs (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    source_hash TEXT NOT NULL,
+    rule_version TEXT NOT NULL,
+    configuration_json TEXT NOT NULL DEFAULT '{}',
+    configuration_hash TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('running','completed','completed_with_issues','failed')),
+    before_metrics_json TEXT NOT NULL DEFAULT '{}',
+    after_metrics_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    error_detail TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE document_review_batches (
+    id TEXT PRIMARY KEY,
+    review_run_id TEXT REFERENCES document_review_runs(id) ON DELETE SET NULL,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    rule TEXT NOT NULL,
+    candidate_type TEXT NOT NULL,
+    proposed_action TEXT NOT NULL CHECK(proposed_action IN (
+        'auto_support','confirm','reject','mark_conflict','supersede'
+    )),
+    minimum_confidence REAL NOT NULL CHECK(minimum_confidence BETWEEN 0 AND 1),
+    member_count INTEGER NOT NULL CHECK(member_count >= 0),
+    pages_json TEXT NOT NULL DEFAULT '[]',
+    sample_json TEXT NOT NULL DEFAULT '[]',
+    effect_json TEXT NOT NULL DEFAULT '{}',
+    state TEXT NOT NULL CHECK(state IN ('proposed','applied','reverted','invalidated')),
+    created_at TEXT NOT NULL,
+    applied_at TEXT,
+    reverted_at TEXT
+);
+
+CREATE TABLE document_candidate_decisions (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL REFERENCES document_structure_candidates(id) ON DELETE CASCADE,
+    review_run_id TEXT REFERENCES document_review_runs(id) ON DELETE SET NULL,
+    actor TEXT NOT NULL,
+    method TEXT NOT NULL CHECK(method IN (
+        'deterministic_rule','cross_evidence','canonical_match','visual_review',
+        'manual_review','batch_manual','external_audit'
+    )),
+    rule TEXT NOT NULL,
+    previous_state TEXT NOT NULL CHECK(previous_state IN (
+        'proposed','auto_supported','needs_review','confirmed','rejected','conflicted','superseded'
+    )),
+    new_state TEXT NOT NULL CHECK(new_state IN (
+        'proposed','auto_supported','needs_review','confirmed','rejected','conflicted','superseded'
+    )),
+    confidence_before REAL NOT NULL CHECK(confidence_before BETWEEN 0 AND 1),
+    confidence_after REAL NOT NULL CHECK(confidence_after BETWEEN 0 AND 1),
+    batch_id TEXT REFERENCES document_review_batches(id) ON DELETE SET NULL,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    comment TEXT,
+    reverts_decision_id TEXT REFERENCES document_candidate_decisions(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE document_candidate_review_state (
+    candidate_id TEXT PRIMARY KEY REFERENCES document_structure_candidates(id) ON DELETE CASCADE,
+    editorial_state TEXT NOT NULL CHECK(editorial_state IN (
+        'proposed','auto_supported','needs_review','confirmed','rejected','conflicted','superseded'
+    )),
+    effective_confidence REAL NOT NULL CHECK(effective_confidence BETWEEN 0 AND 1),
+    primary_candidate_id TEXT REFERENCES document_structure_candidates(id) ON DELETE SET NULL,
+    latest_decision_id TEXT REFERENCES document_candidate_decisions(id) ON DELETE SET NULL,
+    priority TEXT CHECK(priority IS NULL OR priority IN ('P0','P1','P2')),
+    reason TEXT,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE document_review_batch_members (
+    batch_id TEXT NOT NULL REFERENCES document_review_batches(id) ON DELETE CASCADE,
+    candidate_id TEXT NOT NULL REFERENCES document_structure_candidates(id) ON DELETE CASCADE,
+    decision_id TEXT REFERENCES document_candidate_decisions(id) ON DELETE SET NULL,
+    PRIMARY KEY(batch_id, candidate_id)
+);
+
+CREATE TABLE document_consolidated_topics (
+    id TEXT PRIMARY KEY,
+    review_run_id TEXT NOT NULL REFERENCES document_review_runs(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    theme_number INTEGER NOT NULL CHECK(theme_number BETWEEN 1 AND 51),
+    state TEXT NOT NULL CHECK(state IN (
+        'located','auto_supported','confirmed','conflicted','pending'
+    )),
+    primary_candidate_id TEXT REFERENCES document_structure_candidates(id) ON DELETE SET NULL,
+    alternative_candidate_ids_json TEXT NOT NULL DEFAULT '[]',
+    pdf_page_number INTEGER,
+    printed_page TEXT,
+    title_es_observed TEXT,
+    title_de_observed TEXT,
+    observed_level TEXT,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    UNIQUE(review_run_id, theme_number)
+);
+
+CREATE TABLE document_consolidated_nodes (
+    id TEXT PRIMARY KEY,
+    review_run_id TEXT NOT NULL REFERENCES document_review_runs(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    source_candidate_id TEXT REFERENCES document_structure_candidates(id) ON DELETE SET NULL,
+    parent_node_id TEXT REFERENCES document_consolidated_nodes(id) ON DELETE SET NULL,
+    node_type TEXT NOT NULL,
+    theme_number INTEGER CHECK(theme_number IS NULL OR theme_number BETWEEN 1 AND 51),
+    observed_level TEXT,
+    pdf_page_number INTEGER NOT NULL,
+    reading_order INTEGER NOT NULL CHECK(reading_order >= 0),
+    state TEXT NOT NULL CHECK(state IN ('auto_supported','confirmed','needs_review','conflicted')),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE document_exercise_solution_relations (
+    id TEXT PRIMARY KEY,
+    review_run_id TEXT NOT NULL REFERENCES document_review_runs(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    exercise_candidate_ids_json TEXT NOT NULL,
+    solution_candidate_ids_json TEXT NOT NULL,
+    relation_type TEXT NOT NULL CHECK(relation_type IN (
+        'one_to_one','one_to_many','many_to_one',
+        'exercise_without_solution','solution_without_exercise'
+    )),
+    state TEXT NOT NULL CHECK(state IN (
+        'proposed','auto_supported','needs_review','confirmed','rejected','conflicted'
+    )),
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE document_visual_page_classifications (
+    id TEXT PRIMARY KEY,
+    review_run_id TEXT NOT NULL REFERENCES document_review_runs(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    page_id INTEGER NOT NULL REFERENCES document_pages(id) ON DELETE CASCADE,
+    classification TEXT NOT NULL CHECK(classification IN (
+        'blank','image_only','graphic_exercise','divider','cover','damaged','unknown'
+    )),
+    state TEXT NOT NULL CHECK(state IN ('auto_supported','needs_review','confirmed')),
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    UNIQUE(review_run_id, page_id)
+);
+
+CREATE TABLE document_readiness_snapshots (
+    id TEXT PRIMARY KEY,
+    review_run_id TEXT NOT NULL REFERENCES document_review_runs(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    state TEXT NOT NULL CHECK(state IN (
+        'not_ready','structurally_ready_with_issues','structurally_ready','blocked'
+    )),
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    blockers_json TEXT NOT NULL DEFAULT '[]',
+    rationale_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX ix_review_runs_version ON document_review_runs(source_version_id, created_at);
+CREATE INDEX ix_candidate_decisions_candidate ON document_candidate_decisions(candidate_id, created_at);
+CREATE INDEX ix_candidate_review_queue ON document_candidate_review_state(editorial_state, priority, reason);
+CREATE INDEX ix_review_batches_version ON document_review_batches(source_version_id, state, rule);
+CREATE INDEX ix_consolidated_topics_version ON document_consolidated_topics(source_version_id, theme_number, state);
+CREATE INDEX ix_consolidated_nodes_version ON document_consolidated_nodes(source_version_id, theme_number, pdf_page_number, reading_order);
+CREATE INDEX ix_exercise_solution_version ON document_exercise_solution_relations(source_version_id, state);
+CREATE INDEX ix_visual_classification_version ON document_visual_page_classifications(source_version_id, classification, state);
+CREATE INDEX ix_readiness_version ON document_readiness_snapshots(source_version_id, created_at);
+"""
+
+_ROLLBACK_0010 = """
+DROP INDEX IF EXISTS ix_readiness_version;
+DROP INDEX IF EXISTS ix_visual_classification_version;
+DROP INDEX IF EXISTS ix_exercise_solution_version;
+DROP INDEX IF EXISTS ix_consolidated_nodes_version;
+DROP INDEX IF EXISTS ix_consolidated_topics_version;
+DROP INDEX IF EXISTS ix_review_batches_version;
+DROP INDEX IF EXISTS ix_candidate_review_queue;
+DROP INDEX IF EXISTS ix_candidate_decisions_candidate;
+DROP INDEX IF EXISTS ix_review_runs_version;
+DROP TABLE IF EXISTS document_readiness_snapshots;
+DROP TABLE IF EXISTS document_visual_page_classifications;
+DROP TABLE IF EXISTS document_exercise_solution_relations;
+DROP TABLE IF EXISTS document_consolidated_nodes;
+DROP TABLE IF EXISTS document_consolidated_topics;
+DROP TABLE IF EXISTS document_review_batch_members;
+DROP TABLE IF EXISTS document_candidate_review_state;
+DROP TABLE IF EXISTS document_candidate_decisions;
+DROP TABLE IF EXISTS document_review_batches;
+DROP TABLE IF EXISTS document_review_runs;
+DELETE FROM library_schema WHERE version=10;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1423,6 +1628,9 @@ class LibraryDatabase:
                 current = 8
             if current < 9:
                 self._apply_migration(connection, 9, _MIGRATION_0009)
+                current = 9
+            if current < 10:
+                self._apply_migration(connection, 10, _MIGRATION_0010)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -1470,6 +1678,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 9")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0009)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_10(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 10:
+                raise RuntimeError("library schema rollback requires version 10")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0010)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

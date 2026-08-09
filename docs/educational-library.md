@@ -383,6 +383,24 @@ cobertura, incidencias, eventos y miniaturas son lecturas separadas. No existen
 acciones de OCR, LLM, chunking, embeddings, confirmación editorial, publicación o
 activación dentro de este pipeline.
 
+## Revisión y consolidación estructural
+
+La sección **Revisión** de `/laboratory` consume exclusivamente los candidatos
+observados por la extracción estructural. `document-review.v1` separa el estado
+editorial efectivo del candidato original, registra cada decisión de manera
+append-only y materializa una vista consolidada reversible: una identidad
+principal por Tema 1–51, jerarquía enlazada a candidatos, relaciones prudentes
+entre ejercicios y soluciones, clasificación técnica de páginas sin texto y un
+snapshot de readiness. No modifica OCR, contenido observado, chunks, embeddings
+ni activación.
+
+Las reglas excluyen índices y cabeceras repetidas como identidades principales,
+superseden duplicados exactos sin borrarlos y elevan ambigüedades a P0/P1/P2.
+Los lotes solo se proponen para patrones homogéneos, muestran muestra, páginas y
+efecto estimado, requieren aplicación explícita y admiten reversión lógica. No
+existe “confirmar todo”. Las páginas sin texto se clasifican únicamente como
+`image_only` o `unknown`; su contenido no se describe sin revisión visual.
+
 ## API
 
 - `GET /api/library/status`, `GET /api/library/inventory`
@@ -408,6 +426,9 @@ activación dentro de este pipeline.
 - bloques paginables por ejecución/página y candidatos filtrables bajo
   `/laboratory/extraction/candidates`
 - jerarquía y miniaturas bajo `/laboratory/extraction/versions/{version_id}`
+- resumen, cola paginada, decisiones, lotes y eventos bajo `/laboratory/review`;
+  temas, jerarquía consolidada, relaciones y readiness bajo
+  `/laboratory/review/versions/{version_id}`
 
 Las rutas no aceptan paths del filesystem, paginan resultados, sanitizan errores
 y no exponen documentos completos. El trabajo pesado se ejecuta fuera del event

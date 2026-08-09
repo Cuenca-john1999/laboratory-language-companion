@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
@@ -15,6 +15,7 @@ from deutschos_api.educational_library.dependencies import (
     get_canonical_route,
     get_document_comparisons,
     get_document_intelligence,
+    get_document_review,
     get_document_runs,
     get_library_editorial,
     get_library_knowledge,
@@ -29,9 +30,13 @@ from deutschos_api.educational_library.document_intelligence import DocumentInte
 from deutschos_api.educational_library.editorial import LibraryEditorialService
 from deutschos_api.educational_library.knowledge import EducationalKnowledgeService
 from deutschos_api.educational_library.memory import PedagogicalMemoryService
+from deutschos_api.educational_library.review import DocumentReviewService
 from deutschos_api.educational_library.routing import LibraryModelRouter
 from deutschos_api.educational_library.runs import DocumentRunService
 from deutschos_api.educational_library.schemas import (
+    CandidateDecisionRead,
+    CandidateDecisionRequest,
+    CandidateDecisionRevertRequest,
     CanonicalLegacyMappingRead,
     CanonicalRouteAuditRead,
     CanonicalRouteRevertRequest,
@@ -42,6 +47,8 @@ from deutschos_api.educational_library.schemas import (
     ComparisonEventRead,
     ConceptAliasCreate,
     ConceptRelationCreate,
+    ConsolidatedNodeRead,
+    ConsolidatedTopicRead,
     CoreSourceAssignmentRequest,
     CoreSourcePairRead,
     CorrespondenceAdjust,
@@ -53,6 +60,13 @@ from deutschos_api.educational_library.schemas import (
     DocumentPageBlockRead,
     DocumentPageList,
     DocumentPageRepeatRequest,
+    DocumentReadinessRead,
+    DocumentReviewBatchAction,
+    DocumentReviewBatchCreate,
+    DocumentReviewBatchRead,
+    DocumentReviewQueue,
+    DocumentReviewRunRead,
+    DocumentReviewSummary,
     DocumentRunCreate,
     DocumentRunDetail,
     DocumentRunEventRead,
@@ -67,6 +81,7 @@ from deutschos_api.educational_library.schemas import (
     EditorialSectionUpdate,
     EvidenceLocationCreate,
     EvidenceLocationRead,
+    ExerciseSolutionRelationRead,
     GroundedGenerationRead,
     GroundedGenerationRequest,
     InventoryReport,
@@ -941,6 +956,285 @@ def structured_document_thumbnail(
     try:
         path = service.thumbnail(source_version_id, pdf_page_number)
         return FileResponse(path, media_type="image/png", filename=path.name)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/versions/{source_version_id}/consolidate",
+    response_model=DocumentReviewRunRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def consolidate_document_review(
+    source_version_id: int,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewRunRead:
+    try:
+        return service.consolidate(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/review/summary", response_model=DocumentReviewSummary)
+def document_review_summary(
+    source_version_id: int | None = Query(default=None, gt=0),
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewSummary:
+    try:
+        return service.summary(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/review/runs/{review_run_id}", response_model=DocumentReviewRunRead)
+def document_review_run(
+    review_run_id: str,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewRunRead:
+    try:
+        return service.run(review_run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/review/queue", response_model=DocumentReviewQueue)
+def document_review_queue(
+    source_version_id: int | None = Query(default=None, gt=0),
+    priority: Literal["P0", "P1", "P2"] | None = None,
+    candidate_type: str | None = None,
+    theme_number: int | None = Query(default=None, ge=1, le=51),
+    pdf_page_number: int | None = Query(default=None, ge=1),
+    reason: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewQueue:
+    try:
+        return service.queue(
+            source_version_id=source_version_id,
+            priority=priority,
+            candidate_type=candidate_type,
+            theme_number=theme_number,
+            pdf_page_number=pdf_page_number,
+            reason=reason,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/review/items/{candidate_id}", response_model=dict[str, Any])
+def document_review_item(
+    candidate_id: str,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> dict[str, Any]:
+    try:
+        return service.item(candidate_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/items/{candidate_id}/decision",
+    response_model=CandidateDecisionRead,
+)
+def decide_document_review_item(
+    candidate_id: str,
+    request: CandidateDecisionRequest,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> CandidateDecisionRead:
+    try:
+        return service.decide(
+            candidate_id,
+            action=request.action,
+            actor=request.actor,
+            method=request.method,
+            comment=request.comment,
+            evidence=request.evidence,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/items/{candidate_id}/visual-review",
+    response_model=CandidateDecisionRead,
+)
+def visually_review_document_item(
+    candidate_id: str,
+    request: CandidateDecisionRequest,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> CandidateDecisionRead:
+    try:
+        return service.decide(
+            candidate_id,
+            action=request.action,
+            actor=request.actor,
+            method="visual_review",
+            comment=request.comment,
+            evidence=request.evidence | {"visual_evidence_recorded": True},
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/decisions/{decision_id}/revert",
+    response_model=CandidateDecisionRead,
+)
+def revert_document_review_decision(
+    decision_id: str,
+    request: CandidateDecisionRevertRequest,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> CandidateDecisionRead:
+    try:
+        return service.revert(decision_id, actor=request.actor, comment=request.comment)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/review/batches", response_model=list[DocumentReviewBatchRead])
+def list_document_review_batches(
+    source_version_id: int | None = Query(default=None, gt=0),
+    service: DocumentReviewService = Depends(get_document_review),
+) -> list[DocumentReviewBatchRead]:
+    try:
+        return service.batches(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/batches",
+    response_model=DocumentReviewBatchRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_document_review_batch(
+    request: DocumentReviewBatchCreate,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewBatchRead:
+    try:
+        return service.create_batch(
+            request.candidate_ids,
+            action=request.action,
+            minimum_confidence=request.minimum_confidence,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/batches/{batch_id}/apply",
+    response_model=DocumentReviewBatchRead,
+)
+def apply_document_review_batch(
+    batch_id: str,
+    request: DocumentReviewBatchAction,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewBatchRead:
+    try:
+        return service.apply_batch(batch_id, actor=request.actor, comment=request.comment)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/review/batches/{batch_id}/revert",
+    response_model=DocumentReviewBatchRead,
+)
+def revert_document_review_batch(
+    batch_id: str,
+    request: DocumentReviewBatchAction,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewBatchRead:
+    try:
+        return service.revert_batch(batch_id, actor=request.actor, comment=request.comment)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/review/versions/{source_version_id}/topics",
+    response_model=list[ConsolidatedTopicRead],
+)
+def consolidated_document_topics(
+    source_version_id: int,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> list[ConsolidatedTopicRead]:
+    try:
+        return service.topics(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/review/versions/{source_version_id}/hierarchy",
+    response_model=list[ConsolidatedNodeRead],
+)
+def consolidated_document_hierarchy(
+    source_version_id: int,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> list[ConsolidatedNodeRead]:
+    try:
+        return service.hierarchy(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/review/versions/{source_version_id}/exercise-solutions",
+    response_model=list[ExerciseSolutionRelationRead],
+)
+def document_exercise_solution_relations(
+    source_version_id: int,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> list[ExerciseSolutionRelationRead]:
+    try:
+        return service.relations(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/review/versions/{source_version_id}/readiness",
+    response_model=DocumentReadinessRead,
+)
+def document_review_readiness(
+    source_version_id: int,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReadinessRead:
+    try:
+        return service.readiness(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/review/versions/{source_version_id}/metrics",
+    response_model=DocumentReviewSummary,
+)
+def document_review_metrics(
+    source_version_id: int,
+    service: DocumentReviewService = Depends(get_document_review),
+) -> DocumentReviewSummary:
+    try:
+        return service.summary(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/review/versions/{source_version_id}/events",
+    response_model=list[CandidateDecisionRead],
+)
+def document_review_events(
+    source_version_id: int,
+    limit: int = Query(default=100, ge=1, le=500),
+    service: DocumentReviewService = Depends(get_document_review),
+) -> list[CandidateDecisionRead]:
+    try:
+        return service.events(source_version_id, limit)
     except Exception as exc:
         raise _translate(exc) from exc
 

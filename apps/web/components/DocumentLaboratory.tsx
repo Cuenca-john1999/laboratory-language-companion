@@ -17,6 +17,7 @@ import {
 } from "../lib/api";
 import { DocumentRunsPanel } from "./DocumentRunsPanel";
 import { StructuredExtractionPanel } from "./StructuredExtractionPanel";
+import { DocumentReviewPanel } from "./DocumentReviewPanel";
 import { DocumentComparisonsPanel } from "./DocumentComparisonsPanel";
 
 const FILTERS = [
@@ -219,6 +220,7 @@ export function DocumentLaboratory() {
 
       <DocumentRunsPanel sources={sources} />
       <StructuredExtractionPanel sources={sources} />
+      <DocumentReviewPanel />
       <DocumentComparisonsPanel sources={sources} />
 
       {inventory ? (

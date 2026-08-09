@@ -20,10 +20,12 @@ vi.mock("../lib/api", () => ({
   cancelVersionComparison: vi.fn(),
   analyzeStructuredLayout: vi.fn(),
   compareStructuredVersion: vi.fn(),
+  consolidateDocumentReview: vi.fn(),
   createDocumentRun: vi.fn(),
   createDocumentRunPass: vi.fn(),
   createStructuredExtractionRun: vi.fn(),
   detectDocumentChanges: vi.fn(),
+  decideDocumentReviewItem: vi.fn(),
   executeDocumentPreflight: vi.fn(),
   executeStructuredPreflight: vi.fn(),
   executeVersionComparison: vi.fn(),
@@ -32,6 +34,19 @@ vi.mock("../lib/api", () => ({
   getDocumentRun: vi.fn(),
   getDocumentRunPages: vi.fn(),
   getDocumentRuns: vi.fn().mockResolvedValue([]),
+  getDocumentReviewBatches: vi.fn().mockResolvedValue([]),
+  getDocumentReviewItem: vi.fn(),
+  getDocumentReviewQueue: vi.fn().mockResolvedValue({
+    items: [],
+    page: 1,
+    page_size: 25,
+    total: 0,
+    pages: 0,
+  }),
+  getDocumentReviewSummary: vi.fn().mockResolvedValue({ items: [] }),
+  getConsolidatedHierarchy: vi.fn().mockResolvedValue([]),
+  getConsolidatedTopics: vi.fn().mockResolvedValue([]),
+  getExerciseSolutionRelations: vi.fn().mockResolvedValue([]),
   getProposedHierarchy: vi.fn().mockResolvedValue([]),
   getStructureCandidate: vi.fn(),
   getStructureCandidates: vi.fn().mockResolvedValue({
@@ -61,6 +76,8 @@ vi.mock("../lib/api", () => ({
   reconcileDocumentCoverage: vi.fn(),
   reconcileStructuredCoverage: vi.fn(),
   repeatStructuredPages: vi.fn(),
+  applyDocumentReviewBatch: vi.fn(),
+  revertDocumentReviewBatch: vi.fn(),
   resumeDocumentRun: vi.fn(),
   retryDocumentRunStage: vi.fn(),
   structuredThumbnailUrl: vi.fn().mockReturnValue("/thumbnail.png"),
@@ -169,6 +186,19 @@ describe("document laboratory", () => {
     expect(
       screen.getByRole("heading", { name: "Extracción" }),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Revisión" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Matriz 1–51" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cola" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Batches" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Confirmar todo" }),
+    ).not.toBeInTheDocument();
     for (const action of [
       "Ejecutar OCR",
       "Analizar con IA",

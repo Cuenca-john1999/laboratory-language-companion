@@ -1,11 +1,18 @@
 import type {
   CurriculumResponse,
   ComparisonEvent,
+  ConsolidatedNode,
+  ConsolidatedTopic,
   CoreSourcePair,
   DailyPlan,
   DailyPlanRequest,
   Dashboard,
   DocumentInventoryResult,
+  DocumentReviewBatch,
+  DocumentReviewDecision,
+  DocumentReviewDetail,
+  DocumentReviewQueue,
+  DocumentReviewSummary,
   DocumentRun,
   DocumentRunDetail,
   DocumentRunPageList,
@@ -17,6 +24,7 @@ import type {
   LearningSkill,
   GroundedDraft,
   EvidenceRegion,
+  ExerciseSolutionRelation,
   KnowledgeUnit,
   LibraryChunk,
   LibraryJob,
@@ -634,6 +642,70 @@ export const structuredThumbnailUrl = (
   pageNumber: number,
 ) =>
   `${API_URL}/api/library/laboratory/extraction/versions/${sourceVersionId}/pages/${pageNumber}/thumbnail`;
+export const consolidateDocumentReview = (sourceVersionId: number) =>
+  api(
+    `/api/library/laboratory/review/versions/${sourceVersionId}/consolidate`,
+    { method: "POST" },
+  );
+export const getDocumentReviewSummary = () =>
+  api<DocumentReviewSummary>("/api/library/laboratory/review/summary");
+export const getDocumentReviewQueue = (parameters: URLSearchParams) =>
+  api<DocumentReviewQueue>(
+    `/api/library/laboratory/review/queue?${parameters.toString()}`,
+  );
+export const getDocumentReviewItem = (candidateId: string) =>
+  api<DocumentReviewDetail>(
+    `/api/library/laboratory/review/items/${encodeURIComponent(candidateId)}`,
+  );
+export const decideDocumentReviewItem = (
+  candidateId: string,
+  action: "support" | "confirm" | "reject" | "conflict" | "supersede",
+  visual = false,
+) =>
+  api<DocumentReviewDecision>(
+    `/api/library/laboratory/review/items/${encodeURIComponent(candidateId)}/${visual ? "visual-review" : "decision"}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action,
+        actor: "local_user",
+        method: visual ? "visual_review" : "manual_review",
+        evidence: visual ? { thumbnail_reviewed: true } : {},
+      }),
+    },
+  );
+export const getDocumentReviewBatches = (sourceVersionId?: number) =>
+  api<DocumentReviewBatch[]>(
+    `/api/library/laboratory/review/batches${sourceVersionId ? `?source_version_id=${sourceVersionId}` : ""}`,
+  );
+export const applyDocumentReviewBatch = (batchId: string) =>
+  api<DocumentReviewBatch>(
+    `/api/library/laboratory/review/batches/${encodeURIComponent(batchId)}/apply`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor: "local_user" }),
+    },
+  );
+export const revertDocumentReviewBatch = (batchId: string) =>
+  api<DocumentReviewBatch>(
+    `/api/library/laboratory/review/batches/${encodeURIComponent(batchId)}/revert`,
+    {
+      method: "POST",
+      body: JSON.stringify({ actor: "local_user" }),
+    },
+  );
+export const getConsolidatedTopics = (sourceVersionId: number) =>
+  api<ConsolidatedTopic[]>(
+    `/api/library/laboratory/review/versions/${sourceVersionId}/topics`,
+  );
+export const getConsolidatedHierarchy = (sourceVersionId: number) =>
+  api<ConsolidatedNode[]>(
+    `/api/library/laboratory/review/versions/${sourceVersionId}/hierarchy`,
+  );
+export const getExerciseSolutionRelations = (sourceVersionId: number) =>
+  api<ExerciseSolutionRelation[]>(
+    `/api/library/laboratory/review/versions/${sourceVersionId}/exercise-solutions`,
+  );
 export const executeDocumentPreflight = (runId: string) =>
   api<DocumentRunDetail>(
     `/api/library/laboratory/runs/${encodeURIComponent(runId)}/preflight`,

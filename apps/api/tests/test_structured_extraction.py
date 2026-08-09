@@ -60,18 +60,18 @@ def structured_library(tmp_path: Path):
     return library, settings, version_id
 
 
-def test_schema_9_is_reversible_and_preserves_existing_counts(tmp_path: Path):
+def test_schema_10_is_reversible_and_preserves_existing_counts(tmp_path: Path):
     database = LibraryDatabase(tmp_path / "library.sqlite3")
-    assert database.migrate() == 9
+    assert database.migrate() == 10
     with database.connect() as connection:
         connection.execute(
             "INSERT INTO sources(id,current_path,name,kind,format,size_bytes,mtime_ns,status,"
             "processing_state,first_seen_at,last_seen_at) VALUES "
             "('s','s.pdf','s','document','.pdf',1,1,'present','pending','now','now')"
         )
-    assert database.rollback_version_9() == 8
+    assert database.rollback_version_10() == 9
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 9
+    assert database.migrate() == 10
     assert database.integrity() == ("ok", [])
     with database.connect() as connection:
         assert connection.execute("SELECT count(*) FROM sources").fetchone()[0] == 1

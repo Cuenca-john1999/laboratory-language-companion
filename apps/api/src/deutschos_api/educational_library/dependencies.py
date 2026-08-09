@@ -16,6 +16,7 @@ from .document_intelligence import DocumentIntelligenceService
 from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
 from .memory import PedagogicalMemoryService
+from .review import DocumentReviewService
 from .routing import LibraryModelRouter, ModelRoutingPolicy
 from .runs import DocumentRunService
 from .search import EducationalSearchService, LMStudioEmbeddingProvider
@@ -44,6 +45,12 @@ def get_structured_extraction(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> StructuredExtractionService:
     return StructuredExtractionService(service.database, service.root)
+
+
+def get_document_review(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentReviewService:
+    return DocumentReviewService(service.database)
 
 
 def get_library_search(

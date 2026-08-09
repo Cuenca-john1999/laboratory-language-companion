@@ -832,6 +832,202 @@ class ProposedHierarchyNode(APIModel):
     children: list[ProposedHierarchyNode] = Field(default_factory=list)
 
 
+class DocumentReviewRunRead(APIModel):
+    id: str
+    source_id: str
+    source_version_id: int
+    source_hash: str
+    rule_version: str
+    configuration_hash: str
+    state: str
+    configuration: dict[str, JsonValue]
+    before_metrics: dict[str, JsonValue]
+    after_metrics: dict[str, JsonValue]
+    error_code: str | None
+    error_detail: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentReviewSummaryItem(APIModel):
+    source_id: str
+    source_version_id: int
+    source_title: str
+    version_number: int
+    hash: str
+    activation_state: str
+    run_id: str | None
+    run_state: str
+    readiness: str
+    metrics: dict[str, JsonValue]
+    queue: dict[str, int]
+    blockers: list[JsonValue]
+
+
+class DocumentReviewSummary(APIModel):
+    items: list[DocumentReviewSummaryItem]
+
+
+class DocumentReviewQueueItem(APIModel):
+    id: str
+    source_id: str
+    source_version_id: int
+    candidate_type: str
+    raw_text: str | None
+    canonical_topic_number: int | None
+    observed_pedagogical_level: str | None
+    confidence: float
+    pdf_page_number: int
+    editorial_state: str
+    effective_confidence: float
+    priority: Literal["P0", "P1", "P2"]
+    reason: str | None
+    primary_candidate_id: str | None
+    has_issue: bool
+
+
+class DocumentReviewQueue(APIModel):
+    items: list[DocumentReviewQueueItem]
+    page: int = Field(gt=0)
+    page_size: int = Field(gt=0)
+    total: int = Field(ge=0)
+    pages: int = Field(ge=0)
+
+
+class CandidateDecisionRequest(APIModel):
+    action: Literal["support", "confirm", "reject", "conflict", "supersede"]
+    actor: str = Field(default="local_user", min_length=1, max_length=120)
+    method: Literal["visual_review", "manual_review", "batch_manual", "external_audit"] = (
+        "manual_review"
+    )
+    comment: str | None = Field(default=None, max_length=2_000)
+    evidence: dict[str, JsonValue] = Field(default_factory=dict)
+
+
+class CandidateDecisionRead(APIModel):
+    id: str
+    candidate_id: str
+    review_run_id: str | None
+    actor: str
+    method: str
+    rule: str
+    previous_state: str
+    new_state: str
+    confidence_before: float
+    confidence_after: float
+    batch_id: str | None
+    evidence: dict[str, JsonValue]
+    comment: str | None
+    reverts_decision_id: str | None
+    created_at: datetime
+
+
+class CandidateDecisionRevertRequest(APIModel):
+    actor: str = Field(default="local_user", min_length=1, max_length=120)
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class DocumentReviewBatchCreate(APIModel):
+    candidate_ids: list[str] = Field(min_length=2, max_length=500)
+    action: Literal["support", "confirm", "reject", "conflict", "supersede"]
+    minimum_confidence: float = Field(ge=0, le=1)
+
+    @field_validator("candidate_ids")
+    @classmethod
+    def unique_candidates(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("candidate_ids must be unique")
+        return value
+
+
+class DocumentReviewBatchAction(APIModel):
+    actor: str = Field(default="local_user", min_length=1, max_length=120)
+    comment: str | None = Field(default=None, max_length=2_000)
+
+
+class DocumentReviewBatchRead(APIModel):
+    id: str
+    review_run_id: str | None
+    source_version_id: int
+    rule: str
+    candidate_type: str
+    proposed_action: str
+    minimum_confidence: float
+    member_count: int
+    pages: list[int]
+    sample: list[JsonValue]
+    effect: dict[str, JsonValue]
+    state: str
+    created_at: datetime
+    applied_at: datetime | None
+    reverted_at: datetime | None
+
+
+class ConsolidatedTopicRead(APIModel):
+    id: str
+    review_run_id: str
+    source_version_id: int
+    theme_number: int = Field(ge=1, le=51)
+    state: str
+    primary_candidate_id: str | None
+    alternative_candidate_ids: list[str]
+    pdf_page_number: int | None
+    printed_page: str | None
+    title_es_observed: str | None
+    title_de_observed: str | None
+    observed_level: str | None
+    confidence: float
+    evidence: dict[str, JsonValue]
+    issues: list[JsonValue]
+    created_at: datetime
+
+
+class ConsolidatedNodeRead(APIModel):
+    id: str
+    review_run_id: str
+    source_version_id: int
+    source_candidate_id: str | None
+    parent_node_id: str | None
+    node_type: str
+    theme_number: int | None
+    observed_level: str | None
+    pdf_page_number: int
+    reading_order: int
+    state: str
+    raw_text: str | None
+    evidence: dict[str, JsonValue]
+    issues: list[JsonValue]
+    created_at: datetime
+    children: list[ConsolidatedNodeRead] = Field(default_factory=list)
+
+
+class ExerciseSolutionRelationRead(APIModel):
+    id: str
+    review_run_id: str
+    source_version_id: int
+    exercise_candidate_ids: list[str]
+    solution_candidate_ids: list[str]
+    relation_type: str
+    state: str
+    confidence: float
+    evidence: dict[str, JsonValue]
+    issues: list[JsonValue]
+    created_at: datetime
+
+
+class DocumentReadinessRead(APIModel):
+    id: str | None = None
+    review_run_id: str | None = None
+    source_version_id: int
+    state: str
+    metrics: dict[str, JsonValue]
+    blockers: list[JsonValue]
+    rationale: dict[str, JsonValue]
+    created_at: datetime | None = None
+
+
 class VersionComparisonCreate(APIModel):
     base_source_version_id: int = Field(gt=0)
     target_source_version_id: int = Field(gt=0)

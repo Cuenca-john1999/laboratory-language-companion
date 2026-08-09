@@ -322,6 +322,347 @@
   }
 }
 
+.document-review {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large);
+  background: var(--surface);
+  box-shadow: var(--shadow-small);
+}
+
+.document-review > header,
+.topic-matrix > header,
+.review-queue > header,
+.focused-review > header,
+.review-batches > header,
+.consolidated-hierarchy > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.document-review h2,
+.document-review h3 {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  font: 650 clamp(24px, 4vw, 34px) / 1.1 var(--font-display);
+}
+
+.document-review > header p:not(.eyebrow) {
+  max-width: 720px;
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+}
+
+.review-document-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  border-block: 1px solid var(--divider);
+  background: var(--divider);
+}
+
+.review-document-grid > article {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  padding: 22px;
+  background: var(--surface-elevated);
+}
+
+.review-document-grid h3 {
+  overflow-wrap: anywhere;
+  font-size: 20px;
+}
+
+.review-document-grid dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--divider);
+}
+
+.review-document-grid dl > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.review-document-grid dt,
+.review-document-grid small,
+.review-document-grid span,
+.review-document-grid p {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.review-document-grid dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.readiness,
+.topic-state,
+.priority {
+  width: max-content;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.readiness.structurally_ready,
+.topic-state.confirmed {
+  border-color: color-mix(in srgb, var(--success) 50%, transparent);
+  color: var(--success);
+}
+
+.readiness.structurally_ready_with_issues,
+.topic-state.auto_supported,
+.topic-state.located {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+}
+
+.readiness.blocked,
+.topic-state.conflicted,
+.priority.p0 {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--danger);
+}
+
+.readiness.not_ready,
+.topic-state.pending,
+.priority.p1,
+.priority.p2 {
+  color: var(--text-secondary);
+}
+
+.review-blocker {
+  margin: 0;
+  border-left: 2px solid var(--danger);
+  padding-left: 10px;
+}
+
+.topic-matrix,
+.review-queue,
+.focused-review,
+.review-batches,
+.consolidated-hierarchy {
+  border-top: 1px solid var(--divider);
+}
+
+.topic-matrix > header span,
+.review-batches > header span {
+  max-width: 420px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+
+.topic-matrix-scroll,
+.review-table-scroll {
+  overflow: auto;
+  max-height: 540px;
+  border-top: 1px solid var(--divider);
+}
+
+.topic-matrix table,
+.review-queue table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.topic-matrix th,
+.topic-matrix td,
+.review-queue th,
+.review-queue td {
+  border-bottom: 1px solid var(--divider);
+  padding: 10px 14px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.topic-matrix thead,
+.review-queue thead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--surface-elevated);
+}
+
+.topic-matrix td small {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-tertiary);
+}
+
+.review-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.review-filters label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.review-filters input,
+.review-filters select {
+  min-width: 0;
+}
+
+.text-button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--accent);
+  text-align: left;
+}
+
+.review-queue > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 24px;
+  color: var(--text-tertiary);
+}
+
+.focused-review-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  gap: 1px;
+  background: var(--divider);
+}
+
+.focused-review-grid > * {
+  min-width: 0;
+  margin: 0;
+  background: var(--surface-elevated);
+  padding: 20px;
+}
+
+.focused-review figure img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--divider);
+  background: white;
+  object-fit: contain;
+}
+
+.focused-review figcaption,
+.focused-review small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.focused-review pre {
+  overflow: auto;
+  max-height: 240px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  padding: 12px;
+  color: var(--text-secondary);
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.review-batches > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1px;
+  background: var(--divider);
+}
+
+.review-batches article {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 16px;
+  background: var(--surface-elevated);
+}
+
+.review-batches article strong,
+.review-batches article span {
+  overflow-wrap: anywhere;
+}
+
+.review-batches article small {
+  color: var(--text-tertiary);
+}
+
+.consolidated-hierarchy > details {
+  border-top: 1px solid var(--divider);
+  padding: 16px 24px;
+}
+
+.consolidated-hierarchy summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.consolidated-hierarchy ul {
+  display: grid;
+  gap: 7px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 980px) {
+  .review-document-grid,
+  .focused-review-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-document-grid dl,
+  .review-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .document-review > header,
+  .topic-matrix > header,
+  .review-queue > header,
+  .focused-review > header,
+  .review-batches > header,
+  .consolidated-hierarchy > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-document-grid dl,
+  .review-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .topic-matrix > header span,
+  .review-batches > header span {
+    text-align: left;
+  }
+}
+
 /* Laboratorio documental */
 .laboratory-shell {
   display: grid;
