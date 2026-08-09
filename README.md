@@ -1,230 +1,350 @@
-# DeutschOS
+# LLC — Laboratory Language Companion
 
-Sistema privado, local-first y de usuario único para aprender alemán. La API es
-FastAPI, la interfaz usa Next.js y el estado del estudiante se conserva en
-SQLite mediante migraciones Alembic. LM Studio es opcional: si está apagado, el
-perfil, el dashboard y el resto de la aplicación siguen disponibles.
+<p align="center">
+  <strong>Local-first language learning for laboratory and life-science professionals.</strong>
+</p>
 
-## Requisitos (macOS Apple Silicon)
+<p align="center">
+  Desktop · Local AI · Open Source · Science-focused
+</p>
 
-- Node.js 20.9 o posterior.
-- npm.
-- Python 3.12.
-- LM Studio, solo para las funciones que necesitan un modelo local.
+---
 
-```bash
-brew install node python@3.12 lm_studio
+## 🧪 What is LLC?
+
+**Laboratory Language Companion (LLC)** is an open-source desktop application for learning languages with a strong focus on **laboratory, biomedical and life-science environments**.
+
+The project combines general language learning with professional and scientific communication, guided study, structured educational sources, exercises and a locally running AI tutor.
+
+LLC started as **DeutschOS**, a personal German-learning platform. As the project grew, its scope became broader:
+
+> not just learning German — but learning the language you need to study, communicate and work in science.
+
+German remains the first and most developed language implementation while the project evolves toward a reusable multilingual architecture.
+
+---
+
+## 🎯 The idea
+
+Most language-learning applications are designed around everyday situations.
+
+That is useful — but someone preparing to work in a laboratory also needs to understand things like:
+
+- laboratory instructions;
+- scientific vocabulary;
+- sample handling;
+- safety procedures;
+- documentation;
+- communication with colleagues;
+- quality-control terminology;
+- scientific explanations;
+- professional interviews;
+- and eventually complex technical material.
+
+LLC aims to connect both worlds.
+
+You still learn the language itself — grammar, vocabulary, reading, writing, listening and communication — but the system increasingly understands **why you are learning it**.
+
+For example:
+
+```text
+General German
+↓
+Professional German
+↓
+Laboratory communication
+↓
+Clinical / biomedical / scientific specialization
 ```
 
-## Instalación inicial
+---
 
-Desde la raíz del repositorio:
+## 🌍 Language model
 
-```bash
-test -f .env || cp .env.example .env
-npm ci
-python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e 'apps/api[dev]'
+The long-term structure is intended to separate the language from the professional domain:
+
+```text
+Language
+├── German
+├── English
+├── Spanish
+└── ...
+
+Professional domain
+├── Clinical Laboratory
+├── Biomedical Research
+├── Microbiology
+├── Molecular Biology
+├── Biotechnology
+├── Chemistry
+├── Pharmaceutical Sciences
+└── ...
 ```
 
-`.env` es configuración privada y está excluido de Git. Los valores
-predeterminados usan únicamente loopback y guardan la base en
-`data/deutschos.sqlite3`. `DEUTSCHOS_TIMEZONE` controla la fecha civil del plan
-diario y usa `Europe/Berlin` por defecto; los instantes se guardan en UTC.
+A learner could therefore eventually follow paths such as:
 
-## Inicio diario
-
-```bash
-cd /Volumes/Juegos/DeutschOS
-./scripts/doctor.sh
-./scripts/dev.sh
+```text
+German
+└── Clinical Laboratory
+    └── A2 → B2
 ```
 
-`doctor.sh` revisa el volumen, runtimes, dependencias, SQLite, migraciones,
-LM Studio y los puertos 3000/8000. LM Studio ausente o apagado es un aviso, no un
-fallo esencial.
+or:
 
-`dev.sh` comprueba los requisitos, aplica migraciones de forma segura y levanta
-FastAPI y Next.js en `127.0.0.1`. Los errores permanecen visibles en la
-terminal. `Ctrl-C` cierra ambos procesos. Abre `http://127.0.0.1:3000`; la
-documentación de la API está en `http://127.0.0.1:8000/docs`.
-
-La telemetría de Next.js queda desactivada durante el arranque mediante el
-script. No se instala ni descarga nada automáticamente.
-
-## Aplicación de control para macOS
-
-Para compilar la aplicación nativa de control sin abrir Xcode:
-
-```bash
-cd /Volumes/Juegos/DeutschOS
-./scripts/build-macos-app.sh
-open dist/DeutschOS.app
+```text
+English
+└── Biotechnology
+    └── B1 → C1
 ```
 
-El resultado es `dist/DeutschOS.app`. Es una aplicación SwiftUI ligera con una
-ventana de estado; no abre Terminal ni incorpora un navegador. Arrástrala desde
-Finder al Dock —no hace falta mover el bundle— y ábrela siempre con el SSD
-conectado. La ruta del proyecto queda registrada durante el build, por lo que
-también puede copiarse a `~/Applications` sin perder el proyecto del SSD.
+German is currently the reference implementation used to validate the architecture.
 
-- **Iniciar** ejecuta `scripts/start.sh`, espera a LM Studio, FastAPI y Next.js,
-  y abre o activa `~/Applications/DeutschOS.app` mediante su bundle exacto.
-  Safari se usa una sola vez como respaldo si esa aplicación falta o no abre.
-- **Detener** cierra la web app exacta, FastAPI, Next.js, el servidor local y
-  `LM Studio.app`, verifica los puertos y mantiene abierta la ventana.
-- **Salir** realiza el mismo apagado completo antes de terminar la aplicación.
+---
 
-La X roja y `⌘Q` piden confirmación si hay servicios activos o un arranque en
-curso. Cancelar conserva la ventana; **Detener y salir** espera el cierre. La app
-consulta `scripts/status.sh --machine` cada cuatro segundos, en lugar de inferir
-el estado a partir del último botón. Un segundo clic o arranque concurrente no
-duplica servicios gracias al bloqueo y los PID files de los scripts existentes.
+## 🤖 Local-first AI
 
-Los errores se resumen sin trazas técnicas y **Abrir logs** muestra `logs/`.
-Para consultar o detener desde una shell siguen disponibles:
+LLC is designed around **local AI inference**.
 
-```bash
-./scripts/status.sh
-./scripts/stop.sh
-```
+The AI tutor and supporting language-model functionality run on the user's own computer through a compatible local runtime.
 
-Los logs privados están en `logs/` y los PID files en `run/`; ambos directorios,
-`dist/` y `LM Studio/` están excluidos de Git. FastAPI y Next.js solo reciben
-señales con PID, huella de inicio y comando validados; LM Studio se cierra por
-su bundle exacto aunque se abriera manualmente. Si el bundle está copiado fuera del SSD puede
-mostrar «SSD no disponible»; si vive en el propio SSD, macOS no podrá abrirlo
-hasta volver a montar `/Volumes/Juegos`. No se instalan LaunchAgents ni se
-configura inicio automático de sesión.
+The current implementation is developed around **LM Studio**.
 
-El launcher AppleScript anterior se conserva solo como respaldo. Para
-regenerarlo y usarlo temporalmente:
+This means the project does not require a hosted AI service as its core architecture.
 
-```bash
-./scripts/create-macos-launcher.sh
-open "dist/legacy/DeutschOS Launcher.app"
-```
+Local models can be used for tasks such as:
 
-Ese respaldo mantiene el comportamiento antiguo de arrancar y abrir la web sin
-mostrar una ventana de control. Nunca comparte el nombre ni la ruta principal
-de la aplicación nativa.
+- language explanations;
+- tutoring;
+- contextual exercises;
+- guided practice;
+- educational-library queries;
+- source-aware answers;
+- study assistance.
 
-## Probar el Learning Engine
+Model support and requirements may evolve as the project develops.
 
-El planificador y los repasos funcionan aunque LM Studio esté apagado. Con API y
-web iniciadas:
+---
 
-```bash
-curl -s http://127.0.0.1:8000/api/learning/curriculum
-curl -s -X POST http://127.0.0.1:8000/api/learning/daily-plan \
-  -H 'Content-Type: application/json' \
-  -d '{"available_minutes":10,"motivation":2}'
-curl -s http://127.0.0.1:8000/api/learning/today
-curl -s http://127.0.0.1:8000/api/learning/reviews
-curl -s http://127.0.0.1:8000/api/learning/skills
-```
+## 📚 Source-aware learning
 
-El Dashboard refleja ese plan persistido. En `/progress` se puede regenerar con
-otro tiempo/motivación y `/skills` muestra únicamente estimaciones internas
-basadas en evidencia. Consulta [Learning Engine](docs/learning-engine.md) para
-el contrato de intentos idempotentes y correcciones append-only.
+LLC includes an educational-library system designed to work with locally stored learning material.
 
-## Biblioteca educativa
+Instead of treating every document as an isolated PDF, the system can organize educational sources, document versions and structured information for use in study workflows.
 
-Coloca materiales privados en `material educativo/` y abre `/library`. Los
-originales no se modifican; el catálogo reconstruible vive en
-`var/educational-library/` y ambos directorios están fuera de Git.
+Current development includes infrastructure for areas such as:
 
-```bash
-./scripts/educational-library.sh scan --metadata-only
-./scripts/educational-library.sh scan
-./scripts/educational-library.sh search "Akkusativ"
-./scripts/educational-library.sh integrity
-```
+- document ingestion;
+- document versioning;
+- page-level comparison;
+- OCR-related workflows;
+- structured extraction;
+- document review;
+- processing runs;
+- source coverage;
+- document auditing;
+- educational-library queries.
 
-La búsqueda léxica FTS5 funciona sin LM Studio. Embeddings y transcripción se
-declaran no disponibles si no existe un proveedor local real; no se simulan ni
-se descargan modelos. Qwen puede crear KnowledgeUnits candidatas y borradores
-con fuentes, siempre separados del currículo y del progreso. Consulta
-[Biblioteca educativa](docs/educational-library.md) para formatos, API,
-seguridad y limitaciones.
+Private learning material remains outside the public repository.
 
-## Modelo local opcional
+---
 
-En una terminal independiente:
+## 🔬 Why science?
 
-```bash
-lm_studio serve
-lm_studio pull qwen3:8b
-```
+LLC is intentionally specialized.
 
-El chat permite elegir cualquier modelo instalado. Si LM Studio no responde, la
-API comunica indisponibilidad real; no genera respuestas simuladas.
+The goal is not to compete with general-purpose language-learning applications by trying to cover every possible learner.
 
-## Copias de seguridad
+Instead, LLC focuses on people who study or work in areas such as:
 
-Una copia manual se crea por defecto dentro de `./backups`:
+- clinical laboratory science;
+- biomedical sciences;
+- microbiology;
+- molecular biology;
+- biotechnology;
+- chemistry;
+- pharmaceutical sciences;
+- medical research;
+- pathology;
+- quality control;
+- related life-science fields.
 
-```bash
-./scripts/backup.sh
-```
+General language competence remains essential — the scientific specialization is built **on top of it**, not instead of it.
 
-Para guardarla en otra unidad:
+---
 
-```bash
-./scripts/backup.sh "/Volumes/Otro Disco/DeutschOS-backups"
-```
+## 🖥️ Desktop-first
 
-También se puede definir `DEUTSCHOS_BACKUP_DIR` en el entorno o en `.env`. Cada
-bundle incluye una copia SQLite consistente, configuración local editable y
-datos pedagógicos adicionales compatibles. Incluye un manifiesto con hashes y
-excluye almacenes y pesos de modelos. De `.env` solo conserva una lista cerrada
-de opciones locales no secretas; cualquier clave desconocida se omite.
-`backups/` nunca se incluye en Git.
+LLC is a desktop application.
 
-El destino predeterminado protege frente a cambios de esquema o errores
-locales, pero no frente al fallo físico del mismo SSD. Para eso, configura otra
-unidad local. Consulta [operaciones](docs/operations.md) para los detalles de
-backup, migración y restauración.
+Mobile support is **not currently a project goal**.
 
-## Comprobaciones de calidad
+The application is being developed around workflows that benefit from a computer:
 
-```bash
-cd apps/api
-../../.venv/bin/python -m pytest
-../../.venv/bin/python -m ruff check .
-../../.venv/bin/python -m ruff format --check .
-cd ../..
-./scripts/test-macos-app.sh
-./scripts/test-macos-app.sh --integration
-./scripts/build-macos-app.sh
-npm run lint:web
-npm --workspace @deutschos/web run typecheck
-npm run build:web
-```
+- local language models;
+- large educational libraries;
+- document analysis;
+- structured study;
+- scientific material;
+- local databases;
+- advanced tutoring workflows.
 
-La primera prueba de macOS es unitaria y no inicia servicios. `--integration`
-ejecuta el mismo `ControllerModel` de la ventana y realiza un ciclo real de
-Iniciar, segundo clic idempotente, Detener, reinicio y Salir.
+The current native desktop integration targets **macOS**.
 
-Limitaciones actuales: el build produce un binario Apple Silicon con firma local
-ad hoc; no hay actualización automática, app de barra de menús ni arranque al
-iniciar sesión. Al cambiar la ruta del SSD hay que recompilar el bundle.
+Support for additional desktop platforms may be explored in the future.
 
-## Estructura
+---
 
-- `apps/web`: Next.js, TypeScript y App Router.
-- `apps/api`: FastAPI, SQLAlchemy y Alembic.
-- `apps/macos-controller`: ventana nativa SwiftUI y parser del estado operativo.
-- `packages/shared`: contratos TypeScript compartidos.
-- `data`: estado local privado, excluido de Git.
-- `material educativo`: originales privados de solo lectura, excluidos de Git.
-- `var/educational-library`: catálogo e índices reconstruibles, excluidos de Git.
-- `docs`: arquitectura, pedagogía, seguridad, operaciones y roadmap.
-- `scripts`: diagnóstico, desarrollo y copias consistentes.
+## 🏗️ Current architecture
 
-Más contexto: [arquitectura](docs/architecture.md),
-[seguridad](docs/security.md), [modelo de datos](docs/data-model.md) y
-[pedagogía](docs/pedagogy.md). El alcance implementado y pendiente del núcleo
-de Milestone 1 está en [Learning Engine](docs/learning-engine.md).
+The existing project uses:
+
+- **FastAPI** — application API and backend services
+- **Next.js** — user interface
+- **Swift** — native macOS controller / launcher
+- **SQLite** — local application and educational-library data
+- **LM Studio** — current local model runtime
+- **Local embedding models** — semantic search and retrieval
+
+The architecture is actively evolving as the original German-specific implementation is generalized into LLC.
+
+---
+
+## 🧭 Project status
+
+> **Early development / pre-release**
+
+LLC is not yet presented as a finished multilingual product.
+
+The current application is a functioning German-first system that originated as **DeutschOS** and is now undergoing a larger transition into Laboratory Language Companion.
+
+The initial public-development phase focuses on:
+
+- safely publishing the existing codebase;
+- preserving its Git history;
+- separating private educational material from public code;
+- migrating the DeutschOS product identity to LLC;
+- defining language-independent architecture;
+- preserving the existing German experience;
+- preparing the system for future scientific language paths.
+
+Progress is tracked through the repository's GitHub Issues.
+
+---
+
+## 🛣️ Roadmap
+
+### Foundation
+
+- [ ] Audit the complete repository before public code import
+- [ ] Establish public/private data boundaries
+- [ ] Import and preserve the existing DeutschOS Git history
+- [ ] Transition product identity to LLC
+- [ ] Publish development and contribution documentation
+
+### Architecture
+
+- [ ] Separate language-independent functionality from German-specific behavior
+- [ ] Define a language-profile / language-pack architecture
+- [ ] Define reusable scientific-domain profiles
+- [ ] Preserve CEFR-based progression where appropriate
+- [ ] Generalize tutor and educational-library context
+
+### German reference implementation
+
+- [ ] Preserve the current German learning path
+- [ ] Expand laboratory-oriented German content
+- [ ] Improve professional communication workflows
+- [ ] Integrate scientific vocabulary and scenarios more deeply
+
+### Future validation
+
+- [ ] Introduce a second language implementation
+- [ ] Validate that the architecture is genuinely language-independent
+- [ ] Expand scientific-domain specialization
+
+The roadmap will evolve with the project.
+
+---
+
+## 🔐 Privacy and repository boundaries
+
+The application code can be open source while a user's educational library remains private.
+
+The public repository must not contain:
+
+- copyrighted books or PDFs without redistribution rights;
+- private OCR corpora;
+- personal educational databases;
+- study histories;
+- model weights;
+- backups;
+- credentials;
+- API keys;
+- private logs;
+- machine-specific personal data.
+
+Public development should use synthetic fixtures, examples and openly redistributable resources.
+
+---
+
+## 🧑‍💻 Open source
+
+LLC is being developed as an open-source project.
+
+There is no requirement for a commercial account or subscription as part of the project's intended core architecture.
+
+The goal is simple:
+
+> build a useful language-learning tool for people in science, and make the code available to anyone who wants to use, study or improve it.
+
+---
+
+## 🤝 Contributing
+
+LLC is still undergoing its transition from DeutschOS, so contribution guidelines will evolve alongside the architecture.
+
+Bug reports, technical discussions and well-scoped contributions are welcome.
+
+Before contributing, please avoid including:
+
+- copyrighted educational material;
+- private databases;
+- personal information;
+- credentials;
+- local model files;
+- sensitive logs.
+
+See `CONTRIBUTING.md` for more information once the public-development foundation is complete.
+
+---
+
+## 📜 License
+
+The intended open-source license is:
+
+**GNU General Public License v3.0 — GPL-3.0-only**
+
+A formal `LICENSE` file will be included with the public source release.
+
+---
+
+## ❤️ Origin
+
+LLC began as a personal project called **DeutschOS**, created to build a better way to learn German using structured educational material and local AI.
+
+The project gradually grew into something broader:
+
+**Laboratory Language Companion.**
+
+A language-learning environment built around the needs of people who work, study and communicate in science.
+
+---
+
+<p align="center">
+  <strong>LLC</strong><br>
+  Laboratory Language Companion
+</p>
+
+<p align="center">
+  <em>Learn the language. Work the science.</em>
+</p>
