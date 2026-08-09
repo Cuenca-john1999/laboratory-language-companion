@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 10
+LIBRARY_SCHEMA_VERSION = 11
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1577,6 +1577,126 @@ DROP TABLE IF EXISTS document_review_runs;
 DELETE FROM library_schema WHERE version=10;
 """
 
+_MIGRATION_0011 = """
+CREATE TABLE document_audit_exports (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    document_hash TEXT NOT NULL,
+    review_run_id TEXT REFERENCES document_review_runs(id) ON DELETE SET NULL,
+    package_schema TEXT NOT NULL,
+    export_mode TEXT NOT NULL CHECK(export_mode IN ('full','review_only','targeted')),
+    selection_json TEXT NOT NULL DEFAULT '{}',
+    include_visuals INTEGER NOT NULL DEFAULT 0 CHECK(include_visuals IN (0,1)),
+    state TEXT NOT NULL CHECK(state IN ('creating','completed','failed','stale')),
+    relative_path TEXT,
+    manifest_json TEXT NOT NULL DEFAULT '{}',
+    logical_hash TEXT,
+    archive_sha256 TEXT,
+    size_bytes INTEGER CHECK(size_bytes IS NULL OR size_bytes >= 0),
+    counts_json TEXT NOT NULL DEFAULT '{}',
+    error_code TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+CREATE TABLE document_audit_imports (
+    id TEXT PRIMARY KEY,
+    export_id TEXT REFERENCES document_audit_exports(id) ON DELETE SET NULL,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    document_hash TEXT NOT NULL,
+    package_logical_hash TEXT NOT NULL,
+    decision_schema TEXT NOT NULL,
+    decision_set_hash TEXT NOT NULL,
+    reviewer TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'atomic' CHECK(mode IN ('atomic','partial')),
+    state TEXT NOT NULL CHECK(state IN ('validated','applied','rejected','failed')),
+    decision_count INTEGER NOT NULL CHECK(decision_count >= 0),
+    applied_count INTEGER NOT NULL DEFAULT 0 CHECK(applied_count >= 0),
+    validation_json TEXT NOT NULL DEFAULT '{}',
+    impact_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    applied_at TEXT,
+    UNIQUE(decision_set_hash)
+);
+
+CREATE TABLE document_audit_import_decisions (
+    id TEXT PRIMARY KEY,
+    import_id TEXT NOT NULL REFERENCES document_audit_imports(id) ON DELETE RESTRICT,
+    ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+    target_type TEXT NOT NULL CHECK(target_type IN ('candidate','topic','relation','visual')),
+    target_id TEXT NOT NULL,
+    expected_previous_state TEXT NOT NULL,
+    action TEXT NOT NULL CHECK(action IN (
+        'confirm','reject','support','mark_conflicted','choose_primary','change_type',
+        'change_parent','adjust_printed_page','confirm_relation','reject_relation',
+        'classify_visual','resolve_topic_identity'
+    )),
+    replacement_json TEXT NOT NULL DEFAULT '{}',
+    evidence_references_json TEXT NOT NULL DEFAULT '[]',
+    rationale TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    note TEXT,
+    resulting_state TEXT,
+    candidate_decision_id TEXT REFERENCES document_candidate_decisions(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(import_id, ordinal)
+);
+
+CREATE TABLE document_closure_snapshots (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    document_hash TEXT NOT NULL,
+    review_run_id TEXT REFERENCES document_review_runs(id) ON DELETE SET NULL,
+    structural_readiness TEXT NOT NULL,
+    ai_readiness TEXT NOT NULL CHECK(ai_readiness IN (
+        'not_ready_for_ai','ready_for_ai_with_issues','ready_for_ai','blocked_for_ai'
+    )),
+    state TEXT NOT NULL CHECK(state IN ('open','ready_with_issues','ready','blocked','superseded')),
+    topic_revision TEXT NOT NULL,
+    hierarchy_revision TEXT NOT NULL,
+    review_revision TEXT NOT NULL,
+    relation_revision TEXT NOT NULL,
+    coverage_json TEXT NOT NULL DEFAULT '{}',
+    unresolved_json TEXT NOT NULL DEFAULT '[]',
+    blocking_json TEXT NOT NULL DEFAULT '[]',
+    pipeline_versions_json TEXT NOT NULL DEFAULT '{}',
+    snapshot_payload_json TEXT NOT NULL,
+    snapshot_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TRIGGER document_closure_snapshots_no_update
+BEFORE UPDATE ON document_closure_snapshots
+BEGIN SELECT RAISE(ABORT, 'closure snapshots are immutable'); END;
+
+CREATE TRIGGER document_closure_snapshots_no_delete
+BEFORE DELETE ON document_closure_snapshots
+BEGIN SELECT RAISE(ABORT, 'closure snapshots are immutable'); END;
+
+CREATE INDEX ix_audit_exports_version ON document_audit_exports(source_version_id,created_at);
+CREATE INDEX ix_audit_imports_version ON document_audit_imports(source_version_id,created_at);
+CREATE INDEX ix_audit_import_decisions_import ON document_audit_import_decisions(import_id,ordinal);
+CREATE INDEX ix_closure_snapshots_version ON document_closure_snapshots(source_version_id,created_at);
+"""
+
+_ROLLBACK_0011 = """
+DROP INDEX IF EXISTS ix_closure_snapshots_version;
+DROP INDEX IF EXISTS ix_audit_import_decisions_import;
+DROP INDEX IF EXISTS ix_audit_imports_version;
+DROP INDEX IF EXISTS ix_audit_exports_version;
+DROP TRIGGER IF EXISTS document_closure_snapshots_no_delete;
+DROP TRIGGER IF EXISTS document_closure_snapshots_no_update;
+DROP TABLE IF EXISTS document_closure_snapshots;
+DROP TABLE IF EXISTS document_audit_import_decisions;
+DROP TABLE IF EXISTS document_audit_imports;
+DROP TABLE IF EXISTS document_audit_exports;
+DELETE FROM library_schema WHERE version=11;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1631,6 +1751,9 @@ class LibraryDatabase:
                 current = 9
             if current < 10:
                 self._apply_migration(connection, 10, _MIGRATION_0010)
+                current = 10
+            if current < 11:
+                self._apply_migration(connection, 11, _MIGRATION_0011)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -1691,6 +1814,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 10")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0010)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_11(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 11:
+                raise RuntimeError("library schema rollback requires version 11")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0011)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

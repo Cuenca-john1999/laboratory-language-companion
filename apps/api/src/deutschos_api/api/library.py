@@ -9,10 +9,12 @@ from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from deutschos_api.db.session import get_db
+from deutschos_api.educational_library.audit import DocumentAuditService
 from deutschos_api.educational_library.canonical_route import CanonicalRouteService
 from deutschos_api.educational_library.comparisons import DocumentComparisonService
 from deutschos_api.educational_library.dependencies import (
     get_canonical_route,
+    get_document_audit,
     get_document_comparisons,
     get_document_intelligence,
     get_document_review,
@@ -34,6 +36,12 @@ from deutschos_api.educational_library.review import DocumentReviewService
 from deutschos_api.educational_library.routing import LibraryModelRouter
 from deutschos_api.educational_library.runs import DocumentRunService
 from deutschos_api.educational_library.schemas import (
+    AuditDecisionSet,
+    AuditExportPreview,
+    AuditExportRead,
+    AuditExportRequest,
+    AuditImportRead,
+    AuditValidationRead,
     CandidateDecisionRead,
     CandidateDecisionRequest,
     CandidateDecisionRevertRequest,
@@ -44,6 +52,8 @@ from deutschos_api.educational_library.schemas import (
     CanonicalTopicRead,
     CanonicalTopicReviewRequest,
     ChunkRead,
+    ClosureSnapshotRead,
+    ClosureStatusRead,
     ComparisonEventRead,
     ConceptAliasCreate,
     ConceptRelationCreate,
@@ -1235,6 +1245,229 @@ def document_review_events(
 ) -> list[CandidateDecisionRead]:
     try:
         return service.events(source_version_id, limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/versions/{source_version_id}/exports/preview",
+    response_model=AuditExportPreview,
+)
+def preview_document_audit_export(
+    source_version_id: int,
+    request: AuditExportRequest,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditExportPreview:
+    try:
+        return service.preview(
+            source_version_id,
+            mode=request.mode,
+            selection=request.selection,
+            include_visuals=request.include_visuals,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/versions/{source_version_id}/exports",
+    response_model=AuditExportRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_document_audit_export(
+    source_version_id: int,
+    request: AuditExportRequest,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditExportRead:
+    try:
+        return service.create_export(
+            source_version_id,
+            mode=request.mode,
+            selection=request.selection,
+            include_visuals=request.include_visuals,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/audit/exports", response_model=list[AuditExportRead])
+def list_document_audit_exports(
+    source_version_id: int | None = Query(default=None, gt=0),
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> list[AuditExportRead]:
+    try:
+        return service.exports(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/audit/exports/{export_id}", response_model=AuditExportRead)
+def document_audit_export_detail(
+    export_id: str,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditExportRead:
+    try:
+        return service.export_detail(export_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/audit/exports/{export_id}/manifest", response_model=dict[str, Any])
+def document_audit_export_manifest(
+    export_id: str,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> dict[str, Any]:
+    try:
+        return service.manifest(export_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/audit/exports/{export_id}/download",
+    response_class=FileResponse,
+)
+def download_document_audit_export(
+    export_id: str,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> FileResponse:
+    try:
+        path = service.archive_path(export_id)
+        return FileResponse(path, media_type="application/zip", filename=path.name)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/imports/validate",
+    response_model=AuditValidationRead,
+)
+def validate_document_audit_decisions(
+    request: AuditDecisionSet,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditValidationRead:
+    try:
+        return service.validate_decision_set(request.model_dump(mode="json"))
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/imports/dry-run",
+    response_model=AuditValidationRead,
+)
+def dry_run_document_audit_decisions(
+    request: AuditDecisionSet,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditValidationRead:
+    try:
+        return service.dry_run(request.model_dump(mode="json"))
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/imports/apply",
+    response_model=AuditImportRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def apply_document_audit_decisions(
+    request: AuditDecisionSet,
+    atomic: bool = True,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditImportRead:
+    try:
+        return service.apply_decision_set(request.model_dump(mode="json"), atomic=atomic)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/audit/imports", response_model=list[AuditImportRead])
+def list_document_audit_imports(
+    source_version_id: int | None = Query(default=None, gt=0),
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> list[AuditImportRead]:
+    try:
+        return service.imports(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/audit/imports/{import_id}", response_model=AuditImportRead)
+def document_audit_import_detail(
+    import_id: str,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> AuditImportRead:
+    try:
+        return service.import_detail(import_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/audit/versions/{source_version_id}/closure",
+    response_model=ClosureStatusRead,
+)
+def document_audit_closure_status(
+    source_version_id: int,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> ClosureStatusRead:
+    try:
+        return service.closure_status(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/versions/{source_version_id}/readiness/recalculate",
+    response_model=DocumentReadinessRead,
+)
+def recalculate_document_audit_readiness(
+    source_version_id: int,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> DocumentReadinessRead:
+    try:
+        return service.recalculate_readiness(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/audit/versions/{source_version_id}/snapshots",
+    response_model=ClosureSnapshotRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_document_closure_snapshot(
+    source_version_id: int,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> ClosureSnapshotRead:
+    try:
+        return service.create_snapshot(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/audit/snapshots", response_model=list[ClosureSnapshotRead])
+def list_document_closure_snapshots(
+    source_version_id: int | None = Query(default=None, gt=0),
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> list[ClosureSnapshotRead]:
+    try:
+        return service.snapshots(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/audit/snapshots/{snapshot_id}",
+    response_model=ClosureSnapshotRead,
+)
+def document_closure_snapshot_detail(
+    snapshot_id: str,
+    service: DocumentAuditService = Depends(get_document_audit),
+) -> ClosureSnapshotRead:
+    try:
+        return service.snapshot(snapshot_id)
     except Exception as exc:
         raise _translate(exc) from exc
 

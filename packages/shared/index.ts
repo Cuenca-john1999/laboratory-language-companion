@@ -1045,6 +1045,107 @@ export type DocumentReviewSummary = {
   items: DocumentReviewSummaryItem[];
 };
 
+export type AuditExportMode = "full" | "review_only" | "targeted";
+
+export type AuditExportRequest = {
+  mode: AuditExportMode;
+  selection: Record<string, unknown>;
+  include_visuals: boolean;
+};
+
+export type AuditExportPreview = AuditExportRequest & {
+  source_version_id: number;
+  counts: Record<string, number>;
+  estimated_size_bytes: number;
+  visual_asset_count: number;
+  affected_pages: number[];
+  readiness: string;
+  ai_readiness: string;
+};
+
+export type AuditExport = {
+  id: string;
+  source_id: string;
+  source_version_id: number;
+  document_hash: string;
+  review_run_id: string | null;
+  package_schema: string;
+  export_mode: AuditExportMode;
+  selection: Record<string, unknown>;
+  include_visuals: boolean;
+  state: string;
+  relative_path: string | null;
+  manifest: Record<string, unknown>;
+  logical_hash: string | null;
+  archive_sha256: string | null;
+  size_bytes: number | null;
+  counts: Record<string, number>;
+  error_code: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type AuditDecisionSet = {
+  decision_schema: "audit-decisions.v1";
+  package_logical_hash: string;
+  source_id: string;
+  source_version_id: number;
+  document_hash: string;
+  reviewer: string;
+  reviewed_at: string;
+  decisions: Array<Record<string, unknown>>;
+};
+
+export type AuditValidation = {
+  valid: boolean;
+  decision_set_hash: string;
+  applicable: unknown[];
+  stale: unknown[];
+  conflicts: unknown[];
+  invalid: unknown[];
+  no_effect: unknown[];
+  estimated_impact: Record<string, unknown>;
+};
+
+export type AuditImport = {
+  id: string;
+  source_id: string;
+  source_version_id: number;
+  reviewer: string;
+  state: string;
+  decision_count: number;
+  applied_count: number;
+  created_at: string;
+  applied_at: string | null;
+};
+
+export type ClosureStatus = {
+  source_id: string;
+  source_version_id: number;
+  source_title: string;
+  document_hash: string;
+  activation_state: string;
+  structural_readiness: string;
+  ai_readiness: string;
+  blockers: unknown[];
+  queue: { P0: number; P1: number; P2: number };
+  unresolved_topics: number;
+  visual_pending: number;
+  latest_snapshot: Record<string, unknown> | null;
+};
+
+export type ClosureSnapshot = {
+  id: string;
+  source_id: string;
+  source_version_id: number;
+  document_hash: string;
+  structural_readiness: string;
+  ai_readiness: string;
+  state: string;
+  snapshot_hash: string;
+  created_at: string;
+};
+
 export type DocumentReviewQueueItem = {
   id: string;
   source_id: string;

@@ -22,7 +22,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 9 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 11 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -48,8 +48,46 @@ propuestas. La versión 9 añade bloques de página observados, candidatos
 estructurales append-only, jerarquía propuesta y trazabilidad explícita entre
 candidatas sustituidas. El rollback v9 elimina solo esas tablas y columna nuevas;
 no reconstruye ni inventa candidatos históricos.
+La versión 10 añade decisiones editoriales append-only, consolidación de temas,
+jerarquía y relaciones, clasificación visual y readiness estructural. La versión
+11 registra metadata de export/import y snapshots documentales; los paquetes
+continúan fuera de SQLite.
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
+
+## Auditoría externa y cierre documental
+
+El Laboratorio expone una sección **Auditoría** para las versiones documentales
+candidatas. La vista mantiene separado el readiness estructural del readiness para
+lectura IA, muestra bloqueadores, cola P1/P2, temas sin identidad y pendientes
+visuales, y conserva un historial breve de snapshots inmutables.
+
+Los paquetes `audit-package.v1` se generan fuera de Git en
+`var/educational-library/exports/`. `full` contiene la representación completa;
+`review_only` limita el alcance a incidencias y su contexto; `targeted` selecciona
+temas, páginas, candidatos, relaciones o elementos de revisión. Antes de crear un
+ZIP la API devuelve páginas, elementos, tamaño estimado y número de imágenes. Las
+imágenes solo se derivan del PDF bajo petición explícita y no se interpretan con
+Vision.
+
+`manifest.json` liga el paquete a fuente, versión, hash del PDF, esquema de base,
+pipelines y revisiones. Cada archivo tiene tamaño y SHA-256, además de un hash
+lógico reproducible del contenido. Es una garantía de integridad, no de identidad
+criptográfica del revisor. El PDF se comparte siempre por separado.
+
+Un import `audit-decisions.v1` sigue obligatoriamente este flujo:
+
+1. seleccionar JSON (sin escritura);
+2. validar identidad, hashes, targets y estados esperados;
+3. ejecutar dry-run;
+4. revisar aplicables, stale, conflictos, inválidas y sin efecto;
+5. confirmar Apply atómico.
+
+Las decisiones aplicadas se añaden al ledger como `external_audit`; no borran
+eventos previos. Solo se recalculan proyecciones editoriales y readiness. Los
+snapshots fijan el estado documental, pero incluso `ready_for_ai` mantiene la
+versión como candidata. Véase
+[ADR 0016](adr/0016-document-audit-export-and-closure.md).
 
 El inventario documental explícito calcula SHA-256 sin extraer texto. La misma
 ruta con hash nuevo crea una `SourceVersion` candidata dentro de la misma fuente,

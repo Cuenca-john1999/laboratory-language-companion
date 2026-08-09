@@ -16,7 +16,7 @@ from deutschos_api.main import app
 @pytest.fixture
 def review_library(tmp_path: Path):
     database = LibraryDatabase(tmp_path / "library.sqlite3")
-    assert database.migrate() == 10
+    assert database.migrate() == 11
     now = "2026-08-09T12:00:00+00:00"
     digest = hashlib.sha256(b"synthetic-review-document").hexdigest()
     with database.transaction(immediate=True) as connection:
@@ -374,6 +374,11 @@ def test_schema_10_rollback_removes_only_review_layer(review_library):
         before = connection.execute(
             "SELECT count(*) FROM document_structure_candidates"
         ).fetchone()[0]
+    assert database.rollback_version_11() == 10
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='document_audit_exports'"
+        ).fetchone() is None
     assert database.rollback_version_10() == 9
     with database.connect() as connection:
         assert (
@@ -386,7 +391,7 @@ def test_schema_10_rollback_removes_only_review_layer(review_library):
             ).fetchone()
             is None
         )
-    assert database.migrate() == 10
+    assert database.migrate() == 11
     assert database.integrity() == ("ok", [])
 
 

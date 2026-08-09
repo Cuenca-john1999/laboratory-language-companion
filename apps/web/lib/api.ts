@@ -1,4 +1,10 @@
 import type {
+  AuditDecisionSet,
+  AuditExport,
+  AuditExportPreview,
+  AuditExportRequest,
+  AuditImport,
+  AuditValidation,
   CurriculumResponse,
   ComparisonEvent,
   ConsolidatedNode,
@@ -70,6 +76,8 @@ import type {
   StructureCandidate,
   StructureCandidateList,
   VersionComparison,
+  ClosureSnapshot,
+  ClosureStatus,
 } from "@deutschos/shared";
 
 export const API_URL =
@@ -705,6 +713,54 @@ export const getConsolidatedHierarchy = (sourceVersionId: number) =>
 export const getExerciseSolutionRelations = (sourceVersionId: number) =>
   api<ExerciseSolutionRelation[]>(
     `/api/library/laboratory/review/versions/${sourceVersionId}/exercise-solutions`,
+  );
+export const previewDocumentAuditExport = (
+  sourceVersionId: number,
+  payload: AuditExportRequest,
+) =>
+  api<AuditExportPreview>(
+    `/api/library/laboratory/audit/versions/${sourceVersionId}/exports/preview`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+export const createDocumentAuditExport = (
+  sourceVersionId: number,
+  payload: AuditExportRequest,
+) =>
+  api<AuditExport>(
+    `/api/library/laboratory/audit/versions/${sourceVersionId}/exports`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+export const getDocumentAuditExports = (sourceVersionId?: number) =>
+  api<AuditExport[]>(
+    `/api/library/laboratory/audit/exports${sourceVersionId ? `?source_version_id=${sourceVersionId}` : ""}`,
+  );
+export const validateDocumentAuditDecisions = (payload: AuditDecisionSet) =>
+  api<AuditValidation>("/api/library/laboratory/audit/imports/validate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const dryRunDocumentAuditDecisions = (payload: AuditDecisionSet) =>
+  api<AuditValidation>("/api/library/laboratory/audit/imports/dry-run", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const applyDocumentAuditDecisions = (payload: AuditDecisionSet) =>
+  api<AuditImport>("/api/library/laboratory/audit/imports/apply?atomic=true", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+export const getDocumentClosureStatus = (sourceVersionId: number) =>
+  api<ClosureStatus>(
+    `/api/library/laboratory/audit/versions/${sourceVersionId}/closure`,
+  );
+export const getDocumentClosureSnapshots = (sourceVersionId?: number) =>
+  api<ClosureSnapshot[]>(
+    `/api/library/laboratory/audit/snapshots${sourceVersionId ? `?source_version_id=${sourceVersionId}` : ""}`,
+  );
+export const createDocumentClosureSnapshot = (sourceVersionId: number) =>
+  api<ClosureSnapshot>(
+    `/api/library/laboratory/audit/versions/${sourceVersionId}/snapshots`,
+    { method: "POST" },
   );
 export const executeDocumentPreflight = (runId: string) =>
   api<DocumentRunDetail>(

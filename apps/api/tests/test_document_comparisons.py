@@ -113,10 +113,11 @@ def test_model_identity_hash_idempotency_stale_and_rollback(comparison_library):
     assert service.execute(first.id).state == "stale"
 
     database = comparison_library.database
+    assert database.rollback_version_11() == 10
     assert database.rollback_version_10() == 9
     assert database.rollback_version_9() == 8
     assert database.rollback_version_8() == 7
-    assert database.migrate() == 10
+    assert database.migrate() == 11
     assert database.integrity() == ("ok", [])
 
 

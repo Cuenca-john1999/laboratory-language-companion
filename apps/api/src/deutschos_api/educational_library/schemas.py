@@ -1028,6 +1028,153 @@ class DocumentReadinessRead(APIModel):
     created_at: datetime | None = None
 
 
+class AuditExportRequest(APIModel):
+    mode: Literal["full", "review_only", "targeted"]
+    selection: dict[str, JsonValue] = Field(default_factory=dict)
+    include_visuals: bool = False
+
+
+class AuditExportPreview(APIModel):
+    source_version_id: int
+    mode: str
+    selection: dict[str, JsonValue]
+    include_visuals: bool
+    counts: dict[str, int]
+    estimated_size_bytes: int
+    visual_asset_count: int
+    affected_pages: list[int]
+    readiness: str
+    ai_readiness: str
+
+
+class AuditExportRead(APIModel):
+    id: str
+    source_id: str
+    source_version_id: int
+    document_hash: str
+    review_run_id: str | None
+    package_schema: str
+    export_mode: str
+    selection: dict[str, JsonValue]
+    include_visuals: bool
+    state: str
+    relative_path: str | None
+    manifest: dict[str, JsonValue]
+    logical_hash: str | None
+    archive_sha256: str | None
+    size_bytes: int | None
+    counts: dict[str, int]
+    error_code: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class AuditDecision(APIModel):
+    target_type: Literal["candidate", "topic", "relation", "visual"]
+    target_id: str = Field(min_length=1)
+    expected_previous_state: str = Field(min_length=1)
+    action: Literal[
+        "confirm",
+        "reject",
+        "support",
+        "mark_conflicted",
+        "choose_primary",
+        "change_type",
+        "change_parent",
+        "adjust_printed_page",
+        "confirm_relation",
+        "reject_relation",
+        "classify_visual",
+        "resolve_topic_identity",
+    ]
+    replacement: dict[str, JsonValue] | None = None
+    evidence_references: list[str]
+    rationale: str = Field(min_length=1, max_length=4_000)
+    confidence: float = Field(ge=0, le=1)
+    note: str | None = Field(default=None, max_length=2_000)
+
+
+class AuditDecisionSet(APIModel):
+    decision_schema: Literal["audit-decisions.v1"]
+    package_logical_hash: str = Field(min_length=64, max_length=64)
+    source_id: str
+    source_version_id: int
+    document_hash: str = Field(min_length=64, max_length=64)
+    reviewer: str = Field(min_length=1, max_length=200)
+    reviewed_at: datetime
+    decisions: list[AuditDecision] = Field(min_length=1, max_length=1_000)
+
+
+class AuditValidationRead(APIModel):
+    valid: bool
+    decision_set_hash: str
+    applicable: list[JsonValue]
+    stale: list[JsonValue]
+    conflicts: list[JsonValue]
+    invalid: list[JsonValue]
+    no_effect: list[JsonValue]
+    estimated_impact: dict[str, JsonValue]
+
+
+class AuditImportRead(APIModel):
+    id: str
+    export_id: str | None
+    source_id: str
+    source_version_id: int
+    document_hash: str
+    package_logical_hash: str
+    decision_schema: str
+    decision_set_hash: str
+    reviewer: str
+    reviewed_at: datetime
+    mode: str
+    state: str
+    decision_count: int
+    applied_count: int
+    validation: dict[str, JsonValue]
+    impact: dict[str, JsonValue]
+    created_at: datetime
+    applied_at: datetime | None
+    decisions: list[dict[str, JsonValue]] = Field(default_factory=list)
+
+
+class ClosureStatusRead(APIModel):
+    source_id: str
+    source_version_id: int
+    source_title: str
+    document_hash: str
+    activation_state: str
+    structural_readiness: str
+    ai_readiness: str
+    blockers: list[JsonValue]
+    queue: dict[str, int]
+    unresolved_topics: int
+    visual_pending: int
+    latest_snapshot: dict[str, JsonValue] | None
+
+
+class ClosureSnapshotRead(APIModel):
+    id: str
+    source_id: str
+    source_version_id: int
+    document_hash: str
+    review_run_id: str | None
+    structural_readiness: str
+    ai_readiness: str
+    state: str
+    topic_revision: str
+    hierarchy_revision: str
+    review_revision: str
+    relation_revision: str
+    coverage: dict[str, JsonValue]
+    unresolved: list[JsonValue]
+    blocking: list[JsonValue]
+    pipeline_versions: dict[str, JsonValue]
+    snapshot_payload: dict[str, JsonValue]
+    snapshot_hash: str
+    created_at: datetime
+
+
 class VersionComparisonCreate(APIModel):
     base_source_version_id: int = Field(gt=0)
     target_source_version_id: int = Field(gt=0)

@@ -9,6 +9,7 @@ from deutschos_api.core.model_roles import (
 from deutschos_api.providers.base import ModelProvider
 from deutschos_api.providers.dependencies import get_model_provider
 
+from .audit import DocumentAuditService
 from .cache import LibraryCache
 from .canonical_route import CanonicalRouteService
 from .comparisons import DocumentComparisonService
@@ -51,6 +52,12 @@ def get_document_review(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> DocumentReviewService:
     return DocumentReviewService(service.database)
+
+
+def get_document_audit(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> DocumentAuditService:
+    return DocumentAuditService(service.database, service.root)
 
 
 def get_library_search(
