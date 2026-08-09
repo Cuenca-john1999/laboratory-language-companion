@@ -22,7 +22,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 6 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 9 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -40,6 +40,14 @@ observados, hash, tamaño, páginas, estados de disponibilidad/extracción/chunk
 embeddings/activación, procedencia técnica y relación con la versión anterior.
 Un índice parcial impide que una fuente tenga dos versiones activas. La migración
 incluye backfill conservador y rollback formal a la versión 5.
+La versión 7 añade ejecuciones ligadas a versión y hash exactos, catálogo de
+etapas, estados por página, incidencias, eventos y cobertura multidimensional.
+La versión 8 incorpora artefactos regenerables, comparaciones 1:1, 1:N, N:1 y
+N:M, correspondencias revisables y planes de transferencia que son únicamente
+propuestas. La versión 9 añade bloques de página observados, candidatos
+estructurales append-only, jerarquía propuesta y trazabilidad explícita entre
+candidatas sustituidas. El rollback v9 elimina solo esas tablas y columna nuevas;
+no reconstruye ni inventa candidatos históricos.
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 
@@ -351,6 +359,30 @@ herramientas avanzadas permiten construir o revisar secciones, evaluar páginas,
 reprocesar selectivamente y elegir una variante sin sobrescribir extracción ni
 originales.
 
+## Extracción estructural observada
+
+La sección **Extracción** de `/laboratory` ejecuta exclusivamente estas etapas:
+`pdf-preflight.v1`, `page-materialization.v1`,
+`embedded-text-extraction.v1`, `layout-analysis.v1`,
+`structure-candidate-extraction.v1`, `coverage-reconciliation.v1` y
+`version-comparison.v1`. El motor es Poppler. Lee la capa de texto ya incrustada,
+conserva palabras, líneas, bloques, coordenadas, geometría, orden de lectura y
+regiones visuales observadas, y escribe miniaturas regenerables bajo el runtime
+con una clave de hash y página.
+
+Los candidatos distinguen texto observado de normalización conservadora de
+layout. Reglas deterministas pueden proponer títulos, temas, niveles, apartados,
+ejemplos, tablas, ejercicios y soluciones, pero nunca corrigen el OCR como verdad,
+resumen, traducen ni publican conceptos pedagógicos. Los estados son `proposed`,
+`auto_supported`, `needs_review`, `rejected_by_rule` y `superseded`. Repetir
+páginas crea una pasada hija y conserva la evidencia anterior.
+
+Las mutaciones de cada etapa son `POST` explícitos bajo
+`/api/library/laboratory/runs/{run_id}`. Bloques, candidatos paginados, jerarquía,
+cobertura, incidencias, eventos y miniaturas son lecturas separadas. No existen
+acciones de OCR, LLM, chunking, embeddings, confirmación editorial, publicación o
+activación dentro de este pipeline.
+
 ## API
 
 - `GET /api/library/status`, `GET /api/library/inventory`
@@ -370,6 +402,12 @@ originales.
 - revisión de tema en `/canonical-route/topics/{theme_number}/review` y reversión
   en `/canonical-route/revert`
 - `POST /api/library/grounded/generate`, `GET /api/library/grounded/{id}`
+- creación de extracción bajo `/laboratory/extraction/runs`; ejecución explícita
+  de preflight, páginas, texto, layout, candidatos, cobertura y comparación bajo
+  `/laboratory/runs/{run_id}`
+- bloques paginables por ejecución/página y candidatos filtrables bajo
+  `/laboratory/extraction/candidates`
+- jerarquía y miniaturas bajo `/laboratory/extraction/versions/{version_id}`
 
 Las rutas no aceptan paths del filesystem, paginan resultados, sanitizan errores
 y no exponen documentos completos. El trabajo pesado se ejecuta fuera del event

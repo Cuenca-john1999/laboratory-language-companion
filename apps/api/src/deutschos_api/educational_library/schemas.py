@@ -749,6 +749,89 @@ class DocumentStageRetryRequest(APIModel):
     failed_pages_only: bool = True
 
 
+class DocumentPageRepeatRequest(APIModel):
+    pages: list[int] = Field(min_length=1, max_length=500)
+    reason: str | None = Field(default=None, max_length=1_000)
+    initiated_by: str | None = Field(default=None, max_length=120)
+
+    @field_validator("pages")
+    @classmethod
+    def valid_pages(cls, value: list[int]) -> list[int]:
+        if any(page < 1 for page in value):
+            raise ValueError("pages use one-based PDF numbers")
+        return sorted(set(value))
+
+
+class DocumentPageBlockRead(APIModel):
+    id: str
+    page_id: int
+    run_id: str
+    stage: str
+    block_index: int = Field(ge=0)
+    block_type: str
+    subtype: str | None
+    raw_text: str | None
+    normalized_layout_text: str | None
+    bbox: list[float] | None
+    reading_order: int = Field(ge=0)
+    column_index: int | None
+    confidence: float = Field(ge=0, le=1)
+    evidence: dict[str, JsonValue]
+    issues: list[JsonValue]
+    extractor: str
+    extractor_version: str
+
+
+class StructureCandidateRead(APIModel):
+    id: str
+    source_id: str
+    source_version_id: int
+    page_id: int
+    pdf_page_number: int = Field(gt=0)
+    run_id: str
+    block_id: str | None
+    stage: str
+    candidate_type: str
+    subtype: str | None
+    raw_text: str | None
+    normalized_layout_text: str | None
+    correction_candidate: str | None
+    correction_reason: str | None
+    position: dict[str, JsonValue]
+    bbox: list[float] | None
+    reading_order: int = Field(ge=0)
+    parent_candidate_id: str | None
+    hierarchy_level: int | None
+    observed_pedagogical_level: str | None
+    observed_topic: str | None
+    canonical_match_state: str | None
+    canonical_topic_number: int | None
+    proposed_printed_page: str | None
+    confidence: float = Field(ge=0, le=1)
+    status: str
+    evidence: dict[str, JsonValue]
+    extractor: str
+    extractor_version: str
+    configuration: dict[str, JsonValue]
+    issues: list[JsonValue]
+    needs_review: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class StructureCandidateList(APIModel):
+    items: list[StructureCandidateRead]
+    page: int = Field(gt=0)
+    page_size: int = Field(gt=0)
+    total: int = Field(ge=0)
+    pages: int = Field(ge=0)
+
+
+class ProposedHierarchyNode(APIModel):
+    candidate: StructureCandidateRead
+    children: list[ProposedHierarchyNode] = Field(default_factory=list)
+
+
 class VersionComparisonCreate(APIModel):
     base_source_version_id: int = Field(gt=0)
     target_source_version_id: int = Field(gt=0)

@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 8
+LIBRARY_SCHEMA_VERSION = 9
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1264,6 +1264,114 @@ DROP TABLE IF EXISTS document_page_artifacts;
 DELETE FROM library_schema WHERE version=8;
 """
 
+_MIGRATION_0009 = """
+ALTER TABLE source_versions
+    ADD COLUMN superseded_by_version_id INTEGER REFERENCES source_versions(id) ON DELETE SET NULL;
+
+CREATE TABLE document_page_blocks (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    page_id INTEGER NOT NULL REFERENCES document_pages(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    stage TEXT NOT NULL,
+    block_index INTEGER NOT NULL CHECK(block_index >= 0),
+    block_type TEXT NOT NULL CHECK(block_type IN (
+        'text','image','probable_table','probable_header','probable_footer',
+        'probable_page_number','margin','column','graphic_region','unknown_region'
+    )),
+    subtype TEXT,
+    raw_text TEXT,
+    normalized_layout_text TEXT,
+    bbox_json TEXT,
+    reading_order INTEGER NOT NULL CHECK(reading_order >= 0),
+    column_index INTEGER,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    extractor TEXT NOT NULL,
+    extractor_version TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, page_id, stage, block_index)
+);
+
+CREATE TABLE document_structure_candidates (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE CASCADE,
+    page_id INTEGER NOT NULL REFERENCES document_pages(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    block_id TEXT REFERENCES document_page_blocks(id) ON DELETE SET NULL,
+    stage TEXT NOT NULL,
+    candidate_type TEXT NOT NULL CHECK(candidate_type IN (
+        'document_title','front_matter','index_entry','topic_heading','section_heading',
+        'subsection_heading','level_marker','paragraph','rule_block','example','note',
+        'warning','table','list','diagram','exercise_heading','exercise_instruction',
+        'exercise_item','solution_heading','solution_item','bibliography',
+        'printed_page_number','cross_reference','unknown_block'
+    )),
+    subtype TEXT,
+    raw_text TEXT,
+    normalized_layout_text TEXT,
+    correction_candidate TEXT,
+    correction_reason TEXT,
+    position_json TEXT NOT NULL DEFAULT '{}',
+    bbox_json TEXT,
+    reading_order INTEGER NOT NULL CHECK(reading_order >= 0),
+    parent_candidate_id TEXT REFERENCES document_structure_candidates(id) ON DELETE SET NULL,
+    hierarchy_level INTEGER CHECK(hierarchy_level IS NULL OR hierarchy_level >= 0),
+    observed_pedagogical_level TEXT,
+    observed_topic TEXT,
+    canonical_match_state TEXT CHECK(canonical_match_state IS NULL OR canonical_match_state IN (
+        'exact_match','normalized_match','probable_match','ambiguous','no_match'
+    )),
+    canonical_topic_number INTEGER CHECK(
+        canonical_topic_number IS NULL OR canonical_topic_number BETWEEN 1 AND 51
+    ),
+    proposed_printed_page TEXT,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    status TEXT NOT NULL CHECK(status IN (
+        'proposed','auto_supported','needs_review','rejected_by_rule','superseded'
+    )),
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    extractor TEXT NOT NULL,
+    extractor_version TEXT NOT NULL,
+    configuration_json TEXT NOT NULL DEFAULT '{}',
+    issues_json TEXT NOT NULL DEFAULT '[]',
+    needs_review INTEGER NOT NULL DEFAULT 0 CHECK(needs_review IN (0, 1)),
+    superseded_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, page_id, reading_order, candidate_type)
+);
+
+CREATE INDEX ix_page_blocks_page
+    ON document_page_blocks(source_version_id, page_id, reading_order);
+CREATE INDEX ix_page_blocks_run
+    ON document_page_blocks(run_id, block_type, page_id);
+CREATE INDEX ix_structure_candidates_version
+    ON document_structure_candidates(
+        source_version_id, status, candidate_type, page_id, reading_order
+    );
+CREATE INDEX ix_structure_candidates_run
+    ON document_structure_candidates(run_id, status, needs_review, confidence);
+CREATE INDEX ix_structure_candidates_parent
+    ON document_structure_candidates(parent_candidate_id, reading_order);
+"""
+
+_ROLLBACK_0009 = """
+DROP INDEX IF EXISTS ix_structure_candidates_parent;
+DROP INDEX IF EXISTS ix_structure_candidates_run;
+DROP INDEX IF EXISTS ix_structure_candidates_version;
+DROP INDEX IF EXISTS ix_page_blocks_run;
+DROP INDEX IF EXISTS ix_page_blocks_page;
+DROP TABLE IF EXISTS document_structure_candidates;
+DROP TABLE IF EXISTS document_page_blocks;
+ALTER TABLE source_versions DROP COLUMN superseded_by_version_id;
+DELETE FROM library_schema WHERE version=9;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1312,6 +1420,9 @@ class LibraryDatabase:
                 current = 7
             if current < 8:
                 self._apply_migration(connection, 8, _MIGRATION_0008)
+                current = 8
+            if current < 9:
+                self._apply_migration(connection, 9, _MIGRATION_0009)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -1346,6 +1457,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 8")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0008)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_9(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 9:
+                raise RuntimeError("library schema rollback requires version 9")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0009)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

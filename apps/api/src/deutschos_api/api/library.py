@@ -5,7 +5,7 @@ import json
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from deutschos_api.db.session import get_db
@@ -23,6 +23,7 @@ from deutschos_api.educational_library.dependencies import (
     get_library_search,
     get_library_service,
     get_library_teacher,
+    get_structured_extraction,
 )
 from deutschos_api.educational_library.document_intelligence import DocumentIntelligenceService
 from deutschos_api.educational_library.editorial import LibraryEditorialService
@@ -49,7 +50,9 @@ from deutschos_api.educational_library.schemas import (
     CorrespondenceRead,
     CoverageSnapshotRead,
     DocumentInventoryResult,
+    DocumentPageBlockRead,
     DocumentPageList,
+    DocumentPageRepeatRequest,
     DocumentRunCreate,
     DocumentRunDetail,
     DocumentRunEventRead,
@@ -104,6 +107,7 @@ from deutschos_api.educational_library.schemas import (
     PedagogicalMemoryImportRequest,
     PedagogicalMemoryStatus,
     PedagogicalMemorySummary,
+    ProposedHierarchyNode,
     QueryMemoryRead,
     ScanRequest,
     SearchResponse,
@@ -113,6 +117,8 @@ from deutschos_api.educational_library.schemas import (
     SourceStatus,
     SourceUpdateRequest,
     SourceVersionRead,
+    StructureCandidateList,
+    StructureCandidateRead,
     TeacherAskRequest,
     TeacherConversationSummary,
     TeacherFailureReason,
@@ -125,6 +131,7 @@ from deutschos_api.educational_library.schemas import (
 from deutschos_api.educational_library.search import EducationalSearchService
 from deutschos_api.educational_library.semantic import SemanticIndexCoordinator
 from deutschos_api.educational_library.service import EducationalLibraryService
+from deutschos_api.educational_library.structured_extraction import StructuredExtractionService
 from deutschos_api.educational_library.teacher import (
     EducationalTeacherService,
     learner_context_from_db,
@@ -608,6 +615,21 @@ def create_document_run(
         raise _translate(exc) from exc
 
 
+@router.post(
+    "/laboratory/extraction/runs",
+    response_model=DocumentRunDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_structured_extraction_run(
+    source_version_id: int = Query(gt=0),
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.create_run(source_version_id, actor="laboratory")
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
 @router.get("/laboratory/runs/{run_id}", response_model=DocumentRunDetail)
 def document_run_detail(
     run_id: str,
@@ -709,6 +731,216 @@ def execute_document_preflight(
 ) -> DocumentRunDetail:
     try:
         return service.run_preflight(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/pdf-preflight",
+    response_model=DocumentRunDetail,
+)
+def execute_structured_pdf_preflight(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.preflight(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/pages/materialize",
+    response_model=DocumentRunDetail,
+)
+def materialize_document_pages(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.materialize_pages(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/text/extract-embedded",
+    response_model=DocumentRunDetail,
+)
+def extract_document_embedded_text(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.extract_embedded_text(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/layout/analyze",
+    response_model=DocumentRunDetail,
+)
+def analyze_document_layout(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.analyze_layout(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/candidates/extract",
+    response_model=DocumentRunDetail,
+)
+def extract_document_structure_candidates(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.extract_candidates(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/structured-coverage/reconcile",
+    response_model=DocumentRunDetail,
+)
+def reconcile_structured_document_coverage(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.reconcile_coverage(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/version-comparison",
+    response_model=DocumentRunDetail,
+)
+def compare_structured_document_version(
+    run_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.compare_version(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post(
+    "/laboratory/runs/{run_id}/pages/repeat",
+    response_model=DocumentRunDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+def repeat_structured_document_pages(
+    run_id: str,
+    request: DocumentPageRepeatRequest,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> DocumentRunDetail:
+    try:
+        return service.repeat_pages(run_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/runs/{run_id}/pages/{pdf_page_number}/blocks",
+    response_model=list[DocumentPageBlockRead],
+)
+def structured_document_page_blocks(
+    run_id: str,
+    pdf_page_number: int,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> list[DocumentPageBlockRead]:
+    try:
+        return service.blocks(run_id, pdf_page_number)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/extraction/candidates", response_model=StructureCandidateList)
+def list_structure_candidates(
+    source_version_id: int | None = Query(default=None, gt=0),
+    run_id: str | None = None,
+    pdf_page_number: int | None = Query(default=None, gt=0),
+    candidate_type: str | None = None,
+    candidate_status: str | None = Query(default=None, alias="status"),
+    topic: str | None = None,
+    level: str | None = None,
+    min_confidence: float | None = Query(default=None, ge=0, le=1),
+    with_issue: bool | None = None,
+    without_parent: bool | None = None,
+    ambiguous: bool | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> StructureCandidateList:
+    try:
+        return service.candidates(
+            source_version_id=source_version_id,
+            run_id=run_id,
+            pdf_page_number=pdf_page_number,
+            candidate_type=candidate_type,
+            status=candidate_status,
+            topic=topic,
+            level=level,
+            min_confidence=min_confidence,
+            with_issue=with_issue,
+            without_parent=without_parent,
+            ambiguous=ambiguous,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/extraction/candidates/{candidate_id}",
+    response_model=StructureCandidateRead,
+)
+def structure_candidate_detail(
+    candidate_id: str,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> StructureCandidateRead:
+    try:
+        return service.candidate(candidate_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/extraction/versions/{source_version_id}/hierarchy",
+    response_model=list[ProposedHierarchyNode],
+)
+def proposed_document_hierarchy(
+    source_version_id: int,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> list[ProposedHierarchyNode]:
+    try:
+        return service.hierarchy(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get(
+    "/laboratory/extraction/versions/{source_version_id}/pages/{pdf_page_number}/thumbnail",
+    response_class=FileResponse,
+)
+def structured_document_thumbnail(
+    source_version_id: int,
+    pdf_page_number: int,
+    service: StructuredExtractionService = Depends(get_structured_extraction),
+) -> FileResponse:
+    try:
+        path = service.thumbnail(source_version_id, pdf_page_number)
+        return FileResponse(path, media_type="image/png", filename=path.name)
     except Exception as exc:
         raise _translate(exc) from exc
 

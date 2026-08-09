@@ -287,10 +287,11 @@ async def test_laboratory_api_exposes_summary_history_versions_and_inventory(
     assert latest.json()["job_id"] == inventory.json()["job_id"]
 
 
-def test_schema_6_to_8_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
+def test_schema_6_to_9_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     database = LibraryDatabase(path)
-    assert database.migrate() == 8
+    assert database.migrate() == 9
+    assert database.rollback_version_9() == 8
     assert database.rollback_version_8() == 7
     assert database.rollback_version_7() == 6
     assert database.rollback_version_6() == 5
@@ -308,7 +309,7 @@ def test_schema_6_to_8_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
             "UPDATE sources SET current_version_id=? WHERE id='legacy'", (cursor.lastrowid,)
         )
 
-    assert database.migrate() == 8
+    assert database.migrate() == 9
     with database.connect() as connection:
         counts = connection.execute(
             "SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM source_versions),"
@@ -317,6 +318,7 @@ def test_schema_6_to_8_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
         assert tuple(counts) == (1, 1, 1)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
+    assert database.rollback_version_9() == 8
     assert database.rollback_version_8() == 7
     assert database.rollback_version_7() == 6
     assert database.rollback_version_6() == 5

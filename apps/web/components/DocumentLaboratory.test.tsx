@@ -18,14 +18,30 @@ import { DocumentLaboratory } from "./DocumentLaboratory";
 vi.mock("../lib/api", () => ({
   cancelDocumentRun: vi.fn(),
   cancelVersionComparison: vi.fn(),
+  analyzeStructuredLayout: vi.fn(),
+  compareStructuredVersion: vi.fn(),
   createDocumentRun: vi.fn(),
   createDocumentRunPass: vi.fn(),
+  createStructuredExtractionRun: vi.fn(),
   detectDocumentChanges: vi.fn(),
   executeDocumentPreflight: vi.fn(),
+  executeStructuredPreflight: vi.fn(),
   executeVersionComparison: vi.fn(),
+  extractStructureCandidates: vi.fn(),
+  extractStructuredText: vi.fn(),
   getDocumentRun: vi.fn(),
   getDocumentRunPages: vi.fn(),
   getDocumentRuns: vi.fn().mockResolvedValue([]),
+  getProposedHierarchy: vi.fn().mockResolvedValue([]),
+  getStructureCandidate: vi.fn(),
+  getStructureCandidates: vi.fn().mockResolvedValue({
+    items: [],
+    page: 1,
+    page_size: 25,
+    total: 0,
+    pages: 0,
+  }),
+  getStructuredPageBlocks: vi.fn().mockResolvedValue([]),
   getPageCorrespondences: vi.fn(),
   getLaboratorySource: vi.fn(),
   getLaboratorySources: vi.fn(),
@@ -40,10 +56,14 @@ vi.mock("../lib/api", () => ({
   revertVersionComparisonEvent: vi.fn(),
   adjustPageCorrespondence: vi.fn(),
   markPageWithoutEquivalent: vi.fn(),
+  materializeStructuredPages: vi.fn(),
   pauseDocumentRun: vi.fn(),
   reconcileDocumentCoverage: vi.fn(),
+  reconcileStructuredCoverage: vi.fn(),
+  repeatStructuredPages: vi.fn(),
   resumeDocumentRun: vi.fn(),
   retryDocumentRunStage: vi.fn(),
+  structuredThumbnailUrl: vi.fn().mockReturnValue("/thumbnail.png"),
 }));
 
 const source = {
@@ -146,6 +166,19 @@ describe("document laboratory", () => {
     expect(screen.getAllByText("Herder · Gramática").length).toBeGreaterThan(0);
     expect(screen.getByText("Activa: v1")).toBeInTheDocument();
     expect(screen.getByText("Detectada: v2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Extracción" }),
+    ).toBeInTheDocument();
+    for (const action of [
+      "Ejecutar OCR",
+      "Analizar con IA",
+      "Crear chunks",
+      "Crear embeddings",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: action }),
+      ).not.toBeInTheDocument();
+    }
 
     fireEvent.click(screen.getByRole("button", { name: "Candidatas" }));
     await waitFor(() =>

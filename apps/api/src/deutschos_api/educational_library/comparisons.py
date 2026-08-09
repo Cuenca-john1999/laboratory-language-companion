@@ -782,22 +782,27 @@ class DocumentComparisonService:
         )
 
     def _propose(self, base, target, comparison, excluded: set[int]) -> list[dict[str, Any]]:
-        window = int(json_load(comparison["configuration_json"], {}).get("window", 12))
-        threshold = float(
-            json_load(comparison["configuration_json"], {}).get("minimum_score", 0.55)
-        )
+        configuration = json_load(comparison["configuration_json"], {})
+        window = int(configuration.get("window", 12))
+        threshold = float(configuration.get("minimum_score", 0.55))
+        split_text_minimum = float(configuration.get("split_text_minimum", 0.5))
         bases = [item for item in base if item["id"] not in excluded]
         targets = [item for item in target if item["id"] not in excluded]
         proposals: list[dict[str, Any]] = []
         used_base: set[int] = set()
         used_target: set[int] = set()
+        text_split_allowed = len(targets) >= len(bases) * 1.5
+        text_combine_allowed = len(bases) >= len(targets) * 1.5
 
         # Double-page splits/combines are evaluated first so ordinal 1:1 cannot consume them.
         for page in bases:
             region = page["regions"]
+            expected = round(page["index"] * max(1, len(targets)) / max(1, len(bases)))
             for index in range(len(targets) - 1):
                 left, right = targets[index], targets[index + 1]
                 if left["id"] in used_target or right["id"] in used_target:
+                    continue
+                if abs(index - expected) > window:
                     continue
                 score_left = float(
                     region.get("left") == left["visual_hash"] and bool(left["visual_hash"])
@@ -805,19 +810,41 @@ class DocumentComparisonService:
                 score_right = float(
                     region.get("right") == right["visual_hash"] and bool(right["visual_hash"])
                 )
-                split = (score_left + score_right) / 2
-                if split >= 0.95:
+                visual_split = (score_left + score_right) / 2
+                text_split = self._combined_text_similarity(page, left, right)
+                split = max(visual_split, text_split or 0)
+                if visual_split >= 0.95 or (
+                    text_split_allowed
+                    and text_split is not None
+                    and text_split >= split_text_minimum
+                ):
                     proposals.append(
-                        self._proposal("one_to_many", [page], [left, right], split=split)
+                        self._proposal(
+                            "one_to_many",
+                            [page],
+                            [left, right],
+                            split=split,
+                            scores={
+                                "text": text_split,
+                                "visual": visual_split if visual_split else None,
+                                "geometry": None,
+                                "ordinal": None,
+                                "printed": None,
+                                "aggregate": split,
+                            },
+                        )
                     )
                     used_base.add(page["id"])
                     used_target.update({left["id"], right["id"]})
                     break
         for page in targets:
             region = page["regions"]
+            expected = round(page["index"] * max(1, len(bases)) / max(1, len(targets)))
             for index in range(len(bases) - 1):
                 left, right = bases[index], bases[index + 1]
                 if left["id"] in used_base or right["id"] in used_base:
+                    continue
+                if abs(index - expected) > window:
                     continue
                 score_left = float(
                     region.get("left") == left["visual_hash"] and bool(left["visual_hash"])
@@ -825,10 +852,29 @@ class DocumentComparisonService:
                 score_right = float(
                     region.get("right") == right["visual_hash"] and bool(right["visual_hash"])
                 )
-                split = (score_left + score_right) / 2
-                if split >= 0.95:
+                visual_split = (score_left + score_right) / 2
+                text_split = self._combined_text_similarity(page, left, right)
+                split = max(visual_split, text_split or 0)
+                if visual_split >= 0.95 or (
+                    text_combine_allowed
+                    and text_split is not None
+                    and text_split >= split_text_minimum
+                ):
                     proposals.append(
-                        self._proposal("many_to_one", [left, right], [page], split=split)
+                        self._proposal(
+                            "many_to_one",
+                            [left, right],
+                            [page],
+                            split=split,
+                            scores={
+                                "text": text_split,
+                                "visual": visual_split if visual_split else None,
+                                "geometry": None,
+                                "ordinal": None,
+                                "printed": None,
+                                "aggregate": split,
+                            },
+                        )
                     )
                     used_base.update({left["id"], right["id"]})
                     used_target.add(page["id"])
@@ -895,6 +941,26 @@ class DocumentComparisonService:
             if page["id"] not in used_target:
                 proposals.append(self._proposal("inserted", [], [page], ambiguous=False))
         return proposals
+
+    @staticmethod
+    def _combined_text_similarity(
+        single: dict[str, Any], left: dict[str, Any], right: dict[str, Any]
+    ) -> float | None:
+        if not single["text"] or not left["text"] or not right["text"]:
+            return None
+        single_shingles = set(single["shingles"])
+        combined_shingles = set(left["shingles"]) | set(right["shingles"])
+        if single_shingles and combined_shingles:
+            return len(single_shingles & combined_shingles) / len(
+                single_shingles | combined_shingles
+            )
+        single_words = _WORD.findall(normalize_text(single["text"]).casefold())
+        combined_words = _WORD.findall(
+            normalize_text(f"{left['text']}\n{right['text']}").casefold()
+        )
+        if not single_words or not combined_words:
+            return None
+        return SequenceMatcher(None, single_words, combined_words).ratio()
 
     def _scores(self, base, target, base_count: int, target_count: int) -> dict[str, Any]:
         text = (
@@ -1078,6 +1144,8 @@ class DocumentComparisonService:
         result = []
         for row in rows:
             metrics = json_load(row["text_metrics_json"], {})
+            if row["text_content"] and not metrics.get("shingles"):
+                metrics = metrics | text_fingerprint(row["text_content"])
             result.append(
                 {
                     "id": int(row["id"]),

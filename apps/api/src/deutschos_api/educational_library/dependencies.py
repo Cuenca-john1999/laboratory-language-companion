@@ -20,6 +20,7 @@ from .routing import LibraryModelRouter, ModelRoutingPolicy
 from .runs import DocumentRunService
 from .search import EducationalSearchService, LMStudioEmbeddingProvider
 from .service import EducationalLibraryService
+from .structured_extraction import StructuredExtractionService
 from .teacher import EducationalTeacherService, TeacherLimits
 
 
@@ -37,6 +38,12 @@ def get_document_comparisons(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> DocumentComparisonService:
     return DocumentComparisonService(service.database)
+
+
+def get_structured_extraction(
+    service: EducationalLibraryService = Depends(get_library_service),
+) -> StructuredExtractionService:
+    return StructuredExtractionService(service.database, service.root)
 
 
 def get_library_search(

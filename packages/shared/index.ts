@@ -956,6 +956,76 @@ export type DocumentRunPageList = {
   pages: number;
 };
 
+export type DocumentPageBlock = {
+  id: string;
+  page_id: number;
+  run_id: string;
+  stage: string;
+  block_index: number;
+  block_type: string;
+  subtype: string | null;
+  raw_text: string | null;
+  normalized_layout_text: string | null;
+  bbox: number[] | null;
+  reading_order: number;
+  column_index: number | null;
+  confidence: number;
+  evidence: Record<string, unknown>;
+  issues: unknown[];
+  extractor: string;
+  extractor_version: string;
+};
+
+export type StructureCandidate = {
+  id: string;
+  source_id: string;
+  source_version_id: number;
+  page_id: number;
+  pdf_page_number: number;
+  run_id: string;
+  block_id: string | null;
+  stage: string;
+  candidate_type: string;
+  subtype: string | null;
+  raw_text: string | null;
+  normalized_layout_text: string | null;
+  correction_candidate: string | null;
+  correction_reason: string | null;
+  position: Record<string, unknown>;
+  bbox: number[] | null;
+  reading_order: number;
+  parent_candidate_id: string | null;
+  hierarchy_level: number | null;
+  observed_pedagogical_level: string | null;
+  observed_topic: string | null;
+  canonical_match_state: string | null;
+  canonical_topic_number: number | null;
+  proposed_printed_page: string | null;
+  confidence: number;
+  status: string;
+  evidence: Record<string, unknown>;
+  extractor: string;
+  extractor_version: string;
+  configuration: Record<string, unknown>;
+  issues: unknown[];
+  needs_review: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StructureCandidateList = {
+  items: StructureCandidate[];
+  page: number;
+  page_size: number;
+  total: number;
+  pages: number;
+};
+
+export type ProposedHierarchyNode = {
+  candidate: StructureCandidate;
+  children: ProposedHierarchyNode[];
+};
+
 export type VersionComparisonState =
   | "planned"
   | "running"

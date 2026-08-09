@@ -9,6 +9,7 @@ import type {
   DocumentRun,
   DocumentRunDetail,
   DocumentRunPageList,
+  DocumentPageBlock,
   DocumentVersion,
   LearningAttemptCreate,
   LearningAttemptReceipt,
@@ -40,6 +41,7 @@ import type {
   Mistake,
   ModelsResponse,
   Profile,
+  ProposedHierarchyNode,
   Session,
   ScanLayout,
   TeacherConversationSummary,
@@ -57,6 +59,8 @@ import type {
   StudySessionDeleteResult,
   StudySessionStatus,
   StudyWorkbookLink,
+  StructureCandidate,
+  StructureCandidateList,
   VersionComparison,
 } from "@deutschos/shared";
 
@@ -574,6 +578,62 @@ export const createDocumentRun = (sourceVersionId: number) =>
       reason: "Ejecución planificada desde el Laboratorio documental",
     }),
   });
+export const createStructuredExtractionRun = (sourceVersionId: number) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/extraction/runs?source_version_id=${sourceVersionId}`,
+    { method: "POST" },
+  );
+const executeStructuredStage = (runId: string, path: string) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/${path}`,
+    { method: "POST" },
+  );
+export const executeStructuredPreflight = (runId: string) =>
+  executeStructuredStage(runId, "pdf-preflight");
+export const materializeStructuredPages = (runId: string) =>
+  executeStructuredStage(runId, "pages/materialize");
+export const extractStructuredText = (runId: string) =>
+  executeStructuredStage(runId, "text/extract-embedded");
+export const analyzeStructuredLayout = (runId: string) =>
+  executeStructuredStage(runId, "layout/analyze");
+export const extractStructureCandidates = (runId: string) =>
+  executeStructuredStage(runId, "candidates/extract");
+export const reconcileStructuredCoverage = (runId: string) =>
+  executeStructuredStage(runId, "structured-coverage/reconcile");
+export const compareStructuredVersion = (runId: string) =>
+  executeStructuredStage(runId, "version-comparison");
+export const repeatStructuredPages = (runId: string, pages: number[]) =>
+  api<DocumentRunDetail>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/pages/repeat`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        pages,
+        reason: "Repetición selectiva desde Extracción",
+      }),
+    },
+  );
+export const getStructuredPageBlocks = (runId: string, pageNumber: number) =>
+  api<DocumentPageBlock[]>(
+    `/api/library/laboratory/runs/${encodeURIComponent(runId)}/pages/${pageNumber}/blocks`,
+  );
+export const getStructureCandidates = (parameters: URLSearchParams) =>
+  api<StructureCandidateList>(
+    `/api/library/laboratory/extraction/candidates?${parameters}`,
+  );
+export const getStructureCandidate = (candidateId: string) =>
+  api<StructureCandidate>(
+    `/api/library/laboratory/extraction/candidates/${encodeURIComponent(candidateId)}`,
+  );
+export const getProposedHierarchy = (sourceVersionId: number) =>
+  api<ProposedHierarchyNode[]>(
+    `/api/library/laboratory/extraction/versions/${sourceVersionId}/hierarchy`,
+  );
+export const structuredThumbnailUrl = (
+  sourceVersionId: number,
+  pageNumber: number,
+) =>
+  `${API_URL}/api/library/laboratory/extraction/versions/${sourceVersionId}/pages/${pageNumber}/thumbnail`;
 export const executeDocumentPreflight = (runId: string) =>
   api<DocumentRunDetail>(
     `/api/library/laboratory/runs/${encodeURIComponent(runId)}/preflight`,

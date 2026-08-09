@@ -837,6 +837,18 @@ class EducationalLibraryService:
                 detected_at=detected_at,
                 change_reason="content_hash_changed_at_same_path",
             )
+            previous_candidate = connection.execute(
+                "SELECT id FROM source_versions WHERE source_id=? AND id<>? "
+                "AND activation_state='candidate' AND is_active=0 ORDER BY version_number DESC LIMIT 1",
+                (row["id"], version_id),
+            ).fetchone()
+            if previous_candidate is not None:
+                connection.execute(
+                    "UPDATE source_versions SET activation_state='superseded',"
+                    "document_state='historical',superseded_at=?,superseded_by_version_id=? "
+                    "WHERE id=?",
+                    (detected_at, version_id, previous_candidate["id"]),
+                )
             connection.execute(
                 "UPDATE sources SET current_hash=?,size_bytes=?,mtime_ns=?,name=?,kind=?,format=?,"
                 "latest_version_id=?,status='present',processing_state='pending',"

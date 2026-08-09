@@ -16,6 +16,7 @@ import {
   getLaboratorySummary,
 } from "../lib/api";
 import { DocumentRunsPanel } from "./DocumentRunsPanel";
+import { StructuredExtractionPanel } from "./StructuredExtractionPanel";
 import { DocumentComparisonsPanel } from "./DocumentComparisonsPanel";
 
 const FILTERS = [
@@ -217,6 +218,7 @@ export function DocumentLaboratory() {
       </div>
 
       <DocumentRunsPanel sources={sources} />
+      <StructuredExtractionPanel sources={sources} />
       <DocumentComparisonsPanel sources={sources} />
 
       {inventory ? (

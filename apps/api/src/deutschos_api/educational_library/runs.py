@@ -63,6 +63,31 @@ PIPELINE_STAGES: tuple[tuple[str, str, tuple[str, ...], bool], ...] = (
     ),
 )
 
+STRUCTURED_PIPELINE_STAGES: tuple[tuple[str, str, tuple[str, ...], bool], ...] = (
+    ("pdf_preflight", "pdf-preflight.v1", (), True),
+    ("page_materialization", "page-materialization.v1", ("pdf_preflight",), True),
+    (
+        "embedded_text_extraction",
+        "embedded-text-extraction.v1",
+        ("page_materialization",),
+        True,
+    ),
+    ("layout_analysis", "layout-analysis.v1", ("embedded_text_extraction",), True),
+    (
+        "structure_candidate_extraction",
+        "structure-candidate-extraction.v1",
+        ("layout_analysis",),
+        True,
+    ),
+    (
+        "coverage_reconciliation",
+        "coverage-reconciliation.v1",
+        ("structure_candidate_extraction",),
+        True,
+    ),
+    ("version_comparison", "version-comparison.v1", ("coverage_reconciliation",), True),
+)
+
 RUN_TRANSITIONS: dict[str, set[str]] = {
     "planned": {"queued", "cancelled", "stale"},
     "queued": {"running", "paused", "cancelled", "failed", "stale"},
@@ -90,6 +115,16 @@ PAGE_FILTER_STATES = {
     "failed": {"failed"},
     "needs_review": {"needs_review"},
 }
+
+_STAGE_ORDER_SQL = (
+    "CASE name "
+    "WHEN 'pdf_preflight' THEN 1 WHEN 'preflight' THEN 1 "
+    "WHEN 'page_materialization' THEN 2 WHEN 'embedded_text_extraction' THEN 3 "
+    "WHEN 'text_extraction' THEN 3 WHEN 'ocr' THEN 4 WHEN 'layout_analysis' THEN 5 "
+    "WHEN 'structure_candidate_extraction' THEN 6 WHEN 'structural_extraction' THEN 6 "
+    "WHEN 'coverage_reconciliation' THEN 7 WHEN 'version_comparison' THEN 8 "
+    "ELSE 50 END"
+)
 
 
 def stable_configuration_hash(configuration: dict[str, object]) -> str:
@@ -195,7 +230,9 @@ class DocumentRunService:
             if not row:
                 raise LibraryNotFoundError("La ejecución documental no existe.")
             stages = connection.execute(
-                "SELECT * FROM document_run_stages WHERE run_id=? ORDER BY created_at,name,attempt",
+                "SELECT * FROM document_run_stages WHERE run_id=? ORDER BY "
+                + _STAGE_ORDER_SQL
+                + ",attempt,name",
                 (run_id,),
             ).fetchall()
             snapshots = connection.execute(
@@ -219,7 +256,9 @@ class DocumentRunService:
         self._require_run(run_id)
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM document_run_stages WHERE run_id=? ORDER BY created_at,name,attempt",
+                "SELECT * FROM document_run_stages WHERE run_id=? ORDER BY "
+                + _STAGE_ORDER_SQL
+                + ",attempt,name",
                 (run_id,),
             ).fetchall()
         return [self._stage_read(row) for row in rows]
@@ -1156,9 +1195,9 @@ class DocumentRunService:
             remaining = int(
                 connection.execute(
                     "SELECT count(*) FROM document_run_stages rs WHERE run_id=? "
-                    "AND name IN ('preflight','coverage_reconciliation') "
                     "AND attempt=(SELECT max(attempt) FROM document_run_stages latest "
                     "WHERE latest.run_id=rs.run_id AND latest.name=rs.name) "
+                    "AND state<>'not_scheduled' "
                     "AND state NOT IN ('completed','completed_with_issues','skipped')",
                     (run_id,),
                 ).fetchone()[0]
@@ -1251,7 +1290,13 @@ class DocumentRunService:
         return row
 
     def _insert_stage_catalog(self, connection: sqlite3.Connection, run_id: str, now: str) -> None:
-        for name, version, dependencies, executable in PIPELINE_STAGES:
+        run_type = connection.execute(
+            "SELECT run_type FROM document_processing_runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        catalog = (
+            STRUCTURED_PIPELINE_STAGES if run_type == "structured_extraction" else PIPELINE_STAGES
+        )
+        for name, version, dependencies, executable in catalog:
             connection.execute(
                 "INSERT INTO document_run_stages("
                 "id,run_id,name,version,state,attempt,configuration_json,metrics_json,"

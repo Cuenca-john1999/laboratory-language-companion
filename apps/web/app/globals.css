@@ -7,6 +7,321 @@
   --red: #a84132;
 }
 
+.structured-extraction {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-large);
+  background: var(--surface);
+  box-shadow: var(--shadow-small);
+}
+
+.structured-extraction > header,
+.extraction-summary > header,
+.extraction-pages > header,
+.candidate-explorer > header,
+.proposed-hierarchy > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.structured-extraction h2,
+.structured-extraction h3 {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  font: 650 clamp(24px, 4vw, 34px) / 1.1 var(--font-display);
+}
+
+.structured-extraction > header p:not(.eyebrow) {
+  max-width: 680px;
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+}
+
+.extraction-run-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  border-block: 1px solid var(--divider);
+  background: var(--surface-elevated);
+}
+
+.extraction-run-list button,
+.candidate-list button,
+.extraction-page-list article > button {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 0;
+  border-right: 1px solid var(--divider);
+  border-radius: 0;
+  background: transparent;
+  padding: 15px 18px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.extraction-run-list button > strong,
+.extraction-run-list button > span {
+  overflow-wrap: anywhere;
+}
+
+.extraction-run-list button:hover,
+.candidate-list button:hover,
+.extraction-page-list article > button:hover {
+  background: var(--surface-hover);
+}
+
+.extraction-run-list small,
+.candidate-list small,
+.extraction-page-list small {
+  color: var(--text-tertiary);
+}
+
+.extraction-workspace {
+  display: grid;
+  gap: 1px;
+  background: var(--divider);
+}
+
+.extraction-workspace > section {
+  background: var(--surface);
+}
+
+.extraction-summary code {
+  max-width: 330px;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  text-overflow: ellipsis;
+}
+
+.extraction-stage-grid,
+.extraction-coverage {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(105px, 1fr));
+  gap: 1px;
+  background: var(--divider);
+}
+
+.extraction-stage-grid button,
+.extraction-coverage span {
+  display: grid;
+  gap: 5px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-elevated);
+  padding: 13px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+
+.extraction-stage-grid button:disabled {
+  opacity: 0.58;
+}
+
+.extraction-coverage span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.extraction-coverage strong {
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.repeat-pages {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  gap: 7px;
+}
+
+.repeat-pages label {
+  grid-column: 1 / -1;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.repeat-pages input,
+.candidate-filters input,
+.candidate-filters select {
+  min-width: 0;
+  padding: 9px 11px;
+}
+
+.extraction-page-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(235px, 1fr));
+  border-top: 1px solid var(--divider);
+}
+
+.extraction-page-list article {
+  min-width: 0;
+  border-right: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+}
+
+.extraction-page-list article > button {
+  width: 100%;
+}
+
+.page-observation {
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) minmax(260px, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.page-observation img {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  object-fit: contain;
+}
+
+.page-observation ol {
+  display: grid;
+  max-height: 360px;
+  gap: 8px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 24px;
+}
+
+.page-observation li {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.page-observation li strong,
+.page-observation li span {
+  display: block;
+}
+
+.extraction-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px;
+}
+
+.candidate-filters {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(105px, 1fr));
+  gap: 9px;
+  border-block: 1px solid var(--divider);
+  background: var(--surface-elevated);
+  padding: 16px 24px;
+}
+
+.candidate-filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.candidate-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.candidate-detail {
+  border-top: 1px solid var(--divider);
+  background: var(--surface-elevated);
+  padding: 18px 24px;
+}
+
+.candidate-detail > header {
+  display: flex;
+  justify-content: space-between;
+}
+
+.candidate-detail dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.candidate-detail dl div {
+  min-width: 0;
+  border: 1px solid var(--divider);
+  padding: 10px;
+}
+
+.candidate-detail dt {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.candidate-detail dd {
+  max-height: 160px;
+  overflow: auto;
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+}
+
+.candidate-detail code {
+  overflow-wrap: anywhere;
+}
+
+.proposed-hierarchy > ul,
+.proposed-hierarchy ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0 24px 24px 42px;
+}
+
+.proposed-hierarchy li {
+  color: var(--text-secondary);
+}
+
+.proposed-hierarchy li span,
+.proposed-hierarchy li small {
+  display: block;
+}
+
+.proposed-hierarchy summary {
+  cursor: pointer;
+}
+
+@media (max-width: 980px) {
+  .extraction-stage-grid,
+  .extraction-coverage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .candidate-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .page-observation {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .structured-extraction > header,
+  .extraction-summary > header,
+  .extraction-pages > header,
+  .candidate-explorer > header,
+  .proposed-hierarchy > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .candidate-filters,
+  .candidate-detail dl {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Laboratorio documental */
 .laboratory-shell {
   display: grid;

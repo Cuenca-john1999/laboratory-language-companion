@@ -1,0 +1,17 @@
+[
+  {"case": "index_topics", "text": "Tema 1 La conjugación ........ 27"},
+  {"case": "section_hierarchy", "text": "2.1 Verbos separables"},
+  {"case": "level_marker", "text": "G"},
+  {"case": "table", "text": "Persona   Singular   Plural"},
+  {"case": "example", "text": "Ejemplo: Wir lernen Deutsch."},
+  {"case": "exercise", "text": "Ejercicios"},
+  {"case": "solution", "text": "Soluciones"},
+  {"case": "visual_exercise", "text": ""},
+  {"case": "without_text", "text": ""},
+  {"case": "ambiguous_heading", "text": "Formas"},
+  {"case": "printed_page", "text": "37"},
+  {"case": "two_columns", "text": "Columna izquierda | Columna derecha"},
+  {"case": "split_title", "text": "Los verbos\nmodales"},
+  {"case": "defective_ocr", "text": "El modo impemtivo"},
+  {"case": "page_continuity", "text": "(continuación)"}
+]
