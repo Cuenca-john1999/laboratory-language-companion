@@ -971,6 +971,9 @@ class ConsolidatedTopicRead(APIModel):
     source_version_id: int
     theme_number: int = Field(ge=1, le=51)
     state: str
+    identity_resolution: Literal["unresolved", "body_practice", "index_only_no_direct_practice"]
+    identity_evidence_candidate_id: str | None
+    resolution_method: str | None
     primary_candidate_id: str | None
     alternative_candidate_ids: list[str]
     pdf_page_number: int | None

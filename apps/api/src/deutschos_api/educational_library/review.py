@@ -1137,8 +1137,9 @@ class DocumentReviewService:
                 "INSERT INTO document_consolidated_topics("
                 "id,review_run_id,source_version_id,theme_number,state,primary_candidate_id,"
                 "alternative_candidate_ids_json,pdf_page_number,printed_page,title_es_observed,"
-                "title_de_observed,observed_level,confidence,evidence_json,issues_json,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "title_de_observed,observed_level,confidence,evidence_json,issues_json,created_at,"
+                "identity_resolution,identity_evidence_candidate_id,resolution_method) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     str(uuid4()),
                     review_run_id,
@@ -1166,6 +1167,9 @@ class DocumentReviewService:
                     ),
                     json_dump(issues),
                     now,
+                    "body_practice" if primary else "unresolved",
+                    primary["id"] if primary else None,
+                    "structural_consolidation" if primary else None,
                 ),
             )
 
@@ -1452,6 +1456,20 @@ class DocumentReviewService:
                 (review_run_id,),
             ).fetchall()
         )
+        unresolved_topics = int(
+            connection.execute(
+                "SELECT count(*) FROM document_consolidated_topics WHERE review_run_id=? "
+                "AND (identity_resolution='unresolved' OR state='conflicted')",
+                (review_run_id,),
+            ).fetchone()[0]
+        )
+        index_only_topics = int(
+            connection.execute(
+                "SELECT count(*) FROM document_consolidated_topics WHERE review_run_id=? "
+                "AND identity_resolution='index_only_no_direct_practice'",
+                (review_run_id,),
+            ).fetchone()[0]
+        )
         queue_counts = dict(
             connection.execute(
                 "SELECT coalesce(s.priority,'P2'),count(*) FROM document_candidate_review_state s "
@@ -1471,7 +1489,6 @@ class DocumentReviewService:
         blockers = []
         if int(pages["total"] or 0) != int(version["page_count"] or 0):
             blockers.append("pages_not_fully_materialized")
-        unresolved_topics = topic_counts.get("pending", 0) + topic_counts.get("conflicted", 0)
         if unresolved_topics:
             blockers.append(f"principal_topics_unresolved:{unresolved_topics}")
         if queue_counts.get("P0", 0):
@@ -1489,10 +1506,11 @@ class DocumentReviewService:
             "pages_with_incident": int(pages["issue_pages"] or 0),
             "visual_pages_pending": visual_pending,
             "topics_expected": 51,
-            "topics_located": 51 - topic_counts.get("pending", 0),
+            "topics_located": 51 - unresolved_topics,
             "topics_auto_supported": topic_counts.get("auto_supported", 0),
             "topics_confirmed": topic_counts.get("confirmed", 0),
             "topics_conflicted": topic_counts.get("conflicted", 0),
+            "topics_index_only_no_direct_practice": index_only_topics,
             "queue": {
                 "P0": queue_counts.get("P0", 0),
                 "P1": queue_counts.get("P1", 0),

@@ -510,7 +510,7 @@ class DocumentAuditService:
             unresolved_topics = int(
                 connection.execute(
                     "SELECT count(*) FROM document_consolidated_topics WHERE review_run_id=? "
-                    "AND state IN ('pending','conflicted')",
+                    "AND (identity_resolution='unresolved' OR state='conflicted')",
                     (readiness["review_run_id"],),
                 ).fetchone()[0]
             )
@@ -545,7 +545,8 @@ class DocumentAuditService:
             readiness = self._readiness_read(readiness_row)
             run_id = readiness_row["review_run_id"]
             topics = connection.execute(
-                "SELECT theme_number,state,primary_candidate_id,pdf_page_number,confidence "
+                "SELECT theme_number,state,identity_resolution,identity_evidence_candidate_id,"
+                "resolution_method,primary_candidate_id,pdf_page_number,confidence "
                 "FROM document_consolidated_topics WHERE review_run_id=? ORDER BY theme_number",
                 (run_id,),
             ).fetchall()
@@ -570,9 +571,13 @@ class DocumentAuditService:
             relation_payload = [dict(row) for row in relations]
             ai_readiness = self._ai_readiness(readiness)
             unresolved = [
-                {"theme_number": row["theme_number"], "state": row["state"]}
+                {
+                    "theme_number": row["theme_number"],
+                    "state": row["state"],
+                    "identity_resolution": row["identity_resolution"],
+                }
                 for row in topics
-                if row["state"] in {"pending", "conflicted"}
+                if row["identity_resolution"] == "unresolved" or row["state"] == "conflicted"
             ]
             payload = {
                 "source_id": version["source_id"],
@@ -1167,8 +1172,10 @@ class DocumentAuditService:
         replacement_error = self._validate_replacement(connection, decision, replacement, export)
         if replacement_error:
             return {"bucket": "invalid", "detail": base | {"reason": replacement_error}}
-        replacement_candidate = replacement.get("candidate_id") or replacement.get(
-            "parent_candidate_id"
+        replacement_candidate = (
+            replacement.get("candidate_id")
+            or replacement.get("evidence_candidate_id")
+            or replacement.get("parent_candidate_id")
         )
         if replacement_candidate and replacement_candidate not in included_targets["candidate"]:
             return {
@@ -1236,6 +1243,11 @@ class DocumentAuditService:
             raise LibraryContractError(f"La decisión {ordinal} se volvió stale durante apply.")
         action = decision["action"]
         replacement = decision.get("replacement") or {}
+        index_only_resolution = (
+            decision["target_type"] == "topic"
+            and action == "resolve_topic_identity"
+            and replacement.get("identity_resolution") == "index_only_no_direct_practice"
+        )
         resulting = self._resulting_state(action, target["current_state"])
         candidate_id: str | None = None
         if decision["target_type"] == "candidate":
@@ -1244,7 +1256,11 @@ class DocumentAuditService:
             "choose_primary",
             "resolve_topic_identity",
         }:
-            candidate_id = replacement["candidate_id"]
+            candidate_id = (
+                replacement["evidence_candidate_id"]
+                if index_only_resolution
+                else replacement["candidate_id"]
+            )
         candidate_decision_id = None
         if candidate_id:
             state_row = connection.execute(
@@ -1258,7 +1274,13 @@ class DocumentAuditService:
             confidence_before = (
                 state_row["effective_confidence"] if state_row else candidate["confidence"]
             )
-            candidate_result = resulting if decision["target_type"] == "candidate" else "confirmed"
+            candidate_result = (
+                previous
+                if index_only_resolution
+                else resulting
+                if decision["target_type"] == "candidate"
+                else "confirmed"
+            )
             candidate_decision_id = str(uuid4())
             connection.execute(
                 "INSERT INTO document_candidate_decisions("
@@ -1273,12 +1295,15 @@ class DocumentAuditService:
                     previous,
                     candidate_result,
                     confidence_before,
-                    decision["confidence"],
+                    confidence_before if index_only_resolution else decision["confidence"],
                     json_dump(
                         {
                             "import_id": import_id,
                             "package_logical_hash": decision_set["package_logical_hash"],
                             "decision_set_hash": decision_set_hash,
+                            "document_hash": decision_set["document_hash"],
+                            "target_type": decision["target_type"],
+                            "target_id": decision["target_id"],
                             "evidence_references": decision["evidence_references"],
                             "rationale": decision["rationale"],
                             "replacement": replacement,
@@ -1288,24 +1313,73 @@ class DocumentAuditService:
                     now,
                 ),
             )
+            if index_only_resolution:
+                connection.execute(
+                    "UPDATE document_candidate_review_state SET latest_decision_id=?,updated_at=? "
+                    "WHERE candidate_id=?",
+                    (candidate_decision_id, now, candidate_id),
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO document_candidate_review_state("
+                    "candidate_id,editorial_state,effective_confidence,latest_decision_id,"
+                    "priority,reason,updated_at) VALUES (?,?,?,?,NULL,?,?) "
+                    "ON CONFLICT(candidate_id) DO UPDATE SET "
+                    "editorial_state=excluded.editorial_state,"
+                    "effective_confidence=excluded.effective_confidence,"
+                    "latest_decision_id=excluded.latest_decision_id,priority=NULL,"
+                    "reason=excluded.reason,updated_at=excluded.updated_at",
+                    (
+                        candidate_id,
+                        candidate_result,
+                        decision["confidence"],
+                        candidate_decision_id,
+                        f"external:{action}",
+                        now,
+                    ),
+                )
+        if index_only_resolution:
+            topic = connection.execute(
+                "SELECT evidence_json,issues_json FROM document_consolidated_topics WHERE id=?",
+                (decision["target_id"],),
+            ).fetchone()
+            evidence = json_load(topic["evidence_json"], {})
+            evidence.update(
+                {
+                    "topic_identity_resolved": True,
+                    "identity_source": "index",
+                    "principal_body_heading_required": False,
+                    "direct_exercises_expected": False,
+                    "direct_solutions_expected": False,
+                    "identity_evidence_candidate_id": replacement["evidence_candidate_id"],
+                    "review_method": "external_audit",
+                    "package_logical_hash": decision_set["package_logical_hash"],
+                    "document_hash": decision_set["document_hash"],
+                    "reviewer": decision_set["reviewer"],
+                    "rationale": decision["rationale"],
+                }
+            )
+            issues = [
+                issue
+                for issue in json_load(topic["issues_json"], [])
+                if issue != "principal_topic_evidence_insufficient"
+            ]
             connection.execute(
-                "INSERT INTO document_candidate_review_state("
-                "candidate_id,editorial_state,effective_confidence,latest_decision_id,"
-                "priority,reason,updated_at) VALUES (?,?,?,?,NULL,?,?) ON CONFLICT(candidate_id) "
-                "DO UPDATE SET editorial_state=excluded.editorial_state,"
-                "effective_confidence=excluded.effective_confidence,"
-                "latest_decision_id=excluded.latest_decision_id,priority=NULL,"
-                "reason=excluded.reason,updated_at=excluded.updated_at",
+                "UPDATE document_consolidated_topics SET state='confirmed',"
+                "identity_resolution='index_only_no_direct_practice',"
+                "identity_evidence_candidate_id=?,resolution_method='external_audit',"
+                "primary_candidate_id=NULL,pdf_page_number=NULL,printed_page=NULL,confidence=?,"
+                "evidence_json=?,issues_json=? WHERE id=?",
                 (
-                    candidate_id,
-                    candidate_result,
+                    replacement["evidence_candidate_id"],
                     decision["confidence"],
-                    candidate_decision_id,
-                    f"external:{action}",
-                    now,
+                    json_dump(evidence),
+                    json_dump(issues),
+                    decision["target_id"],
                 ),
             )
-        if decision["target_type"] == "topic" and action in {
+            resulting = "confirmed"
+        elif decision["target_type"] == "topic" and action in {
             "choose_primary",
             "resolve_topic_identity",
         }:
@@ -1317,12 +1391,15 @@ class DocumentAuditService:
             ).fetchone()
             connection.execute(
                 "UPDATE document_consolidated_topics SET state='confirmed',primary_candidate_id=?,"
-                "pdf_page_number=?,printed_page=?,confidence=? WHERE id=?",
+                "pdf_page_number=?,printed_page=?,confidence=?,"
+                "identity_resolution='body_practice',identity_evidence_candidate_id=?,"
+                "resolution_method='external_audit' WHERE id=?",
                 (
                     candidate["id"],
                     candidate["pdf_page_number"],
                     candidate["proposed_printed_page"],
                     decision["confidence"],
+                    candidate["id"],
                     decision["target_id"],
                 ),
             )
@@ -1404,6 +1481,20 @@ class DocumentAuditService:
                 (run["id"],),
             ).fetchall()
         )
+        unresolved = int(
+            connection.execute(
+                "SELECT count(*) FROM document_consolidated_topics WHERE review_run_id=? "
+                "AND (identity_resolution='unresolved' OR state='conflicted')",
+                (run["id"],),
+            ).fetchone()[0]
+        )
+        index_only_topics = int(
+            connection.execute(
+                "SELECT count(*) FROM document_consolidated_topics WHERE review_run_id=? "
+                "AND identity_resolution='index_only_no_direct_practice'",
+                (run["id"],),
+            ).fetchone()[0]
+        )
         queue = dict(
             connection.execute(
                 "SELECT coalesce(s.priority,'P2'),count(*) FROM document_candidate_review_state s "
@@ -1423,7 +1514,6 @@ class DocumentAuditService:
         blockers = []
         if int(pages["total"] or 0) != int(version["page_count"] or 0):
             blockers.append("pages_not_fully_materialized")
-        unresolved = topic_counts.get("pending", 0) + topic_counts.get("conflicted", 0)
         if unresolved:
             blockers.append(f"principal_topics_unresolved:{unresolved}")
         if queue.get("P0", 0):
@@ -1445,6 +1535,7 @@ class DocumentAuditService:
             "topics_auto_supported": topic_counts.get("auto_supported", 0),
             "topics_confirmed": topic_counts.get("confirmed", 0),
             "topics_conflicted": topic_counts.get("conflicted", 0),
+            "topics_index_only_no_direct_practice": index_only_topics,
             "visual_pages_pending": visuals,
             "queue": {"P0": queue.get("P0", 0), "P1": queue.get("P1", 0), "P2": queue.get("P2", 0)},
         }
@@ -1510,7 +1601,7 @@ class DocumentAuditService:
         export: sqlite3.Row,
     ) -> str | None:
         action = decision["action"]
-        if action in {"choose_primary", "resolve_topic_identity"}:
+        if action == "choose_primary":
             candidate_id = replacement.get("candidate_id")
             row = connection.execute(
                 "SELECT source_version_id FROM document_structure_candidates WHERE id=?",
@@ -1518,6 +1609,38 @@ class DocumentAuditService:
             ).fetchone()
             if row is None or row["source_version_id"] != export["source_version_id"]:
                 return "replacement_candidate_invalid"
+        elif action == "resolve_topic_identity":
+            resolution = replacement.get("identity_resolution", "body_practice")
+            if resolution == "body_practice":
+                candidate_id = replacement.get("candidate_id")
+                row = connection.execute(
+                    "SELECT source_version_id FROM document_structure_candidates WHERE id=?",
+                    (candidate_id,),
+                ).fetchone()
+                if row is None or row["source_version_id"] != export["source_version_id"]:
+                    return "replacement_candidate_invalid"
+            elif resolution == "index_only_no_direct_practice":
+                candidate_id = replacement.get("evidence_candidate_id")
+                row = connection.execute(
+                    "SELECT c.source_version_id,c.candidate_type,c.canonical_topic_number,"
+                    "t.theme_number,s.editorial_state,s.reason FROM document_structure_candidates c "
+                    "JOIN document_consolidated_topics t ON t.id=? "
+                    "LEFT JOIN document_candidate_review_state s ON s.candidate_id=c.id "
+                    "WHERE c.id=?",
+                    (decision["target_id"], candidate_id),
+                ).fetchone()
+                if row is None or row["source_version_id"] != export["source_version_id"]:
+                    return "index_evidence_candidate_invalid"
+                if row["candidate_type"] != "topic_heading":
+                    return "index_evidence_must_be_topic_heading"
+                if row["canonical_topic_number"] != row["theme_number"]:
+                    return "index_evidence_topic_mismatch"
+                if row["editorial_state"] != "rejected" or row["reason"] != (
+                    "index_entry_not_principal_topic"
+                ):
+                    return "index_evidence_not_rejected_as_index_entry"
+            else:
+                return "identity_resolution_invalid"
         elif action == "change_type" and not replacement.get("candidate_type"):
             return "replacement_type_required"
         elif action == "change_parent":

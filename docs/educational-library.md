@@ -22,7 +22,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 11 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 12 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -51,7 +51,11 @@ no reconstruye ni inventa candidatos históricos.
 La versión 10 añade decisiones editoriales append-only, consolidación de temas,
 jerarquía y relaciones, clasificación visual y readiness estructural. La versión
 11 registra metadata de export/import y snapshots documentales; los paquetes
-continúan fuera de SQLite.
+continúan fuera de SQLite. La versión 12 separa temas sin resolver, temas con
+práctica directa y temas cuya identidad está resuelta por el índice pero para los
+que el workbook declara explícitamente que no existe práctica directa. En este
+último caso `primary_candidate_id` permanece nulo y el candidato de índice se
+conserva únicamente como evidencia auditada.
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 

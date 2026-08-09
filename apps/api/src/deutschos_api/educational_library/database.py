@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 11
+LIBRARY_SCHEMA_VERSION = 12
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1697,6 +1697,39 @@ DROP TABLE IF EXISTS document_audit_exports;
 DELETE FROM library_schema WHERE version=11;
 """
 
+_MIGRATION_0012 = """
+ALTER TABLE document_consolidated_topics ADD COLUMN identity_resolution TEXT NOT NULL
+DEFAULT 'unresolved' CHECK(identity_resolution IN (
+    'unresolved','body_practice','index_only_no_direct_practice'
+));
+ALTER TABLE document_consolidated_topics ADD COLUMN identity_evidence_candidate_id TEXT
+REFERENCES document_structure_candidates(id) ON DELETE SET NULL;
+ALTER TABLE document_consolidated_topics ADD COLUMN resolution_method TEXT;
+
+UPDATE document_consolidated_topics
+SET identity_resolution=CASE
+    WHEN state IN ('located','auto_supported','confirmed') AND primary_candidate_id IS NOT NULL
+    THEN 'body_practice'
+    ELSE 'unresolved'
+END,
+identity_evidence_candidate_id=primary_candidate_id,
+resolution_method=CASE
+    WHEN primary_candidate_id IS NOT NULL THEN 'structural_consolidation'
+    ELSE NULL
+END;
+
+CREATE INDEX ix_consolidated_topics_resolution
+ON document_consolidated_topics(source_version_id,identity_resolution,state);
+"""
+
+_ROLLBACK_0012 = """
+DROP INDEX IF EXISTS ix_consolidated_topics_resolution;
+ALTER TABLE document_consolidated_topics DROP COLUMN resolution_method;
+ALTER TABLE document_consolidated_topics DROP COLUMN identity_evidence_candidate_id;
+ALTER TABLE document_consolidated_topics DROP COLUMN identity_resolution;
+DELETE FROM library_schema WHERE version=12;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1754,6 +1787,9 @@ class LibraryDatabase:
                 current = 10
             if current < 11:
                 self._apply_migration(connection, 11, _MIGRATION_0011)
+                current = 11
+            if current < 12:
+                self._apply_migration(connection, 12, _MIGRATION_0012)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -1827,6 +1863,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 11")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0011)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_12(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 12:
+                raise RuntimeError("library schema rollback requires version 12")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0012)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:
