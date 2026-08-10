@@ -134,6 +134,25 @@ class EducationalLibraryService:
                                 now,
                             ),
                         )
+                has_reading = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='pedagogical_reading_runs'"
+                ).fetchone()
+                if has_reading:
+                    connection.execute(
+                        "UPDATE pedagogical_reading_topic_stages SET state='failed',"
+                        "completed_at=?,updated_at=?,error_code='process_restarted',"
+                        "error_detail='La lectura del tema se interrumpió al reiniciar el proceso.' "
+                        "WHERE state='running'",
+                        (now, now),
+                    )
+                    connection.execute(
+                        "UPDATE pedagogical_reading_runs SET state='interrupted',"
+                        "stop_reason='process_restarted',updated_at=?,error_code='process_restarted',"
+                        "error_detail='La lectura quedó interrumpida al reiniciar el proceso.' "
+                        "WHERE state IN ('queued','running')",
+                        (now,),
+                    )
         finally:
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_UN)

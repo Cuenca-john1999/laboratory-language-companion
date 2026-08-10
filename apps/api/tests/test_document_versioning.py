@@ -290,7 +290,8 @@ async def test_laboratory_api_exposes_summary_history_versions_and_inventory(
 def test_schema_6_to_12_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     database = LibraryDatabase(path)
-    assert database.migrate() == 12
+    assert database.migrate() == 13
+    assert database.rollback_version_13() == 12
     assert database.rollback_version_12() == 11
     assert database.rollback_version_11() == 10
     assert database.rollback_version_10() == 9
@@ -312,7 +313,7 @@ def test_schema_6_to_12_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
             "UPDATE sources SET current_version_id=? WHERE id='legacy'", (cursor.lastrowid,)
         )
 
-    assert database.migrate() == 12
+    assert database.migrate() == 13
     with database.connect() as connection:
         counts = connection.execute(
             "SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM source_versions),"
@@ -321,6 +322,7 @@ def test_schema_6_to_12_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
         assert tuple(counts) == (1, 1, 1)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
+    assert database.rollback_version_13() == 12
     assert database.rollback_version_12() == 11
     assert database.rollback_version_11() == 10
     assert database.rollback_version_10() == 9

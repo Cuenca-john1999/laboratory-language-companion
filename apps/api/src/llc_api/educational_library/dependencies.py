@@ -17,6 +17,7 @@ from .document_intelligence import DocumentIntelligenceService
 from .editorial import LibraryEditorialService
 from .knowledge import EducationalKnowledgeService
 from .memory import PedagogicalMemoryService
+from .reading import PedagogicalReadingService
 from .review import DocumentReviewService
 from .routing import LibraryModelRouter, ModelRoutingPolicy
 from .runs import DocumentRunService
@@ -120,6 +121,13 @@ def get_library_memory(
     service: EducationalLibraryService = Depends(get_library_service),
 ) -> PedagogicalMemoryService:
     return PedagogicalMemoryService(service.database)
+
+
+def get_pedagogical_reading(
+    service: EducationalLibraryService = Depends(get_library_service),
+    router: LibraryModelRouter = Depends(get_library_model_router),
+) -> PedagogicalReadingService:
+    return PedagogicalReadingService(service.database, router)
 
 
 def get_document_intelligence(

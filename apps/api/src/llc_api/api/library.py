@@ -26,14 +26,20 @@ from llc_api.educational_library.dependencies import (
     get_library_search,
     get_library_service,
     get_library_teacher,
+    get_pedagogical_reading,
     get_structured_extraction,
 )
 from llc_api.educational_library.document_intelligence import DocumentIntelligenceService
 from llc_api.educational_library.editorial import LibraryEditorialService
 from llc_api.educational_library.knowledge import EducationalKnowledgeService
 from llc_api.educational_library.memory import PedagogicalMemoryService
+from llc_api.educational_library.reading import (
+    PedagogicalReadingService,
+    ReadingError,
+    ReadingRunCreate,
+)
 from llc_api.educational_library.review import DocumentReviewService
-from llc_api.educational_library.routing import LibraryModelRouter
+from llc_api.educational_library.routing import LibraryModelRouter, ModelRole
 from llc_api.educational_library.runs import DocumentRunService
 from llc_api.educational_library.schemas import (
     AuditDecisionSet,
@@ -165,9 +171,18 @@ from llc_api.providers.base import ModelProvider
 from llc_api.providers.dependencies import get_model_provider
 
 router = APIRouter(prefix="/api/library", tags=["educational-library"])
+_reading_tasks: dict[str, asyncio.Task[Any]] = {}
+
+
+def _release_reading_task(run_id: str, task: asyncio.Task[Any]) -> None:
+    _reading_tasks.pop(run_id, None)
+    if not task.cancelled():
+        task.exception()
 
 
 def _translate(exc: Exception) -> HTTPException:
+    if isinstance(exc, ReadingError):
+        return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
     if isinstance(exc, LibraryNotFoundError):
         return HTTPException(status.HTTP_404_NOT_FOUND, str(exc))
     if isinstance(exc, LibraryBusyError):
@@ -1551,6 +1566,200 @@ def create_document_run_pass(
 ) -> DocumentRunDetail:
     try:
         return service.create_pass(run_id, request)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/readiness")
+def pedagogical_reading_readiness(
+    source_version_id: int = Query(default=584, gt=0),
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.readiness(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/plan-preview")
+def pedagogical_reading_plan_preview(
+    source_version_id: int = Query(default=584, gt=0),
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.preview_plan(source_version_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs")
+def pedagogical_reading_runs(
+    limit: int = Query(default=50, ge=1, le=200),
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> list[dict[str, Any]]:
+    try:
+        return service.list_runs(limit)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs", status_code=status.HTTP_201_CREATED)
+async def create_pedagogical_reading_run(
+    request: ReadingRunCreate,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+    router: LibraryModelRouter = Depends(get_library_model_router),
+) -> dict[str, Any]:
+    try:
+        role = ModelRole.DEEP if request.model_role == "deep" else ModelRole.TEACHER
+        model = await router.select(role)
+        return service.create_run(request, resolved_model=model)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs/{run_id}")
+def pedagogical_reading_run_detail(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.detail(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs/{run_id}/stages")
+def pedagogical_reading_stages(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> list[dict[str, Any]]:
+    try:
+        return service.stages(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs/{run_id}/coverage")
+def pedagogical_reading_coverage(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.coverage(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs/{run_id}/candidates")
+def pedagogical_reading_candidates(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.candidates_summary(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs/{run_id}/unresolved")
+def pedagogical_reading_unresolved(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> list[dict[str, Any]]:
+    try:
+        return service.unresolved(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/runs/{run_id}/conflicts")
+def pedagogical_reading_conflicts(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> list[dict[str, Any]]:
+    try:
+        return service.conflicts(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.get("/laboratory/reading/scheduler")
+def pedagogical_reading_scheduler(
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.scheduler_state()
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs/{run_id}/start", status_code=status.HTTP_202_ACCEPTED)
+def start_pedagogical_reading(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        existing = _reading_tasks.get(run_id)
+        if existing and not existing.done():
+            return service.detail(run_id)
+        run = service._control(run_id, "queued", None)
+        task = asyncio.create_task(service.execute(run_id))
+        _reading_tasks[run_id] = task
+        task.add_done_callback(lambda completed: _release_reading_task(run_id, completed))
+        return run
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs/{run_id}/pause")
+def pause_pedagogical_reading(
+    run_id: str, service: PedagogicalReadingService = Depends(get_pedagogical_reading)
+) -> dict[str, Any]:
+    try:
+        return service.pause(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs/{run_id}/resume")
+def resume_pedagogical_reading(
+    run_id: str, service: PedagogicalReadingService = Depends(get_pedagogical_reading)
+) -> dict[str, Any]:
+    try:
+        return service.resume(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs/{run_id}/cancel")
+def cancel_pedagogical_reading(
+    run_id: str, service: PedagogicalReadingService = Depends(get_pedagogical_reading)
+) -> dict[str, Any]:
+    try:
+        return service.cancel(run_id)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs/{run_id}/retry-failed")
+def retry_failed_pedagogical_topics(
+    run_id: str,
+    topics: list[int] | None = None,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.retry_failed(run_id, topics)
+    except Exception as exc:
+        raise _translate(exc) from exc
+
+
+@router.post("/laboratory/reading/runs/{run_id}/next-pass", status_code=status.HTTP_201_CREATED)
+def create_next_pedagogical_pass(
+    run_id: str,
+    service: PedagogicalReadingService = Depends(get_pedagogical_reading),
+) -> dict[str, Any]:
+    try:
+        return service.create_next_pass(run_id)
     except Exception as exc:
         raise _translate(exc) from exc
 

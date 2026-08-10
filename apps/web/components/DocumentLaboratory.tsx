@@ -20,6 +20,7 @@ import { StructuredExtractionPanel } from "./StructuredExtractionPanel";
 import { DocumentReviewPanel } from "./DocumentReviewPanel";
 import { DocumentComparisonsPanel } from "./DocumentComparisonsPanel";
 import { DocumentAuditPanel } from "./DocumentAuditPanel";
+import { PedagogicalReadingPanel } from "./PedagogicalReadingPanel";
 
 const FILTERS = [
   ["all", "Todas"],
@@ -218,6 +219,8 @@ export function DocumentLaboratory() {
           </article>
         ))}
       </div>
+
+      <PedagogicalReadingPanel />
 
       <DocumentRunsPanel sources={sources} />
       <StructuredExtractionPanel sources={sources} />

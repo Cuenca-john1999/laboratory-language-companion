@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeVar
 
+from llc_api.core.ai_coordination import ai_coordinator
 from llc_api.providers.base import (
     MalformedStructuredOutputError,
     ModelNotFoundError,
@@ -124,6 +125,8 @@ class LibraryModelRouter:
         role: ModelRole,
         messages: list[dict[str, str]],
         schema: type[_T],
+        *,
+        interactive: bool = True,
     ) -> tuple[_T, str, bool]:
         installed = set(await self.installed_models())
         candidates = [model for model in self.candidates(role) if model in installed]
@@ -139,12 +142,19 @@ class LibraryModelRouter:
         )
         model = candidates[0]
         try:
-            call = self.provider.structured_generate(model, messages, schema)
-            if role in {ModelRole.TEACHER, ModelRole.DEEP} and self._is_large(model):
-                async with _LARGE_MODEL_LOCK:
-                    result = await asyncio.wait_for(call, timeout=timeout)
+
+            async def generate():
+                call = self.provider.structured_generate(model, messages, schema)
+                if role in {ModelRole.TEACHER, ModelRole.DEEP} and self._is_large(model):
+                    async with _LARGE_MODEL_LOCK:
+                        return await asyncio.wait_for(call, timeout=timeout)
+                return await asyncio.wait_for(call, timeout=timeout)
+
+            if interactive:
+                async with ai_coordinator.interactive():
+                    result = await generate()
             else:
-                result = await asyncio.wait_for(call, timeout=timeout)
+                result = await generate()
             return result, model, False
         except TimeoutError as exc:
             last_error: BaseException = exc

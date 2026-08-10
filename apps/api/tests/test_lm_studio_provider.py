@@ -332,3 +332,28 @@ async def test_structured_generation_repairs_once_then_fails():
     assert calls == 2
     repair_text = requests[1]["messages"][-1]["content"]
     assert "Repara el JSON" in repair_text
+    assert "validation_errors" in repair_text
+    assert "schema" in repair_text
+    assert "No añadas contenido nuevo" in repair_text
+
+
+@pytest.mark.parametrize("first", ["", '{"score":'])
+async def test_structured_generation_recovers_empty_or_truncated_json_once(first):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        content = first if calls == 1 else '{"score":0.75}'
+        finish_reason = "length" if first else "stop"
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": content}, "finish_reason": finish_reason}]},
+        )
+
+    provider = provider_with(handler)
+    result = await provider.structured_generate(
+        "model", [{"role": "user", "content": "synthetic"}], StructuredResult
+    )
+    assert result.score == 0.75
+    assert calls == 2

@@ -1778,3 +1778,42 @@ export type MemoryAudit = {
   comment: string | null;
   created_at: string;
 };
+
+export type PedagogicalReadingReadiness = {
+  source_version_id: number;
+  source_id: string;
+  title: string;
+  document_hash: string;
+  activation_state: string;
+  is_active: boolean;
+  ai_readiness: string;
+  topic_count: number;
+  ready: boolean;
+};
+
+export type PedagogicalReadingStage = {
+  id: string;
+  run_id: string;
+  topic_number: number;
+  state: string;
+  attempts: number;
+  target_reasons: string[];
+};
+
+export type PedagogicalReadingRun = {
+  id: string;
+  source_version_id: number;
+  document_hash: string;
+  language: string;
+  pass_number: number;
+  model_role: string;
+  resolved_model: string;
+  state: string;
+  pause_reason: string | null;
+  stop_reason: string | null;
+  auto_continue: boolean;
+  issues?: number;
+  unresolved_count?: number;
+  conflict_count?: number;
+  stages?: PedagogicalReadingStage[];
+};

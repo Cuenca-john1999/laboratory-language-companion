@@ -109,6 +109,7 @@ def test_schema_12_is_reversible_without_removing_review_or_audit_data(audit_lib
         candidate_count = connection.execute(
             "SELECT count(*) FROM document_structure_candidates"
         ).fetchone()[0]
+    assert database.rollback_version_13() == 12
     assert database.rollback_version_12() == 11
     with database.connect() as connection:
         assert (
@@ -126,7 +127,7 @@ def test_schema_12_is_reversible_without_removing_review_or_audit_data(audit_lib
             row[1] for row in connection.execute("PRAGMA table_info(document_consolidated_topics)")
         }
         assert "identity_resolution" not in topic_columns
-    assert database.migrate() == 12
+    assert database.migrate() == 13
     assert database.integrity() == ("ok", [])
 
 

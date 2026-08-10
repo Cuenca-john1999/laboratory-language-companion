@@ -52,6 +52,8 @@ import type {
   PedagogicalConcept,
   PedagogicalConceptSummary,
   PedagogicalMemorySummary,
+  PedagogicalReadingReadiness,
+  PedagogicalReadingRun,
   Mistake,
   ModelsResponse,
   Profile,
@@ -1093,3 +1095,38 @@ export const revertPedagogicalMemoryReview = (reviewId: string) =>
       comment: "Reversión solicitada desde Memoria verificada.",
     }),
   });
+
+export const getPedagogicalReadingReadiness = () =>
+  api<PedagogicalReadingReadiness>(
+    "/api/library/laboratory/reading/readiness?source_version_id=584",
+  );
+
+export const getPedagogicalReadingRuns = () =>
+  api<PedagogicalReadingRun[]>("/api/library/laboratory/reading/runs");
+
+export const createPedagogicalReadingRun = (autoContinue = false) =>
+  api<PedagogicalReadingRun>("/api/library/laboratory/reading/runs", {
+    method: "POST",
+    body: JSON.stringify({
+      source_version_id: 584,
+      language: "de",
+      model_role: "deep",
+      max_passes: 3,
+      auto_continue: autoContinue,
+    }),
+  });
+
+export const controlPedagogicalReadingRun = (
+  runId: string,
+  action:
+    | "start"
+    | "pause"
+    | "resume"
+    | "cancel"
+    | "retry-failed"
+    | "next-pass",
+) =>
+  api<PedagogicalReadingRun>(
+    `/api/library/laboratory/reading/runs/${encodeURIComponent(runId)}/${action}`,
+    { method: "POST" },
+  );

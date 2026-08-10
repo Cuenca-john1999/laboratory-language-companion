@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 12
+LIBRARY_SCHEMA_VERSION = 13
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1730,6 +1730,185 @@ ALTER TABLE document_consolidated_topics DROP COLUMN identity_resolution;
 DELETE FROM library_schema WHERE version=12;
 """
 
+_MIGRATION_0013 = """
+CREATE TABLE pedagogical_reading_runs (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    document_hash TEXT NOT NULL,
+    language TEXT NOT NULL,
+    parent_run_id TEXT REFERENCES pedagogical_reading_runs(id) ON DELETE SET NULL,
+    base_run_id TEXT REFERENCES pedagogical_reading_runs(id) ON DELETE SET NULL,
+    pass_number INTEGER NOT NULL CHECK(pass_number > 0),
+    model_role TEXT NOT NULL,
+    resolved_model TEXT NOT NULL,
+    configuration_json TEXT NOT NULL DEFAULT '{}',
+    prompt_version TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN (
+        'planned','queued','running','paused','completed','completed_with_issues',
+        'failed','cancelled','interrupted','stale','superseded'
+    )),
+    pause_reason TEXT CHECK(pause_reason IS NULL OR pause_reason IN (
+        'manual','waiting_for_interactive_ai'
+    )),
+    stop_reason TEXT,
+    error_code TEXT,
+    error_detail TEXT,
+    auto_continue INTEGER NOT NULL DEFAULT 0 CHECK(auto_continue IN (0,1)),
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(source_version_id, pass_number, parent_run_id)
+);
+
+CREATE TABLE pedagogical_reading_topic_stages (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pedagogical_reading_runs(id) ON DELETE CASCADE,
+    topic_number INTEGER NOT NULL CHECK(topic_number > 0),
+    canonical_topic_id TEXT REFERENCES document_consolidated_topics(id) ON DELETE SET NULL,
+    input_fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN (
+        'pending','running','completed','completed_with_issues','failed','skipped','stale'
+    )),
+    attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+    block_scope_json TEXT NOT NULL DEFAULT '[]',
+    presented_block_ids_json TEXT NOT NULL DEFAULT '[]',
+    budget_json TEXT NOT NULL DEFAULT '{}',
+    target_reasons_json TEXT NOT NULL DEFAULT '[]',
+    rejected_output_count INTEGER NOT NULL DEFAULT 0 CHECK(rejected_output_count >= 0),
+    warning_count INTEGER NOT NULL DEFAULT 0 CHECK(warning_count >= 0),
+    unresolved_count INTEGER NOT NULL DEFAULT 0 CHECK(unresolved_count >= 0),
+    duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms >= 0),
+    error_code TEXT,
+    error_detail TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, topic_number)
+);
+
+CREATE TABLE pedagogical_reading_candidates (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pedagogical_reading_runs(id) ON DELETE CASCADE,
+    stage_id TEXT NOT NULL REFERENCES pedagogical_reading_topic_stages(id) ON DELETE CASCADE,
+    language TEXT NOT NULL,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE RESTRICT,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    topic_number INTEGER NOT NULL,
+    canonical_topic_id TEXT REFERENCES document_consolidated_topics(id) ON DELETE SET NULL,
+    candidate_type TEXT NOT NULL,
+    content_json TEXT NOT NULL,
+    terminology_de_json TEXT NOT NULL DEFAULT '[]',
+    terminology_es_json TEXT NOT NULL DEFAULT '[]',
+    observed_level TEXT,
+    model TEXT NOT NULL,
+    model_role TEXT NOT NULL,
+    pass_number INTEGER NOT NULL,
+    prompt_version TEXT NOT NULL,
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    uncertainty TEXT,
+    state TEXT NOT NULL CHECK(state IN (
+        'proposed','corroborated','needs_review','conflicted','confirmed',
+        'rejected','superseded'
+    )),
+    content_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, topic_number, content_hash)
+);
+
+CREATE TABLE pedagogical_reading_evidence (
+    id TEXT PRIMARY KEY,
+    candidate_id TEXT NOT NULL REFERENCES pedagogical_reading_candidates(id) ON DELETE CASCADE,
+    source_version_id INTEGER NOT NULL REFERENCES source_versions(id) ON DELETE RESTRICT,
+    page_id INTEGER NOT NULL REFERENCES document_pages(id) ON DELETE RESTRICT,
+    block_id TEXT NOT NULL REFERENCES document_page_blocks(id) ON DELETE RESTRICT,
+    quote TEXT NOT NULL,
+    evidence_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(candidate_id, block_id, evidence_hash)
+);
+
+CREATE TABLE pedagogical_reading_relations (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pedagogical_reading_runs(id) ON DELETE CASCADE,
+    source_candidate_id TEXT NOT NULL REFERENCES pedagogical_reading_candidates(id) ON DELETE CASCADE,
+    target_candidate_id TEXT NOT NULL REFERENCES pedagogical_reading_candidates(id) ON DELETE CASCADE,
+    relation_type TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('proposed','corroborated','needs_review','conflicted','rejected')),
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id, source_candidate_id, target_candidate_id, relation_type)
+);
+
+CREATE TABLE pedagogical_reading_conflicts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pedagogical_reading_runs(id) ON DELETE CASCADE,
+    topic_number INTEGER NOT NULL,
+    candidate_ids_json TEXT NOT NULL,
+    description TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    state TEXT NOT NULL CHECK(state IN ('open','resolved','human_review')),
+    resolution_json TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE TABLE pedagogical_reading_unresolved (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pedagogical_reading_runs(id) ON DELETE CASCADE,
+    stage_id TEXT NOT NULL REFERENCES pedagogical_reading_topic_stages(id) ON DELETE CASCADE,
+    topic_number INTEGER NOT NULL,
+    description TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('open','resolved','human_review')),
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+
+CREATE TABLE pedagogical_reading_coverage (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES pedagogical_reading_runs(id) ON DELETE CASCADE,
+    pass_number INTEGER NOT NULL,
+    metrics_json TEXT NOT NULL,
+    delta_json TEXT NOT NULL,
+    material_improvement INTEGER NOT NULL CHECK(material_improvement IN (0,1)),
+    captured_at TEXT NOT NULL
+);
+
+CREATE INDEX ix_reading_runs_version ON pedagogical_reading_runs(source_version_id,created_at);
+CREATE INDEX ix_reading_runs_state ON pedagogical_reading_runs(state,updated_at);
+CREATE INDEX ix_reading_stages_run ON pedagogical_reading_topic_stages(run_id,state,topic_number);
+CREATE INDEX ix_reading_candidates_run ON pedagogical_reading_candidates(run_id,state,candidate_type);
+CREATE INDEX ix_reading_candidates_topic ON pedagogical_reading_candidates(source_version_id,topic_number,content_hash);
+CREATE INDEX ix_reading_evidence_candidate ON pedagogical_reading_evidence(candidate_id);
+CREATE INDEX ix_reading_conflicts_run ON pedagogical_reading_conflicts(run_id,state,topic_number);
+CREATE INDEX ix_reading_unresolved_run ON pedagogical_reading_unresolved(run_id,state,topic_number);
+CREATE INDEX ix_reading_coverage_run ON pedagogical_reading_coverage(run_id,captured_at);
+"""
+
+_ROLLBACK_0013 = """
+DROP INDEX IF EXISTS ix_reading_coverage_run;
+DROP INDEX IF EXISTS ix_reading_unresolved_run;
+DROP INDEX IF EXISTS ix_reading_conflicts_run;
+DROP INDEX IF EXISTS ix_reading_evidence_candidate;
+DROP INDEX IF EXISTS ix_reading_candidates_topic;
+DROP INDEX IF EXISTS ix_reading_candidates_run;
+DROP INDEX IF EXISTS ix_reading_stages_run;
+DROP INDEX IF EXISTS ix_reading_runs_state;
+DROP INDEX IF EXISTS ix_reading_runs_version;
+DROP TABLE IF EXISTS pedagogical_reading_coverage;
+DROP TABLE IF EXISTS pedagogical_reading_unresolved;
+DROP TABLE IF EXISTS pedagogical_reading_conflicts;
+DROP TABLE IF EXISTS pedagogical_reading_relations;
+DROP TABLE IF EXISTS pedagogical_reading_evidence;
+DROP TABLE IF EXISTS pedagogical_reading_candidates;
+DROP TABLE IF EXISTS pedagogical_reading_topic_stages;
+DROP TABLE IF EXISTS pedagogical_reading_runs;
+DELETE FROM library_schema WHERE version=13;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1790,6 +1969,9 @@ class LibraryDatabase:
                 current = 11
             if current < 12:
                 self._apply_migration(connection, 12, _MIGRATION_0012)
+                current = 12
+            if current < 13:
+                self._apply_migration(connection, 13, _MIGRATION_0013)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -1876,6 +2058,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 12")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0012)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_13(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 13:
+                raise RuntimeError("library schema rollback requires version 13")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0013)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

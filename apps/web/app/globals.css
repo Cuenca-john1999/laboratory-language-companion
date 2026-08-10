@@ -669,6 +669,38 @@
   gap: 24px;
 }
 
+.reading-panel {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 1.25rem;
+}
+
+.reading-panel > header,
+.reading-metrics,
+.reading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.reading-metrics {
+  justify-content: flex-start;
+  margin: 1rem 0;
+}
+
+.reading-metrics span {
+  background: var(--surface-elevated);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+}
+
+.reading-actions {
+  justify-content: flex-start;
+  margin-top: 1rem;
+}
+
 .laboratory-heading,
 .document-catalogue > header,
 .inventory-result > header,

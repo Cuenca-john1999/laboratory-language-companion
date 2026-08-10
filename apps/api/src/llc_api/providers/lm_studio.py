@@ -264,12 +264,21 @@ class LMStudioProvider(ModelProvider):
         raw = await self._request_structured(model, payload)
         try:
             return schema.model_validate_json(raw)
-        except ValidationError:
+        except ValidationError as validation_error:
+            repair_contract = {
+                "instruction": (
+                    "Corrige únicamente formato y estructura. No añadas contenido nuevo. "
+                    "Devuelve solo JSON."
+                ),
+                "validation_errors": validation_error.errors(include_url=False),
+                "schema": schema.model_json_schema(),
+            }
             repair = messages + [
                 {"role": "assistant", "content": raw},
                 {
                     "role": "user",
-                    "content": "Repara el JSON para cumplir exactamente el esquema. Devuelve solo JSON.",
+                    "content": "Repara el JSON para cumplir exactamente el esquema.\n"
+                    + json.dumps(repair_contract, ensure_ascii=False, sort_keys=True),
                 },
             ]
             payload = self._completion_payload(model, repair, stream=False)

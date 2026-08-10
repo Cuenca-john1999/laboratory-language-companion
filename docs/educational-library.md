@@ -26,7 +26,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 12 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 13 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -60,6 +60,10 @@ práctica directa y temas cuya identidad está resuelta por el índice pero para
 que el workbook declara explícitamente que no existe práctica directa. En este
 último caso `primary_candidate_id` permanece nulo y el candidato de índice se
 conserva únicamente como evidencia auditada.
+La versión 13 añade el staging reversible de lectura pedagógica: ejecuciones y
+etapas por tema, candidatas, citas verificables, relaciones, conflictos, asuntos
+no resueltos y snapshots de cobertura. No modifica la memoria confirmada. Véase
+el [ADR 0018](adr/0018-iterative-pedagogical-reading.md).
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 
@@ -125,6 +129,28 @@ almacena ni presenta un porcentaje global de comprensión. La API de ejecuciones
 vive bajo `/api/library/laboratory/runs`; sus GET son de solo lectura y las
 mutaciones (crear, preflight, reconciliar, pausar, reanudar, cancelar, reintentar
 y crear una pasada desde pendientes) son explícitas.
+
+## Lectura pedagógica con IA
+
+La sección **AI Reading** del Laboratorio trabaja sobre una versión documental
+exacta que ya tenga cierre `ready_for_ai` o `ready_for_ai_with_issues`. La
+planificación de la primera pasada recorre los temas consolidados; no llama al
+modelo y puede previsualizarse con
+`GET /api/library/laboratory/reading/plan-preview`. Iniciar la ejecución requiere
+un POST explícito. La continuación automática está desactivada por defecto.
+
+Cada tema es una unidad transaccional y reintentable. El motor usa el texto de
+los bloques ya observados, el router local y LM Studio; una cita sólo se conserva
+si coincide con el bloque, página y versión de origen. Las candidatas permanecen
+separadas de `pedagogical_concepts` y nunca pasan automáticamente a `confirmed`.
+Pausa, reanudación, cancelación, retry de fallos y preparación de la siguiente
+pasada tienen endpoints propios. Una consulta interactiva tiene prioridad y la
+lectura cede cooperativamente entre temas.
+
+Las vistas GET bajo `/api/library/laboratory/reading` muestran readiness,
+planificación, ejecuciones, etapas, cobertura y delta, candidatas, no resueltos,
+conflictos y estado del scheduler. Ninguna ejecuta OCR, Vision, inventario,
+extracción, chunks, embeddings o activación.
 
 ## Fuentes nucleares y mapa Herder
 
