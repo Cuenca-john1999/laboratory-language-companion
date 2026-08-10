@@ -181,7 +181,7 @@ struct ControllerTests {
   ) throws -> ServiceSnapshot {
     try StatusOutputParser.parse(
       """
-      format=deutschos-status-v1
+      format=llc-status-v2
       ssd=\(ssd)
       model_count=\(models)
       lm_studio=\(lm_studio)
@@ -515,10 +515,11 @@ struct ControllerTests {
       pollIntervalNanoseconds: 1
     )
     var stages: [LMStudioStartupStage] = []
-    try await coordinator.ensureReady(
+    let ownership = try await coordinator.ensureReady(
       stageChanged: { stages.append($0) },
       log: { _ in }
     )
+    try expect(ownership == .openedByController, "opened LM Studio ownership")
 
     try expect(workspace.openedApplications == [app], "closed LM Studio was not opened")
     try expect(
@@ -552,10 +553,11 @@ struct ControllerTests {
       serverTimeoutNanoseconds: 2,
       pollIntervalNanoseconds: 1
     )
-    try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+    let ownership = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
 
     try expect(workspace.openedApplications.isEmpty, "running LM Studio was opened again")
     try expect(runner.calls.count == 1, "inactive server was not started exactly once")
+    try expect(ownership == .preexisting, "running LM Studio ownership")
     passed += 1
   }
 
@@ -570,9 +572,10 @@ struct ControllerTests {
       sleeper: ImmediateSleeper(),
       environment: [:]
     )
-    try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+    let ownership = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
     try expect(workspace.openedApplications.isEmpty, "ready server opened LM Studio")
     try expect(runner.calls.isEmpty, "ready server ran lms server start")
+    try expect(ownership == .preexisting, "ready server ownership")
     passed += 1
   }
 
@@ -604,7 +607,7 @@ struct ControllerTests {
       environment: [:]
     )
     do {
-      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      _ = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
       throw TestFailure.expectation("missing LM Studio application was accepted")
     } catch let error as LMStudioStartupError {
       try expect(error == .applicationMissing, "wrong missing-app error")
@@ -625,7 +628,7 @@ struct ControllerTests {
       environment: [:]
     )
     do {
-      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      _ = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
       throw TestFailure.expectation("missing lms CLI was accepted")
     } catch let error as LMStudioStartupError {
       try expect(error == .cliMissing, "wrong missing-CLI error")
@@ -647,7 +650,7 @@ struct ControllerTests {
       environment: [:]
     )
     do {
-      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      _ = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
       throw TestFailure.expectation("LM Studio open failure was accepted")
     } catch let error as LMStudioStartupError {
       guard case .applicationOpenFailed = error else {
@@ -681,7 +684,7 @@ struct ControllerTests {
       pollIntervalNanoseconds: 1
     )
     do {
-      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      _ = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
       throw TestFailure.expectation("CLI exit zero was accepted without /v1/models")
     } catch let error as LMStudioStartupError {
       try expect(error == .serverTimedOut, "wrong server-timeout error")
@@ -719,7 +722,7 @@ struct ControllerTests {
       pollIntervalNanoseconds: 1
     )
     do {
-      try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
+      _ = try await coordinator.ensureReady(stageChanged: { _ in }, log: { _ in })
     } catch {}
     try expect(
       workspace.stoppedBundleIdentifiers == [LMStudioCoordinator.bundleIdentifier],

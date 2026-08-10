@@ -61,6 +61,11 @@ enum LMStudioStartupStage: Equatable {
   case waitingForServer
 }
 
+enum LMStudioApplicationOwnership: Equatable {
+  case preexisting
+  case openedByController
+}
+
 enum LMStudioStartupError: LocalizedError, Equatable {
   case applicationMissing
   case applicationOpenFailed(String)
@@ -167,10 +172,10 @@ final class LMStudioCoordinator {
   func ensureReady(
     stageChanged: @escaping @MainActor (LMStudioStartupStage) -> Void,
     log: @escaping @MainActor (String) -> Void
-  ) async throws {
+  ) async throws -> LMStudioApplicationOwnership {
     if await probe.modelsEndpointIsReady() {
       await log("servidor de LM Studio ya disponible; se reutiliza")
-      return
+      return .preexisting
     }
 
     guard
@@ -203,7 +208,7 @@ final class LMStudioCoordinator {
 
       if await probe.modelsEndpointIsReady() {
         await log("servidor de LM Studio ya disponible tras abrir la aplicación")
-        return
+        return openedApplication ? .openedByController : .preexisting
       }
 
       guard let cli = resolveCLI(applicationURL: applicationURL) else {
@@ -230,6 +235,7 @@ final class LMStudioCoordinator {
       await log("esperando respuesta válida de /v1/models")
       try await waitForServer()
       await log("servidor de LM Studio disponible en /v1/models")
+      return openedApplication ? .openedByController : .preexisting
     } catch {
       await cleanupAfterFailure(
         applicationURL: applicationURL,

@@ -11,9 +11,9 @@ ensure_launcher_directories
 if [[ "${1:-}" == "--machine" ]]; then
   MACHINE_FAILURES=0
   ACTIVE_SERVICES=0
-  STALE_PID_FILES=0
+  IDENTITY_PROBLEMS=0
 
-  printf 'format=deutschos-status-v1\n'
+  printf 'format=llc-status-v2\n'
   if [[ -d "$PROJECT_ROOT" ]] && df -P "$PROJECT_ROOT" >/dev/null 2>&1; then
     printf 'ssd=available\n'
   else
@@ -70,24 +70,22 @@ if [[ "${1:-}" == "--machine" ]]; then
   fi
 
   for ROLE in api web; do
-    if pid_file_state "$ROLE"; then
-      printf 'pid_%s=managed\n' "$ROLE"
-      printf 'pid_%s_value=%s\n' "$ROLE" "$PID_VALUE"
-    else
-      STATE=$?
-      if [[ "$STATE" == 2 ]]; then
-        printf 'pid_%s=stale\n' "$ROLE"
-        STALE_PID_FILES=$((STALE_PID_FILES + 1))
-        MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
-      else
-        printf 'pid_%s=absent\n' "$ROLE"
-      fi
+    classify_role "$ROLE"
+    printf 'pid_%s=%s\n' "$ROLE" "$SERVICE_STATE"
+    if [[ -n "$SERVICE_PID" ]]; then
+      printf 'pid_%s_value=%s\n' "$ROLE" "$SERVICE_PID"
     fi
+    case "$SERVICE_STATE" in
+      external | stale)
+        IDENTITY_PROBLEMS=$((IDENTITY_PROBLEMS + 1))
+        MACHINE_FAILURES=$((MACHINE_FAILURES + 1))
+        ;;
+    esac
   done
 
-  if ((ACTIVE_SERVICES == 3 && STALE_PID_FILES == 0)); then
+  if ((ACTIVE_SERVICES == 3 && IDENTITY_PROBLEMS == 0)); then
     printf 'result=running\n'
-  elif ((ACTIVE_SERVICES == 0 && STALE_PID_FILES == 0)); then
+  elif ((ACTIVE_SERVICES == 0 && IDENTITY_PROBLEMS == 0)); then
     printf 'result=stopped\n'
   else
     printf 'result=partial\n'
@@ -99,7 +97,7 @@ if [[ "${1:-}" == "--machine" ]]; then
 fi
 
 FAILURES=0
-STALE_PID_FILES=0
+IDENTITY_PROBLEMS=0
 
 printf 'LLC launcher status\n'
 printf 'Proyecto: %s\n' "$PROJECT_ROOT"
@@ -142,24 +140,27 @@ fi
 
 printf '\nPID files\n'
 for ROLE in api web; do
-  if pid_file_state "$ROLE"; then
-    printf '✓ %s: PID %s válido y gestionado\n' "$ROLE" "$PID_VALUE"
-  else
-    STATE=$?
-    if [[ "$STATE" == 2 ]]; then
-      printf '! %s: PID file huérfano (%s)\n' "$ROLE" "$PID_REASON"
-      STALE_PID_FILES=$((STALE_PID_FILES + 1))
-    else
-      printf '· %s: sin PID gestionado\n' "$ROLE"
-    fi
-  fi
+  classify_role "$ROLE"
+  case "$SERVICE_STATE" in
+    managed) printf '✓ %s: LLC · managed · PID %s\n' "$ROLE" "$SERVICE_PID" ;;
+    adopted) printf '✓ %s: LLC · adopted · PID %s\n' "$ROLE" "$SERVICE_PID" ;;
+    external)
+      printf '! %s: external · %s\n' "$ROLE" "$SERVICE_REASON"
+      IDENTITY_PROBLEMS=$((IDENTITY_PROBLEMS + 1))
+      ;;
+    stale)
+      printf '! %s: stale · %s\n' "$ROLE" "$SERVICE_REASON"
+      IDENTITY_PROBLEMS=$((IDENTITY_PROBLEMS + 1))
+      ;;
+    absent) printf '· %s: absent\n' "$ROLE" ;;
+  esac
 done
 
 printf '\nURL: %s\n' "$WEB_URL"
 printf 'Logs: %s\n' "$LOG_DIR"
 
-if ((STALE_PID_FILES > 0)); then
-  FAILURES=$((FAILURES + STALE_PID_FILES))
+if ((IDENTITY_PROBLEMS > 0)); then
+  FAILURES=$((FAILURES + IDENTITY_PROBLEMS))
 fi
 if ((FAILURES > 0)); then
   printf 'Estado incompleto: %s problema(s).\n' "$FAILURES"

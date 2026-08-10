@@ -8,6 +8,7 @@
   "scripts": {
     "dev:web": "npm --workspace @llc/web run dev",
     "build:web": "npm --workspace @llc/web run build",
+    "build:web:runtime": "./scripts/build-web-runtime.sh",
     "lint:web": "npm --workspace @llc/web run lint",
     "typecheck:web": "npm --workspace @llc/web run typecheck",
     "test:api": ".venv/bin/python -m pytest apps/api",

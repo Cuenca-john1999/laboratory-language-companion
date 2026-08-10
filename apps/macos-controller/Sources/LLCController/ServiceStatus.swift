@@ -50,6 +50,8 @@ enum ControllerPhase: Equatable {
 
 enum PIDOwnership: String, Equatable {
   case managed
+  case adopted
+  case external
   case absent
   case stale
 }
@@ -90,17 +92,23 @@ struct ServiceSnapshot: Equatable {
   }
 
   var anyManagedProcess: Bool {
-    lm_studioPID == .managed || apiPID == .managed || webPID == .managed
+    [.managed, .adopted].contains(lm_studioPID)
+      || [.managed, .adopted].contains(apiPID)
+      || [.managed, .adopted].contains(webPID)
   }
 
   var hasStalePID: Bool {
     lm_studioPID == .stale || apiPID == .stale || webPID == .stale
   }
 
+  var hasExternalProcess: Bool {
+    lm_studioPID == .external || apiPID == .external || webPID == .external
+  }
+
   var derivedPhase: ControllerPhase {
     guard ssdAvailable else { return .ssdUnavailable }
-    if allServicesActive && !hasStalePID { return .running }
-    if !anyServiceActive && !hasStalePID { return .stopped }
+    if allServicesActive && !hasStalePID && !hasExternalProcess { return .running }
+    if !anyServiceActive && !hasStalePID && !hasExternalProcess { return .stopped }
     return .partial
   }
 }
@@ -132,7 +140,7 @@ enum StatusOutputParser {
       }
     }
 
-    guard fields["format"] == "deutschos-status-v1" else {
+    guard fields["format"] == "llc-status-v2" else {
       throw StatusParseError.unsupportedFormat
     }
 
@@ -218,6 +226,7 @@ enum UserFacingError {
       ("No hay modelos", "No se encontró ningún modelo local de LM Studio."),
       ("LM Studio no está instalado", "LM Studio no está instalado o no se puede ejecutar."),
       ("ocupado por un proceso ajeno", "Un puerto de LLC está ocupado por otro proceso."),
+      ("no pudo verificarse como LLC", "Un puerto está ocupado por un proceso que no pudo verificarse como LLC."),
       ("LM Studio no arrancó", "LM Studio no respondió antes del tiempo límite."),
       ("La API gestionada no llegó", "La API no respondió antes del tiempo límite."),
       ("FastAPI", "FastAPI no pudo iniciarse correctamente."),

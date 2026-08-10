@@ -19,8 +19,18 @@ struct ControllerView: View {
       if showsServices {
         VStack(alignment: .leading, spacing: 9) {
           serviceRow("LM Studio", active: controller.snapshot.lm_studioActive, feminine: false)
-          serviceRow("API", active: controller.snapshot.apiActive, feminine: true)
-          serviceRow("Web", active: controller.snapshot.webActive, feminine: true)
+          serviceRow(
+            "API",
+            active: controller.snapshot.apiActive,
+            feminine: true,
+            ownership: controller.snapshot.apiPID
+          )
+          serviceRow(
+            "Web",
+            active: controller.snapshot.webActive,
+            feminine: true,
+            ownership: controller.snapshot.webPID
+          )
           HStack {
             Text("Biblioteca:")
               .frame(width: 76, alignment: .leading)
@@ -185,19 +195,39 @@ struct ControllerView: View {
     }
   }
 
-  private func serviceRow(_ name: String, active: Bool, feminine: Bool) -> some View {
+  private func serviceRow(
+    _ name: String,
+    active: Bool,
+    feminine: Bool,
+    ownership: PIDOwnership? = nil
+  ) -> some View {
     HStack {
       Text("\(name):")
         .frame(width: 65, alignment: .leading)
-      Text(serviceText(active: active, feminine: feminine))
+      Text(serviceText(active: active, feminine: feminine, ownership: ownership))
         .foregroundStyle(active ? .green : .secondary)
       Spacer()
     }
     .font(.body)
   }
 
-  private func serviceText(active: Bool, feminine: Bool) -> String {
-    if active { return feminine ? "activa" : "activo" }
+  private func serviceText(
+    active: Bool,
+    feminine: Bool,
+    ownership: PIDOwnership?
+  ) -> String {
+    if ownership == .external { return "puerto ocupado · external" }
+    if ownership == .stale && !active { return "inactiva · metadata stale" }
+    if active {
+      let state = feminine ? "activa" : "activo"
+      guard let ownership else { return state }
+      switch ownership {
+      case .managed, .adopted: return "\(state) · LLC · \(ownership.rawValue)"
+      case .external: return "\(state) · external"
+      case .stale: return "\(state) · metadata stale"
+      case .absent: return state
+      }
+    }
     switch controller.phase {
     case .openingLMStudio, .startingLMStudioServer, .waitingLMStudio, .startingAPI,
       .startingWeb, .openingWeb, .checking:

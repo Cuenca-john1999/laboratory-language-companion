@@ -1,6 +1,8 @@
 import os
 import signal
+import socket
 import subprocess
+import time
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,6 +28,7 @@ def launcher_environment(tmp_path: Path) -> dict[str, str]:
             "LLC_LAUNCHER_NO_OPEN": "1",
             "LLC_LAUNCHER_NO_ALERT": "1",
             "LLC_LAUNCHER_TIMEOUT": "1",
+            "LLC_LAUNCHER_STOP_TIMEOUT": "1",
             "LLC_EDUCATIONAL_MATERIALS_DIR": str(materials),
             "LLC_EDUCATIONAL_LIBRARY_RUNTIME_DIR": str(tmp_path / "library"),
         }
@@ -88,6 +91,72 @@ def terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         pass
     if process.poll() is None:
         process.wait(timeout=5)
+
+
+def unused_loopback_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def start_exact_llc_api(tmp_path: Path, port: int) -> subprocess.Popen[bytes]:
+    runtime = tmp_path / "library"
+    materials = tmp_path / "materials"
+    materials.mkdir(exist_ok=True)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "LLC_DATABASE_URL": f"sqlite:///{tmp_path / 'api.sqlite3'}",
+            "LLC_EDUCATIONAL_MATERIALS_DIR": str(materials),
+            "LLC_EDUCATIONAL_LIBRARY_RUNTIME_DIR": str(runtime),
+        }
+    )
+    subprocess.run(
+        [
+            str(PROJECT_ROOT / ".venv/bin/python"),
+            "-m",
+            "alembic",
+            "-c",
+            str(PROJECT_ROOT / "apps/api/alembic.ini"),
+            "upgrade",
+            "head",
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    process = subprocess.Popen(
+        [
+            str(PROJECT_ROOT / ".venv/bin/python"),
+            "-m",
+            "uvicorn",
+            "llc_api.main:app",
+            "--app-dir",
+            str(PROJECT_ROOT / "apps/api/src"),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        cwd=PROJECT_ROOT,
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                return process
+        except OSError:
+            if process.poll() is not None:
+                break
+            time.sleep(0.1)
+    terminate_process_group(process)
+    raise RuntimeError("exact LLC API did not start")
 
 
 def test_launcher_prefers_llc_environment_and_accepts_legacy_fallback(tmp_path):
@@ -227,7 +296,7 @@ def test_status_reports_and_stop_cleans_stale_pid_without_signalling(tmp_path):
     stop = run_script("stop.sh", environment)
 
     assert status.returncode != 0
-    assert "PID file huérfano" in status.stdout
+    assert "stale · proceso inexistente" in status.stdout
     assert stop.returncode == 0
     assert "se elimina sin enviar señales" in stop.stdout
     assert not stale_pid.exists()
@@ -250,7 +319,7 @@ def test_status_machine_output_is_stable_and_parseable(tmp_path):
 
     assert result.returncode != 0
     assert fields == {
-        "format": "deutschos-status-v1",
+        "format": "llc-status-v2",
         "ssd": "available",
         "model_count": "0",
         "library_path": str(tmp_path / "materials"),
@@ -443,7 +512,7 @@ def test_stop_rejects_external_command_even_with_valid_start_token(tmp_path):
         stopped = run_script("stop.sh", environment)
 
         assert stopped.returncode == 0
-        assert "no pertenece al comando esperado" in stopped.stdout
+        assert "stale (el PID no pertenece al comando esperado)" in stopped.stdout
         assert process.poll() is None
         assert not (run_directory / "api.pid").exists()
     finally:
@@ -462,6 +531,183 @@ def test_stop_is_idempotent_when_all_services_are_closed(tmp_path):
     assert second.returncode == 0
     assert "Servidor local de LM Studio no estaba ejecutándose" in first.stdout
     assert "Apagado parcial" not in second.stdout
+
+
+def test_unknown_external_api_listener_is_not_killed(tmp_path):
+    class UnknownHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), UnknownHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = launcher_environment(tmp_path)
+    environment["LLC_LAUNCHER_API_PORT"] = str(server.server_port)
+    try:
+        classified = run_launcher_helper(
+            'classify_role api; printf "%s:%s\\n" "$SERVICE_STATE" "$SERVICE_REASON"',
+            environment,
+        )
+        stopped = run_script("stop.sh", environment)
+        with socket.create_connection(("127.0.0.1", server.server_port), timeout=1):
+            still_running = True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    assert classified.stdout.startswith("external:")
+    assert stopped.returncode != 0
+    assert "no se envían señales" in stopped.stdout
+    assert still_running
+
+
+def test_exact_llc_api_can_be_adopted(tmp_path):
+    port = unused_loopback_port()
+    process = start_exact_llc_api(tmp_path, port)
+    environment = launcher_environment(tmp_path)
+    environment["LLC_LAUNCHER_API_PORT"] = str(port)
+    try:
+        result = run_launcher_helper(
+            'classify_role api; printf "%s:%s\\n" "$SERVICE_STATE" "$SERVICE_PID"',
+            environment,
+        )
+        record = (tmp_path / "run/api.pid").read_text(encoding="utf-8").splitlines()
+        assert result.returncode == 0
+        assert result.stdout.strip() == f"adopted:{process.pid}"
+        assert record[0] == str(process.pid)
+        assert record[2] == "adopted"
+    finally:
+        terminate_process_group(process)
+
+
+def test_adopted_llc_api_can_be_stopped(tmp_path):
+    port = unused_loopback_port()
+    process = start_exact_llc_api(tmp_path, port)
+    environment = launcher_environment(tmp_path)
+    environment["LLC_LAUNCHER_API_PORT"] = str(port)
+    try:
+        adopted = run_launcher_helper("classify_role api", environment)
+        stopped = run_script("stop.sh", environment)
+        process.wait(timeout=5)
+        assert adopted.returncode == 0
+        assert stopped.returncode == 0
+        assert "api · adopted" in stopped.stdout
+        assert process.returncode is not None
+        assert not (tmp_path / "run/api.pid").exists()
+    finally:
+        terminate_process_group(process)
+
+
+def test_stale_pid_with_exact_llc_listener_recovers_as_adopted(tmp_path):
+    port = unused_loopback_port()
+    process = start_exact_llc_api(tmp_path, port)
+    environment = launcher_environment(tmp_path)
+    environment["LLC_LAUNCHER_API_PORT"] = str(port)
+    run_directory = tmp_path / "run"
+    run_directory.mkdir()
+    (run_directory / "api.pid").write_text(
+        "999999\nMon Jan  1 00:00:00 2001\nmanaged\n", encoding="utf-8"
+    )
+    try:
+        result = run_launcher_helper(
+            'classify_role api; printf "%s:%s\\n" "$SERVICE_STATE" "$SERVICE_PID"',
+            environment,
+        )
+        assert result.stdout.strip() == f"adopted:{process.pid}"
+        assert (run_directory / "api.pid").read_text(encoding="utf-8").splitlines()[2] == "adopted"
+    finally:
+        terminate_process_group(process)
+
+
+def test_stale_pid_with_unrelated_listener_refuses_adoption(tmp_path):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), BaseHTTPRequestHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment = launcher_environment(tmp_path)
+    environment["LLC_LAUNCHER_API_PORT"] = str(server.server_port)
+    run_directory = tmp_path / "run"
+    run_directory.mkdir()
+    (run_directory / "api.pid").write_text(
+        "999999\nMon Jan  1 00:00:00 2001\nmanaged\n", encoding="utf-8"
+    )
+    try:
+        result = run_launcher_helper(
+            'classify_role api; printf "%s\\n" "$SERVICE_STATE"', environment
+        )
+        assert result.stdout.strip() == "external"
+        assert (run_directory / "api.pid").read_text(encoding="utf-8").startswith("999999\n")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_controller_keeps_stop_available_from_partial_state():
+    model = (PROJECT_ROOT / "apps/macos-controller/Sources/LLCController/ControllerModel.swift").read_text(
+        encoding="utf-8"
+    )
+    view = (PROJECT_ROOT / "apps/macos-controller/Sources/LLCController/ControllerView.swift").read_text(
+        encoding="utf-8"
+    )
+    assert "phase != .checking && phase != .stopping" in model
+    partial_block = view[view.index("case .partial, .error:") : view.index("case .ssdUnavailable:")]
+    assert 'Button("Detener")' in partial_block
+    assert ".disabled(!controller.canStop)" in partial_block
+    assert "operationalLogQueue.async" in model
+
+
+def test_controller_uses_production_web_runtime():
+    start = (SCRIPTS / "start.sh").read_text(encoding="utf-8")
+    assert "LLC_RUNTIME_MODE=desktop-production" in start
+    assert '"$NODE_BIN" "$WEB_RUNTIME_SERVER"' in start
+    assert '"$NEXT_BIN" dev' not in start
+
+
+def test_development_web_mode_remains_explicit_and_separate():
+    root_package = (PROJECT_ROOT / "package.json").read_text(encoding="utf-8")
+    web_package = (PROJECT_ROOT / "apps/web/package.json").read_text(encoding="utf-8")
+    assert '"dev:web"' in root_package
+    assert "next dev --hostname 127.0.0.1" in web_package
+
+
+def test_user_runtime_has_no_hmr_or_turbopack_command():
+    start = (SCRIPTS / "start.sh").read_text(encoding="utf-8").lower()
+    assert "turbopack" not in start
+    assert "next dev" not in start
+    assert "desktop-production" in start
+
+
+def test_regular_web_build_cannot_mutate_selected_runtime_release():
+    root_package = (PROJECT_ROOT / "package.json").read_text(encoding="utf-8")
+    builder = (SCRIPTS / "build-web-runtime.sh").read_text(encoding="utf-8")
+    start = (SCRIPTS / "start.sh").read_text(encoding="utf-8")
+    assert '"build:web": "npm --workspace @llc/web run build"' in root_package
+    assert 'WEB_BUILD="$PROJECT_ROOT/apps/web/.next"' in builder
+    assert 'RELEASES_DIR="$RUNTIME_ROOT/releases"' in builder
+    assert 'mv "$STAGING_DIR" "$RELEASE_DIR"' in builder
+    assert 'cd "$WEB_RUNTIME_SERVER_DIR"' in start
+
+
+def test_lm_studio_stop_verifies_listener_and_port():
+    stop = (SCRIPTS / "stop.sh").read_text(encoding="utf-8")
+    common = (SCRIPTS / "launcher-common.sh").read_text(encoding="utf-8")
+    assert stop.index('"$LMS_BIN" server stop') < stop.index('wait_for_port_free "LM Studio"')
+    assert "lm_studio_listener_is_exact" in stop
+    assert "stop_exact_lm_studio_listener" in common
+
+
+def test_complete_shutdown_order_is_scoped_and_verifies_all_ports():
+    stop = (SCRIPTS / "stop.sh").read_text(encoding="utf-8")
+    assert "for ROLE in web api" in stop
+    assert stop.index("for ROLE in web api") < stop.index('"$LMS_BIN" server stop')
+    assert '"FastAPI:$API_PORT" "Next.js:$WEB_PORT"' in stop
+    assert 'wait_for_port_free "LM Studio" "$LM_STUDIO_PORT"' in stop
 
 
 def test_full_stop_has_no_ambiguous_process_kills_or_safari_target():

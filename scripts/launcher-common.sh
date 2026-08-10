@@ -31,8 +31,10 @@ for LLC_SUFFIX in \
   LAUNCHER_NO_ALERT \
   LAUNCHER_NO_OPEN \
   LAUNCHER_RUN_DIR \
+  LAUNCHER_STOP_TIMEOUT \
   LAUNCHER_TEST_MODE \
   LAUNCHER_TIMEOUT \
+  LAUNCHER_WEB_RUNTIME_ROOT \
   LAUNCHER_WEB_PORT \
   LM_APP_WILL_CLOSE \
   LM_STUDIO_READY
@@ -66,9 +68,39 @@ NEXT_BIN="$PROJECT_ROOT/node_modules/.bin/next"
 LM_STUDIO_URL="http://127.0.0.1:$LM_STUDIO_PORT"
 API_URL="http://127.0.0.1:$API_PORT"
 WEB_URL="http://127.0.0.1:$WEB_PORT"
+WEB_RUNTIME_ROOT="${LLC_LAUNCHER_WEB_RUNTIME_ROOT:-$PROJECT_ROOT/var/desktop-web}"
+WEB_RUNTIME_RELEASES="$WEB_RUNTIME_ROOT/releases"
 LAUNCHER_LOG="$LOG_DIR/launcher.log"
+STOP_TIMEOUT="${LLC_LAUNCHER_STOP_TIMEOUT:-5}"
 LMS_BIN=""
 LMS_BIN_DISPLAY=""
+INSTALLATION_ID="$(printf '%s' "$PROJECT_ROOT" | shasum -a 256 | awk '{print $1}')"
+
+resolve_web_runtime() {
+  local release_name release_dir server_relative server_dir
+  WEB_RUNTIME_RELEASE=""
+  WEB_RUNTIME_SERVER_DIR=""
+  WEB_RUNTIME_SERVER=""
+  [[ -f "$WEB_RUNTIME_ROOT/current-release" && ! -L "$WEB_RUNTIME_ROOT/current-release" ]] \
+    || return 1
+  release_name="$(sed -n '1p' "$WEB_RUNTIME_ROOT/current-release" 2>/dev/null || true)"
+  case "$release_name" in
+    "" | .* | */*) return 1 ;;
+  esac
+  release_dir="$WEB_RUNTIME_RELEASES/$release_name"
+  [[ -d "$release_dir" && ! -L "$release_dir" ]] || return 1
+  server_relative="$(sed -n '1p' "$release_dir/server-relative" 2>/dev/null || true)"
+  case "$server_relative" in
+    .) server_dir="$release_dir" ;;
+    apps/web) server_dir="$release_dir/apps/web" ;;
+    *) return 1 ;;
+  esac
+  [[ -f "$server_dir/server.js" && ! -L "$server_dir/server.js" ]] || return 1
+  WEB_RUNTIME_RELEASE="$release_dir"
+  WEB_RUNTIME_SERVER_DIR="$server_dir"
+  WEB_RUNTIME_SERVER="$server_dir/server.js"
+  return 0
+}
 
 resolve_lms_bin() {
   local configured candidate
@@ -159,17 +191,25 @@ process_start_token() {
     | LC_ALL=C awk '{$1=$1; print}'
 }
 
+process_cwd() {
+  lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+}
+
 expected_process() {
-  local role pid command_line
+  local role pid command_line cwd
   role="$1"
   pid="$2"
   command_line="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+  cwd="$(process_cwd "$pid")"
   case "$role" in
     api)
-      [[ "$command_line" == *"uvicorn"*"llc_api.main:app"*"$PROJECT_ROOT/apps/api/src"* ]]
+      [[ "$cwd" == "$PROJECT_ROOT" \
+        && "$command_line" == *"uvicorn"*"llc_api.main:app"*"$PROJECT_ROOT/apps/api/src"* \
+        && "$command_line" == *"--host 127.0.0.1"*"--port $API_PORT"* ]]
       ;;
     web)
-      [[ "$command_line" == *"next"*"dev"*"$PROJECT_ROOT/apps/web"* ]]
+      [[ "$cwd" == "$WEB_RUNTIME_RELEASES"/* \
+        && ( "$command_line" == *"server.js"* || "$command_line" == next-server* ) ]]
       ;;
     *)
       return 1
@@ -182,14 +222,19 @@ pid_file_path() {
 }
 
 write_pid_file() {
-  local role pid path started temporary
+  local role pid ownership path started temporary
   role="$1"
   pid="$2"
+  ownership="${3:-managed}"
+  case "$ownership" in
+    managed | adopted) ;;
+    *) return 1 ;;
+  esac
   path="$(pid_file_path "$role")"
   started="$(process_start_token "$pid")"
   [[ -n "$started" ]] || return 1
   temporary="$path.$$"
-  (umask 077 && printf '%s\n%s\n' "$pid" "$started" >"$temporary") || {
+  (umask 077 && printf '%s\n%s\n%s\n' "$pid" "$started" "$ownership" >"$temporary") || {
     rm -f -- "$temporary"
     return 1
   }
@@ -200,7 +245,7 @@ write_pid_file() {
 # Return 0 for valid, 1 for absent, 2 for stale/invalid. Details are exported
 # through PID_VALUE and PID_REASON without evaluating PID-file contents.
 pid_file_state() {
-  local role path recorded_start actual_start
+  local role path recorded_start actual_start ownership
   role="$1"
   path="$(pid_file_path "$role")"
   PID_VALUE=""
@@ -211,6 +256,8 @@ pid_file_state() {
   fi
   PID_VALUE="$(sed -n '1p' "$path" 2>/dev/null || true)"
   recorded_start="$(sed -n '2p' "$path" 2>/dev/null || true)"
+  ownership="$(sed -n '3p' "$path" 2>/dev/null || true)"
+  [[ -n "$ownership" ]] || ownership="managed"
   case "$PID_VALUE" in
     "" | *[!0-9]*)
       PID_REASON="contenido inválido"
@@ -230,6 +277,13 @@ pid_file_state() {
     PID_REASON="el PID no pertenece al comando esperado"
     return 2
   fi
+  case "$ownership" in
+    managed | adopted) PID_OWNERSHIP="$ownership" ;;
+    *)
+      PID_REASON="propiedad inválida"
+      return 2
+      ;;
+  esac
   PID_REASON="válido"
   return 0
 }
@@ -260,6 +314,25 @@ port_is_busy() {
     return $?
   fi
   return 2
+}
+
+role_port() {
+  case "$1" in
+    api) printf '%s\n' "$API_PORT" ;;
+    web) printf '%s\n' "$WEB_PORT" ;;
+    *) return 1 ;;
+  esac
+}
+
+listener_pid_for_port() {
+  local port pids count
+  port="$1"
+  command -v lsof >/dev/null 2>&1 || return 2
+  pids="$(lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)"
+  [[ -n "$pids" ]] || return 1
+  count="$(printf '%s\n' "$pids" | awk 'NF {count++} END {print count+0}')"
+  [[ "$count" == "1" ]] || return 2
+  printf '%s\n' "$pids"
 }
 
 lm_studio_ready() {
@@ -296,8 +369,65 @@ api_ready() {
 
 web_ready() {
   local response
-  response="$(curl --silent --fail --connect-timeout 1 --max-time 5 "$WEB_URL" 2>/dev/null)" || return 1
-  [[ "$response" == *"<title>LLC</title>"* ]]
+  response="$(curl --silent --fail --connect-timeout 1 --max-time 5 "$WEB_URL/api/health" 2>/dev/null)" || return 1
+  [[ "$response" == *'"status":"ok"'* \
+    && "$response" == *'"service":"llc-web"'* \
+    && "$response" == *'"runtime":"desktop-production"'* \
+    && "$response" == *"\"installation_id\":\"$INSTALLATION_ID\""* ]]
+}
+
+role_ready() {
+  case "$1" in
+    api) api_ready ;;
+    web) web_ready ;;
+    *) return 1 ;;
+  esac
+}
+
+# Export SERVICE_STATE, SERVICE_PID and SERVICE_REASON. Status checks may adopt
+# a listener only after port, HTTP identity, command, cwd and PID all agree.
+classify_role() {
+  local role pid_state port listener
+  role="$1"
+  SERVICE_STATE=""
+  SERVICE_PID=""
+  SERVICE_REASON=""
+  if pid_file_state "$role"; then
+    SERVICE_STATE="$PID_OWNERSHIP"
+    SERVICE_PID="$PID_VALUE"
+    SERVICE_REASON="PID y huella de inicio válidos"
+    return 0
+  else
+    pid_state=$?
+  fi
+  port="$(role_port "$role")" || return 2
+  if port_is_busy "$port"; then
+    listener="$(listener_pid_for_port "$port" 2>/dev/null || true)"
+    if [[ -n "$listener" ]] && role_ready "$role" && expected_process "$role" "$listener"; then
+      if write_pid_file "$role" "$listener" adopted; then
+        SERVICE_STATE="adopted"
+        SERVICE_PID="$listener"
+        SERVICE_REASON="listener LLC exacto recuperado"
+        return 0
+      fi
+      SERVICE_STATE="external"
+      SERVICE_PID="$listener"
+      SERVICE_REASON="la identidad coincide, pero no se pudo persistir la adopción"
+      return 0
+    fi
+    SERVICE_STATE="external"
+    SERVICE_PID="$listener"
+    SERVICE_REASON="el listener del puerto $port no pudo verificarse como LLC"
+    return 0
+  fi
+  if [[ "$pid_state" == 2 ]]; then
+    SERVICE_STATE="stale"
+    SERVICE_REASON="$PID_REASON"
+  else
+    SERVICE_STATE="absent"
+    SERVICE_REASON="sin listener ni registro"
+  fi
+  return 0
 }
 
 active_model_names() {
@@ -391,6 +521,32 @@ stop_validated_role() {
   done
   rm -f -- "$(pid_file_path "$role")"
   ! process_is_running "$pid"
+}
+
+lm_studio_listener_is_exact() {
+  local pid command_line
+  pid="$(listener_pid_for_port "$LM_STUDIO_PORT" 2>/dev/null || true)"
+  [[ -n "$pid" ]] || return 1
+  command_line="$(ps -o command= -p "$pid" 2>/dev/null || true)"
+  [[ "$command_line" == *"/Applications/LM Studio.app/Contents/MacOS/LM Studio"* ]]
+}
+
+stop_exact_lm_studio_listener() {
+  local pid attempt
+  lm_studio_listener_is_exact || return 1
+  pid="$(listener_pid_for_port "$LM_STUDIO_PORT")" || return 1
+  launcher_log "LM Studio conserva un listener exacto (PID $pid); aplicando cierre acotado."
+  terminate_tree_signal "$pid" TERM
+  attempt=0
+  while ((attempt < 8)) && process_is_running "$pid"; do
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  if process_is_running "$pid"; then
+    launcher_log "El listener exacto de LM Studio no respondió; usando SIGKILL focalizado."
+    terminate_tree_signal "$pid" KILL
+  fi
+  wait_for_port_free "LM Studio" "$LM_STUDIO_PORT" 5
 }
 
 wait_for_port_free() {

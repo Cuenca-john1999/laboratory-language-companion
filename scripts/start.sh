@@ -183,63 +183,89 @@ if ! api_ready; then
     || fail_launcher "La preparación de LLC falló. Revisa logs/launcher.log."
 fi
 
-clean_invalid_pid_file api
-if api_ready; then
-  if pid_file_state api; then
-    launcher_log "FastAPI ya está activa y continúa gestionada por LLC."
-  else
-    launcher_log "FastAPI ya está activa; se reutiliza sin duplicarla ni asumir su propiedad."
-  fi
-elif pid_file_state api; then
-  wait_for_probe "FastAPI" api_ready "$PID_VALUE" "$START_TIMEOUT" \
-    || fail_launcher "La API gestionada no llegó a estar disponible. Revisa logs/api.log."
-elif port_is_busy "$API_PORT"; then
-  fail_launcher "El puerto $API_PORT está ocupado por un proceso ajeno a LLC."
-else
-  launcher_log "Iniciando FastAPI en $API_URL"
-  (
-    cd "$PROJECT_ROOT"
-    exec /usr/bin/nohup "$PYTHON" -m uvicorn llc_api.main:app \
-      --app-dir "$PROJECT_ROOT/apps/api/src" \
-      --host 127.0.0.1 \
-      --port "$API_PORT" </dev/null
-  ) >>"$LOG_DIR/api.log" 2>&1 &
-  STARTED_API=$!
-  disown "$STARTED_API" 2>/dev/null || true
-  write_pid_file api "$STARTED_API" \
-    || fail_launcher "No se pudo registrar el PID de FastAPI."
-  wait_for_probe "FastAPI" api_ready "$STARTED_API" "$START_TIMEOUT" \
-    || fail_launcher "FastAPI no arrancó. Revisa logs/api.log."
-fi
+classify_role api
+case "$SERVICE_STATE" in
+  managed | adopted)
+    if api_ready; then
+      launcher_log "FastAPI LLC está activa · $SERVICE_STATE (PID $SERVICE_PID)."
+    else
+      wait_for_probe "FastAPI" api_ready "$SERVICE_PID" "$START_TIMEOUT" \
+        || fail_launcher "La API LLC $SERVICE_STATE no llegó a estar disponible. Revisa logs/api.log."
+    fi
+    ;;
+  external)
+    fail_launcher "El puerto $API_PORT está ocupado por un proceso que no pudo verificarse como LLC."
+    ;;
+  stale | absent)
+    if [[ "$SERVICE_STATE" == "stale" ]]; then
+      launcher_log "Se retira el registro obsoleto de FastAPI ($SERVICE_REASON)."
+      rm -f -- "$(pid_file_path api)"
+    fi
+    launcher_log "Iniciando FastAPI en $API_URL"
+    (
+      cd "$PROJECT_ROOT"
+      exec /usr/bin/nohup "$PYTHON" -m uvicorn llc_api.main:app \
+        --app-dir "$PROJECT_ROOT/apps/api/src" \
+        --host 127.0.0.1 \
+        --port "$API_PORT" </dev/null
+    ) >>"$LOG_DIR/api.log" 2>&1 &
+    STARTED_API=$!
+    disown "$STARTED_API" 2>/dev/null || true
+    write_pid_file api "$STARTED_API" managed \
+      || fail_launcher "No se pudo registrar el PID de FastAPI."
+    wait_for_probe "FastAPI" api_ready "$STARTED_API" "$START_TIMEOUT" \
+      || fail_launcher "FastAPI no arrancó. Revisa logs/api.log."
+    ;;
+esac
 
-clean_invalid_pid_file web
-if web_ready; then
-  if pid_file_state web; then
-    launcher_log "Next.js ya está activa y continúa gestionada por LLC."
-  else
-    launcher_log "Next.js ya está activa; se reutiliza sin duplicarla ni asumir su propiedad."
-  fi
-elif pid_file_state web; then
-  wait_for_probe "Next.js" web_ready "$PID_VALUE" "$START_TIMEOUT" \
-    || fail_launcher "La web gestionada no llegó a estar disponible. Revisa logs/web.log."
-elif port_is_busy "$WEB_PORT"; then
-  fail_launcher "El puerto $WEB_PORT está ocupado por un proceso ajeno a LLC."
-else
-  launcher_log "Iniciando Next.js en $WEB_URL"
-  /usr/bin/nohup /usr/bin/env \
-    NEXT_PUBLIC_API_URL="$API_URL" \
-    NEXT_TELEMETRY_DISABLED=1 \
-    DO_NOT_TRACK=1 \
-    "$NEXT_BIN" dev "$PROJECT_ROOT/apps/web" \
-      --hostname 127.0.0.1 \
-      --port "$WEB_PORT" </dev/null >>"$LOG_DIR/web.log" 2>&1 &
-  STARTED_WEB=$!
-  disown "$STARTED_WEB" 2>/dev/null || true
-  write_pid_file web "$STARTED_WEB" \
-    || fail_launcher "No se pudo registrar el PID de Next.js."
-  wait_for_probe "Next.js" web_ready "$STARTED_WEB" "$START_TIMEOUT" \
-    || fail_launcher "Next.js no arrancó. Revisa logs/web.log."
-fi
+classify_role web
+case "$SERVICE_STATE" in
+  managed | adopted)
+    if web_ready; then
+      launcher_log "Web LLC de producción está activa · $SERVICE_STATE (PID $SERVICE_PID)."
+    else
+      wait_for_probe "Web LLC" web_ready "$SERVICE_PID" "$START_TIMEOUT" \
+        || fail_launcher "La Web LLC $SERVICE_STATE no llegó a estar disponible. Revisa logs/web.log."
+    fi
+    ;;
+  external)
+    fail_launcher "El puerto $WEB_PORT está ocupado por un proceso que no pudo verificarse como LLC."
+    ;;
+  stale | absent)
+    if [[ "$SERVICE_STATE" == "stale" ]]; then
+      launcher_log "Se retira el registro obsoleto de Web ($SERVICE_REASON)."
+      rm -f -- "$(pid_file_path web)"
+    fi
+    if ! resolve_web_runtime; then
+      launcher_log "No hay runtime web de escritorio; creando un artefacto de producción aislado."
+      "$PROJECT_ROOT/scripts/build-web-runtime.sh" >>"$LAUNCHER_LOG" 2>&1 \
+        || fail_launcher "No se pudo construir el runtime web de producción. Revisa logs/launcher.log."
+      resolve_web_runtime \
+        || fail_launcher "El runtime web construido no tiene un manifiesto válido."
+    fi
+    NODE_BIN="$(command -v node || true)"
+    [[ -x "$NODE_BIN" ]] || fail_launcher "No se encontró Node.js para ejecutar el runtime web."
+    launcher_log "Iniciando Web LLC en producción desde $WEB_RUNTIME_RELEASE"
+    (
+      cd "$WEB_RUNTIME_SERVER_DIR"
+      exec /usr/bin/nohup /usr/bin/env \
+        HOSTNAME=127.0.0.1 \
+        PORT="$WEB_PORT" \
+        NODE_ENV=production \
+        NEXT_TELEMETRY_DISABLED=1 \
+        DO_NOT_TRACK=1 \
+        LLC_RUNTIME_MODE=desktop-production \
+        LLC_INSTALLATION_ID="$INSTALLATION_ID" \
+        "$NODE_BIN" "$WEB_RUNTIME_SERVER" </dev/null
+    ) >>"$LOG_DIR/web.log" 2>&1 &
+    STARTED_WEB=$!
+    disown "$STARTED_WEB" 2>/dev/null || true
+    write_pid_file web "$STARTED_WEB" managed \
+      || fail_launcher "No se pudo registrar el PID de Web LLC."
+    wait_for_probe "Web LLC de producción" web_ready "$STARTED_WEB" "$START_TIMEOUT" \
+      || fail_launcher "Web LLC no arrancó. Revisa logs/web.log."
+    ;;
+esac
 
 MODEL_NAMES="$(active_model_names || true)"
 [[ -n "$MODEL_NAMES" ]] || fail_launcher "LM Studio responde, pero no informa modelos disponibles."

@@ -20,6 +20,11 @@ final class ControllerModel: ObservableObject {
   private var activeExecutor: ScriptExecutor?
   private var refreshInProgress = false
   private var terminationInProgress = false
+  private var ownsLMStudioApplication = false
+  private let operationalLogQueue = DispatchQueue(
+    label: "local.llc.controller.operational-log",
+    qos: .utility
+  )
   private var lastLoggedStatus: String?
   private var actionIdentifier = UUID()
 
@@ -238,7 +243,7 @@ final class ControllerModel: ObservableObject {
       return
     }
     do {
-      try await lmStudioCoordinator.ensureReady(
+      let ownership = try await lmStudioCoordinator.ensureReady(
         stageChanged: { [weak self] stage in
           guard let self else { return }
           switch stage {
@@ -254,6 +259,7 @@ final class ControllerModel: ObservableObject {
           self?.appendOperationalLog(message)
         }
       )
+      ownsLMStudioApplication = ownership == .openedByController
     } catch is CancellationError {
       appendOperationalLog("arranque cancelado durante la preparación de LM Studio")
       return
@@ -364,16 +370,21 @@ final class ControllerModel: ObservableObject {
     )
     activeExecutor = nil
 
-    switch await lmStudioApplication.stop() {
-    case .notRunning:
-      appendOperationalLog("LM Studio.app no estaba ejecutándose")
-    case .terminated:
-      appendOperationalLog("LM Studio.app cerrada normalmente")
-    case .forceTerminated:
-      appendOperationalLog("LM Studio.app cerrada con forceTerminate sobre el bundle exacto")
-    case .timedOut(let pids):
-      appendOperationalLog("timeout al cerrar LM Studio.app; PID \(pids)")
-      nativeFailures.append("LM Studio.app")
+    if ownsLMStudioApplication {
+      switch await lmStudioApplication.stop() {
+      case .notRunning:
+        appendOperationalLog("LM Studio.app propia ya no estaba ejecutándose")
+      case .terminated:
+        appendOperationalLog("LM Studio.app propia cerrada normalmente")
+      case .forceTerminated:
+        appendOperationalLog("LM Studio.app propia cerrada con forceTerminate sobre el bundle exacto")
+      case .timedOut(let pids):
+        appendOperationalLog("timeout al cerrar LM Studio.app propia; PID \(pids)")
+        nativeFailures.append("LM Studio.app")
+      }
+      ownsLMStudioApplication = false
+    } else {
+      appendOperationalLog("LM Studio.app preexistente se conserva; el servidor local ya se solicitó detener")
     }
 
     let verificationResult = await executor.run(
@@ -383,7 +394,7 @@ final class ControllerModel: ObservableObject {
     )
     await refreshStatus()
 
-    if (!result.succeeded || !verificationResult.succeeded || !nativeFailures.isEmpty
+    if (!verificationResult.succeeded || !nativeFailures.isEmpty
       || snapshot.anyManagedProcess
       || snapshot.anyServiceActive)
       && showFailure
@@ -422,27 +433,29 @@ final class ControllerModel: ObservableObject {
 
   private func appendOperationalLog(_ message: String) {
     guard let projectRoot else { return }
-    let manager = FileManager.default
-    let directory = projectRoot.appendingPathComponent("logs", isDirectory: true)
-    let file = directory.appendingPathComponent("controller.log")
     let line = "\(ISO8601DateFormatter().string(from: Date())) \(message)\n"
     guard let data = line.data(using: .utf8) else { return }
-    do {
-      try manager.createDirectory(
-        at: directory,
-        withIntermediateDirectories: true,
-        attributes: [.posixPermissions: 0o700]
-      )
-      if !manager.fileExists(atPath: file.path) {
-        try Data().write(to: file, options: .atomic)
-        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+    operationalLogQueue.async {
+      let manager = FileManager.default
+      let directory = projectRoot.appendingPathComponent("logs", isDirectory: true)
+      let file = directory.appendingPathComponent("controller.log")
+      do {
+        try manager.createDirectory(
+          at: directory,
+          withIntermediateDirectories: true,
+          attributes: [.posixPermissions: 0o700]
+        )
+        if !manager.fileExists(atPath: file.path) {
+          try Data().write(to: file, options: .atomic)
+          try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        }
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+        try handle.close()
+      } catch {
+        // Logging must never block control or shutdown actions.
       }
-      let handle = try FileHandle(forWritingTo: file)
-      try handle.seekToEnd()
-      try handle.write(contentsOf: data)
-      try handle.close()
-    } catch {
-      // Logging must never block control or shutdown actions.
     }
   }
 }
