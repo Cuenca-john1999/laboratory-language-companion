@@ -115,8 +115,15 @@ class LMStudioProvider(ModelProvider):
         detail = ""
         try:
             payload = exc.response.json()
-            detail = str(payload.get("error", {}).get("message") or payload.get("message") or "")
-        except ValueError:
+            if isinstance(payload, dict):
+                error = payload.get("error")
+                if isinstance(error, dict):
+                    detail = str(error.get("message") or "")
+                elif isinstance(error, str):
+                    detail = error
+                if not detail and isinstance(payload.get("message"), str):
+                    detail = payload["message"]
+        except (TypeError, ValueError):
             detail = exc.response.text[:300]
         if status == 404 or "model" in detail.casefold() and "not found" in detail.casefold():
             raise ModelNotFoundError(
@@ -273,7 +280,14 @@ class LMStudioProvider(ModelProvider):
                 "validation_errors": validation_error.errors(include_url=False),
                 "schema": schema.model_json_schema(),
             }
-            repair = messages + [
+            repair = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Repair only the supplied JSON so it matches the supplied schema. "
+                        "Do not add facts or content. Return JSON only."
+                    ),
+                },
                 {"role": "assistant", "content": raw},
                 {
                     "role": "user",

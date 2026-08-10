@@ -23,33 +23,6 @@ DEFAULT_MAX_PASSES = 3
 DEFAULT_INPUT_CHARACTERS = 18_000
 DEFAULT_OUTPUT_TOKENS = 2_048
 
-CANDIDATE_TYPES = {
-    "concept",
-    "definition",
-    "grammatical_rule",
-    "condition",
-    "constraint",
-    "exception",
-    "contrast",
-    "terminology",
-    "form_pattern",
-    "paradigm",
-    "example",
-    "counterexample",
-    "warning",
-    "usage_note",
-    "register_note",
-    "common_error",
-    "prerequisite",
-    "dependency",
-    "concept_relation",
-    "cross_reference",
-    "pedagogical_sequence",
-    "table_interpretation",
-    "unresolved_claim",
-}
-
-
 class ReadingError(RuntimeError):
     pass
 
@@ -68,16 +41,45 @@ class ReadingCandidateState(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class ReadingCandidateType(StrEnum):
+    CONCEPT = "concept"
+    DEFINITION = "definition"
+    GRAMMATICAL_RULE = "grammatical_rule"
+    CONDITION = "condition"
+    CONSTRAINT = "constraint"
+    EXCEPTION = "exception"
+    CONTRAST = "contrast"
+    TERMINOLOGY = "terminology"
+    FORM_PATTERN = "form_pattern"
+    PARADIGM = "paradigm"
+    EXAMPLE = "example"
+    COUNTEREXAMPLE = "counterexample"
+    WARNING = "warning"
+    USAGE_NOTE = "usage_note"
+    REGISTER_NOTE = "register_note"
+    COMMON_ERROR = "common_error"
+    PREREQUISITE = "prerequisite"
+    DEPENDENCY = "dependency"
+    CONCEPT_RELATION = "concept_relation"
+    CROSS_REFERENCE = "cross_reference"
+    PEDAGOGICAL_SEQUENCE = "pedagogical_sequence"
+    TABLE_INTERPRETATION = "table_interpretation"
+    UNRESOLVED_CLAIM = "unresolved_claim"
+
+
+CANDIDATE_TYPES = {candidate_type.value for candidate_type in ReadingCandidateType}
+
+
 class EvidenceReference(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     block_id: str
     quote: str = Field(min_length=1)
 
 
 class ReadingCandidateOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     local_id: str = Field(min_length=1, max_length=120)
-    candidate_type: str
+    candidate_type: ReadingCandidateType = Field(strict=False)
     content: dict[str, Any]
     terminology_de: list[str] = Field(default_factory=list)
     terminology_es: list[str] = Field(default_factory=list)
@@ -88,7 +90,7 @@ class ReadingCandidateOutput(BaseModel):
 
 
 class ReadingRelationOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     source_local_id: str
     target_local_id: str
     relation_type: str
@@ -96,14 +98,14 @@ class ReadingRelationOutput(BaseModel):
 
 
 class ReadingConflictOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     candidate_local_ids: list[str] = Field(min_length=2)
     description: str = Field(min_length=1)
     evidence_ids: list[str] = Field(default_factory=list)
 
 
 class PedagogicalReadingOutput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
     topic: int = Field(gt=0)
     evidence_scope: list[str]
     candidates: list[ReadingCandidateOutput]
@@ -498,6 +500,34 @@ class PedagogicalReadingService:
                 output, model, _ = await self.router.structured_generate(
                     role, messages, PedagogicalReadingOutput, interactive=False
                 )
+                contract_errors, vacuous = self._output_contract_errors(
+                    output,
+                    topic_number=topic_number,
+                    allowed={str(block["evidence_id"]) for block in unit},
+                )
+                if contract_errors:
+                    repair_messages = self._output_repair_messages(
+                        messages,
+                        output,
+                        contract_errors,
+                        allowed={str(block["evidence_id"]) for block in unit},
+                    )
+                    output, model, _ = await self.router.structured_generate(
+                        role,
+                        repair_messages,
+                        PedagogicalReadingOutput,
+                        interactive=False,
+                    )
+                    contract_errors, vacuous = self._output_contract_errors(
+                        output,
+                        topic_number=topic_number,
+                        allowed={str(block["evidence_id"]) for block in unit},
+                    )
+                    if contract_errors:
+                        if vacuous and len(contract_errors) == 1:
+                            issues += 1
+                            continue
+                        raise EvidenceRejected("; ".join(contract_errors))
                 issues += self.persist_output(run_id, stage["id"], output, model=model)
             state = "completed_with_issues" if issues else "completed"
             self._finish_stage(stage["id"], state, int((time.monotonic() - started) * 1000), None)
@@ -508,6 +538,73 @@ class PedagogicalReadingService:
             )
             raise
         return self.detail(run_id)
+
+    @staticmethod
+    def _output_contract_errors(
+        output: PedagogicalReadingOutput,
+        *,
+        topic_number: int,
+        allowed: set[str],
+    ) -> tuple[list[str], bool]:
+        errors: list[str] = []
+        if output.topic != topic_number:
+            errors.append(f"topic must be {topic_number}, received {output.topic}")
+        referenced = set(output.evidence_scope)
+        referenced.update(
+            evidence.block_id
+            for candidate in output.candidates
+            for evidence in candidate.evidence
+        )
+        referenced.update(
+            evidence_id for relation in output.relations for evidence_id in relation.evidence_ids
+        )
+        referenced.update(
+            evidence_id for conflict in output.conflicts for evidence_id in conflict.evidence_ids
+        )
+        invalid_ids = sorted(referenced - allowed)
+        if invalid_ids:
+            errors.append("evidence IDs outside supplied scope: " + ", ".join(invalid_ids))
+        vacuous = not any(
+            (
+                output.candidates,
+                output.relations,
+                output.unresolved,
+                output.warnings,
+                output.conflicts,
+            )
+        )
+        if vacuous:
+            errors.append(
+                "semantic output is vacuous despite substantive supplied evidence; "
+                "return only evidence-grounded interpretation, uncertainty, or warnings "
+                "without inventing content or satisfying a numerical quota"
+            )
+        return errors, vacuous
+
+    @staticmethod
+    def _output_repair_messages(
+        messages: list[dict[str, str]],
+        output: PedagogicalReadingOutput,
+        errors: list[str],
+        *,
+        allowed: set[str],
+    ) -> list[dict[str, str]]:
+        contract = {
+            "instruction": (
+                "Repair only structure and grounding. Preserve supported observations, use only "
+                "the supplied evidence IDs, add no external knowledge, and do not target a quota."
+            ),
+            "validation_errors": errors,
+            "allowed_evidence_ids": sorted(allowed),
+            "schema": PedagogicalReadingOutput.model_json_schema(),
+        }
+        return messages + [
+            {"role": "assistant", "content": output.model_dump_json()},
+            {
+                "role": "user",
+                "content": "Repair the response under this contract:\n" + _dump(contract),
+            },
+        ]
 
     def persist_output(
         self, run_id: str, stage_id: str, output: PedagogicalReadingOutput, *, model: str

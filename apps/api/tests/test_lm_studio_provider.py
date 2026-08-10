@@ -5,6 +5,7 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from llc_api.educational_library.reading import PedagogicalReadingOutput
 from llc_api.providers.base import (
     EmptyVisibleContentError,
     MalformedStructuredOutputError,
@@ -335,6 +336,12 @@ async def test_structured_generation_repairs_once_then_fails():
     assert "validation_errors" in repair_text
     assert "schema" in repair_text
     assert "No añadas contenido nuevo" in repair_text
+    assert [message["role"] for message in requests[1]["messages"]] == [
+        "system",
+        "assistant",
+        "user",
+    ]
+    assert "score" not in requests[1]["messages"][0]["content"]
 
 
 @pytest.mark.parametrize("first", ["", '{"score":'])
@@ -356,4 +363,123 @@ async def test_structured_generation_recovers_empty_or_truncated_json_once(first
         "model", [{"role": "user", "content": "synthetic"}], StructuredResult
     )
     assert result.score == 0.75
+    assert calls == 2
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        {
+            "topic": 1,
+            "evidence_scope": [],
+            "candidates": ["not-an-object"],
+        },
+        {
+            "topic": 1,
+            "evidence_scope": ["block-1"],
+            "candidates": [
+                {
+                    "local_id": "candidate-1",
+                    "candidate_type": "definition",
+                    "content": {"statement": "synthetic"},
+                    "evidence": ["not-an-object"],
+                    "confidence": 0.5,
+                }
+            ],
+        },
+        {
+            "topic": 1,
+            "evidence_scope": [],
+            "candidates": [],
+            "relations": ["not-an-object"],
+        },
+        {
+            "topic": 1,
+            "evidence_scope": [],
+            "candidates": [],
+            "unresolved": [{"text": "not-a-string"}],
+        },
+    ],
+    ids=["candidate-string", "evidence-string", "relation-string", "unresolved-object"],
+)
+async def test_reading_structure_rejects_nested_wrong_types_and_repairs_once(malformed):
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        content = (
+            json.dumps(malformed)
+            if calls == 1
+            else json.dumps(
+                {
+                    "topic": 1,
+                    "evidence_scope": [],
+                    "candidates": [],
+                    "unresolved": ["synthetic uncertainty"],
+                }
+            )
+        )
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    provider = provider_with(handler)
+    result = await provider.structured_generate(
+        "model", [{"role": "user", "content": "synthetic"}], PedagogicalReadingOutput
+    )
+
+    assert result.unresolved == ["synthetic uncertainty"]
+    assert calls == 2
+
+
+async def test_reading_second_malformed_structure_fails_safely():
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "topic": 1,
+                                    "evidence_scope": [],
+                                    "candidates": ["still-not-an-object"],
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    provider = provider_with(handler)
+    with pytest.raises(MalformedStructuredOutputError):
+        await provider.structured_generate(
+            "model", [{"role": "user", "content": "synthetic"}], PedagogicalReadingOutput
+        )
+    assert calls == 2
+
+
+async def test_scalar_lm_studio_error_never_causes_get_attribute_crash():
+    calls = 0
+
+    def handler(_request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"score":'}}]},
+            )
+        return httpx.Response(400, json={"error": "context length exceeded"})
+
+    provider = provider_with(handler)
+    with pytest.raises(ProviderResponseError, match="context length exceeded"):
+        await provider.structured_generate(
+            "model", [{"role": "user", "content": "synthetic"}], StructuredResult
+        )
     assert calls == 2

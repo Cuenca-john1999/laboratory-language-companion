@@ -70,6 +70,18 @@ class FixtureRouter:
         return result, "fixture-model", False
 
 
+class SequenceRouter:
+    def __init__(self, outputs: list[dict[str, Any]]):
+        self.outputs = list(outputs)
+        self.calls: list[dict[str, Any]] = []
+
+    async def structured_generate(self, role, messages, schema, *, interactive=True):
+        self.calls.append(
+            {"role": role, "messages": messages, "interactive": interactive}
+        )
+        return schema.model_validate(self.outputs.pop(0)), "fixture-model", False
+
+
 @pytest.fixture
 def reading_library(tmp_path: Path):
     database, version_id = review_library_fixture.__wrapped__(tmp_path)
@@ -143,6 +155,36 @@ def _create_automatic(service: PedagogicalReadingService, version_id: int) -> di
         ReadingRunCreate(source_version_id=version_id, max_passes=3, auto_continue=True),
         resolved_model="fixture-model",
     )
+
+
+def _only_first_topic(database, run_id: str) -> None:
+    with database.transaction(immediate=True) as connection:
+        connection.execute(
+            "UPDATE pedagogical_reading_topic_stages SET state='skipped' "
+            "WHERE run_id=? AND topic_number>1",
+            (run_id,),
+        )
+
+
+def _candidate_output(database, stage: dict[str, Any]) -> dict[str, Any]:
+    block_id = stage["block_scope"][0]
+    with database.connect() as connection:
+        quote = connection.execute(
+            "SELECT raw_text FROM document_page_blocks WHERE id=?", (block_id,)
+        ).fetchone()[0]
+    return {
+        "topic": 1,
+        "evidence_scope": [block_id],
+        "candidates": [
+            {
+                "local_id": "candidate-1",
+                "candidate_type": "definition",
+                "content": {"statement": "Synthetic low-volume observation"},
+                "evidence": [{"block_id": block_id, "quote": quote}],
+                "confidence": 0.5,
+            }
+        ],
+    }
 
 
 def test_schema_13_round_trip_preserves_existing_library_rows(reading_library):
@@ -253,6 +295,141 @@ async def test_atomic_execution_persists_provenance_without_confirming_memory(re
     next_pass = service.create_next_pass(run["id"])
     assert next_pass["pass_number"] == 2
     assert [stage["topic_number"] for stage in next_pass["stages"]] == [1]
+
+
+@pytest.mark.anyio
+async def test_outside_scope_output_is_repaired_once_with_explicit_invalid_ids(
+    reading_library,
+):
+    database, version_id = reading_library
+    initial = {
+        "topic": 1,
+        "evidence_scope": ["invented-block"],
+        "candidates": [],
+        "unresolved": ["Synthetic uncertainty"],
+    }
+    service = PedagogicalReadingService(database)
+    run = _create(service, version_id)
+    valid = {
+        "topic": 1,
+        "evidence_scope": [run["stages"][0]["block_scope"][0]],
+        "candidates": [],
+        "unresolved": ["Synthetic uncertainty"],
+    }
+    router = SequenceRouter([initial, valid])
+    service.router = router  # type: ignore[assignment]
+    _only_first_topic(database, run["id"])
+    service._control(run["id"], "queued", None)
+
+    finished = await service.execute(run["id"])
+
+    stage = finished["stages"][0]
+    assert stage["state"] == "completed_with_issues"
+    assert len(router.calls) == 2
+    repair_contract = router.calls[1]["messages"][-1]["content"]
+    assert "invented-block" in repair_contract
+    assert run["stages"][0]["block_scope"][0] in repair_contract
+
+
+@pytest.mark.anyio
+async def test_second_outside_scope_output_fails_topic_safely(reading_library):
+    database, version_id = reading_library
+    outside = {
+        "topic": 1,
+        "evidence_scope": ["invented-block"],
+        "candidates": [],
+        "unresolved": ["Synthetic uncertainty"],
+    }
+    router = SequenceRouter([outside, outside])
+    service = PedagogicalReadingService(database, router)  # type: ignore[arg-type]
+    run = _create(service, version_id)
+    _only_first_topic(database, run["id"])
+    service._control(run["id"], "queued", None)
+
+    finished = await service.execute(run["id"])
+
+    stage = finished["stages"][0]
+    assert stage["state"] == "failed"
+    assert "invented-block" in stage["error_detail"]
+    assert len(router.calls) == 2
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM pedagogical_reading_candidates WHERE run_id=?", (run["id"],)
+        ).fetchone()[0] == 0
+
+
+@pytest.mark.anyio
+async def test_vacuous_output_is_repaired_once_without_candidate_quota(reading_library):
+    database, version_id = reading_library
+    vacuous = {"topic": 1, "evidence_scope": [], "candidates": []}
+    service = PedagogicalReadingService(database)
+    run = _create(service, version_id)
+    valid = _candidate_output(database, run["stages"][0])
+    router = SequenceRouter([vacuous, valid])
+    service.router = router  # type: ignore[assignment]
+    _only_first_topic(database, run["id"])
+    service._control(run["id"], "queued", None)
+
+    finished = await service.execute(run["id"])
+
+    assert finished["stages"][0]["state"] == "completed"
+    assert len(router.calls) == 2
+    repair_contract = router.calls[1]["messages"][-1]["content"]
+    assert "vacuous" in repair_contract
+    assert "quota" in repair_contract
+
+
+@pytest.mark.anyio
+async def test_second_vacuous_output_is_not_cleanly_completed(reading_library):
+    database, version_id = reading_library
+    vacuous = {"topic": 1, "evidence_scope": [], "candidates": []}
+    router = SequenceRouter([vacuous, vacuous])
+    service = PedagogicalReadingService(database, router)  # type: ignore[arg-type]
+    run = _create(service, version_id)
+    _only_first_topic(database, run["id"])
+    service._control(run["id"], "queued", None)
+
+    finished = await service.execute(run["id"])
+
+    assert finished["stages"][0]["state"] == "completed_with_issues"
+    assert len(router.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_unresolved_only_and_single_candidate_outputs_remain_valid(reading_library):
+    database, version_id = reading_library
+    unresolved = {
+        "topic": 1,
+        "evidence_scope": [],
+        "candidates": [],
+        "unresolved": ["Synthetic evidence remains ambiguous"],
+    }
+    unresolved_router = SequenceRouter([unresolved])
+    unresolved_service = PedagogicalReadingService(
+        database, unresolved_router  # type: ignore[arg-type]
+    )
+    unresolved_run = _create(unresolved_service, version_id)
+    _only_first_topic(database, unresolved_run["id"])
+    unresolved_service._control(unresolved_run["id"], "queued", None)
+    unresolved_finished = await unresolved_service.execute(unresolved_run["id"])
+    assert unresolved_finished["stages"][0]["state"] == "completed_with_issues"
+    assert len(unresolved_router.calls) == 1
+
+    low_volume_service = PedagogicalReadingService(database)
+    low_volume_run = _create(low_volume_service, version_id)
+    low_volume = _candidate_output(database, low_volume_run["stages"][0])
+    low_volume_router = SequenceRouter([low_volume])
+    low_volume_service.router = low_volume_router  # type: ignore[assignment]
+    _only_first_topic(database, low_volume_run["id"])
+    low_volume_service._control(low_volume_run["id"], "queued", None)
+    low_volume_finished = await low_volume_service.execute(low_volume_run["id"])
+    assert low_volume_finished["stages"][0]["state"] == "completed"
+    assert len(low_volume_router.calls) == 1
+    with database.connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM pedagogical_reading_candidates WHERE run_id=?",
+            (low_volume_run["id"],),
+        ).fetchone()[0] == 1
 
 
 def test_out_of_scope_or_invented_evidence_is_rejected(reading_library):
