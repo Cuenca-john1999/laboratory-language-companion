@@ -11,51 +11,51 @@ ROOT = Path(__file__).resolve().parents[1]
 API_SRC = ROOT / "apps" / "api" / "src"
 sys.path.insert(0, str(API_SRC))
 
-from deutschos_api.core.config import get_settings  # noqa: E402
-from deutschos_api.educational_library.knowledge import (  # noqa: E402
+from llc_api.core.config import get_settings  # noqa: E402
+from llc_api.educational_library.knowledge import (  # noqa: E402
     EducationalKnowledgeService,
 )
-from deutschos_api.educational_library.canonical_route import (  # noqa: E402
+from llc_api.educational_library.canonical_route import (  # noqa: E402
     CanonicalRouteService,
 )
-from deutschos_api.educational_library.canonical_route_visual import (  # noqa: E402
+from llc_api.educational_library.canonical_route_visual import (  # noqa: E402
     HerderIndexVisualExtractor,
     load_canonical_index,
     load_visual_bundle,
 )
-from deutschos_api.educational_library.document_intelligence import (  # noqa: E402
+from llc_api.educational_library.document_intelligence import (  # noqa: E402
     DocumentIntelligenceService,
 )
-from deutschos_api.educational_library.memory import (  # noqa: E402
+from llc_api.educational_library.memory import (  # noqa: E402
     PedagogicalMemoryService,
 )
-from deutschos_api.educational_library.editorial import (  # noqa: E402
+from llc_api.educational_library.editorial import (  # noqa: E402
     LibraryEditorialService,
 )
-from deutschos_api.educational_library.schemas import CoreSourceAssignmentRequest  # noqa: E402
-from deutschos_api.educational_library.schemas import (  # noqa: E402
+from llc_api.educational_library.schemas import CoreSourceAssignmentRequest  # noqa: E402
+from llc_api.educational_library.schemas import (  # noqa: E402
     GroundedGenerationRequest,
     KnowledgeGenerationRequest,
     PedagogicalMemoryImportRequest,
     TeacherAskRequest,
 )
-from deutschos_api.educational_library.search import (  # noqa: E402
+from llc_api.educational_library.search import (  # noqa: E402
     EducationalSearchService,
     LMStudioEmbeddingProvider,
 )
-from deutschos_api.educational_library.routing import (  # noqa: E402
+from llc_api.educational_library.routing import (  # noqa: E402
     LibraryModelRouter,
     ModelRoutingPolicy,
 )
-from deutschos_api.educational_library.service import (  # noqa: E402
+from llc_api.educational_library.service import (  # noqa: E402
     EducationalLibraryService,
 )
-from deutschos_api.educational_library.teacher import (  # noqa: E402
+from llc_api.educational_library.teacher import (  # noqa: E402
     EducationalTeacherService,
     LearnerContext,
 )
-from deutschos_api.providers.lm_studio import LMStudioProvider  # noqa: E402
-from deutschos_api.providers.base import (  # noqa: E402
+from llc_api.providers.lm_studio import LMStudioProvider  # noqa: E402
+from llc_api.providers.base import (  # noqa: E402
     ProviderResponseError,
     ProviderUnavailableError,
 )

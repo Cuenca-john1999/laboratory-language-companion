@@ -6,7 +6,7 @@ import type {
   DocumentRunDetail,
   DocumentRunPageList,
   LaboratorySource,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {

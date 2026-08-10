@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.canonical_route import CanonicalRouteService
-from deutschos_api.educational_library.dependencies import get_canonical_route
-from deutschos_api.educational_library.editorial import LibraryEditorialService
-from deutschos_api.educational_library.schemas import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.canonical_route import CanonicalRouteService
+from llc_api.educational_library.dependencies import get_canonical_route
+from llc_api.educational_library.editorial import LibraryEditorialService
+from llc_api.educational_library.schemas import (
     CanonicalRouteRevertRequest,
     CanonicalTopicReviewRequest,
     CoreSourceAssignmentRequest,
@@ -16,8 +16,8 @@ from deutschos_api.educational_library.schemas import (
     ReferenceIndexEntry,
     ReferenceIndexPage,
 )
-from deutschos_api.educational_library.service import EducationalLibraryService, utc_text
-from deutschos_api.main import app
+from llc_api.educational_library.service import EducationalLibraryService, utc_text
+from llc_api.main import app
 
 _STARTS = [
     27,

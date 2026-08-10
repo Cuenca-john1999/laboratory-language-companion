@@ -3,26 +3,26 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from deutschos_api.learning_engine.curriculum import (
+from llc_api.learning_engine.curriculum import (
     CURRICULUM,
     CURRICULUM_VERSION,
     InvalidCurriculumError,
     get_curriculum_skill,
     validate_curriculum,
 )
-from deutschos_api.learning_engine.planner import (
+from llc_api.learning_engine.planner import (
     PlanBlockKind,
     PlanIntensity,
     SkillProgress,
     build_daily_plan,
 )
-from deutschos_api.learning_engine.reviews import (
+from llc_api.learning_engine.reviews import (
     ReviewCandidate,
     calculate_review_schedule,
     rank_due_reviews,
     review_interval_days,
 )
-from deutschos_api.learning_engine.scoring import (
+from llc_api.learning_engine.scoring import (
     ENGINE_VERSION,
     AttemptOutcome,
     calculate_mastery_update,

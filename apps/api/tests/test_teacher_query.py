@@ -11,15 +11,15 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import (
     _MIGRATION_0001,
     _MIGRATION_0002,
     LibraryDatabase,
 )
-from deutschos_api.educational_library.dependencies import get_library_teacher
-from deutschos_api.educational_library.memory import PedagogicalMemoryService
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.dependencies import get_library_teacher
+from llc_api.educational_library.memory import PedagogicalMemoryService
+from llc_api.educational_library.schemas import (
     MemoryFeedbackRequest,
     QueryAmbiguity,
     StudyTeacherContext,
@@ -30,17 +30,17 @@ from deutschos_api.educational_library.schemas import (
     TeacherIntent,
     TeacherQueryPlan,
 )
-from deutschos_api.educational_library.search import EducationalSearchService
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.educational_library.teacher import (
+from llc_api.educational_library.search import EducationalSearchService
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.educational_library.teacher import (
     EducationalTeacherService,
     LearnerContext,
     TeacherLimits,
     _sanitise_internal_references,
 )
-from deutschos_api.main import app
-from deutschos_api.providers.base import ModelProvider, ProviderUnavailableError
-from deutschos_api.schemas.api import ModelInfo
+from llc_api.main import app
+from llc_api.providers.base import ModelProvider, ProviderUnavailableError
+from llc_api.schemas.api import ModelInfo
 
 
 class TeacherFakeProvider(ModelProvider):

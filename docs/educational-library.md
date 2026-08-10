@@ -6,12 +6,16 @@ No realiza fine-tuning, no sube documentos y no escribe en el Learning Engine.
 
 ## Límites de datos
 
-- Originales: `DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR`, por defecto
+- Originales: `LLC_EDUCATIONAL_MATERIALS_DIR`, por defecto
   `./material educativo`.
-- Runtime: `DEUTSCHOS_EDUCATIONAL_LIBRARY_RUNTIME_DIR`, por defecto
+- Runtime: `LLC_EDUCATIONAL_LIBRARY_RUNTIME_DIR`, por defecto
   `./var/educational-library`.
 - Catálogo: `var/educational-library/library.sqlite3`.
 - Informes: `var/educational-library/reports/`.
+
+Las variables `DEUTSCHOS_EDUCATIONAL_*` equivalentes se aceptan como fallback
+legacy; una variable `LLC_*` siempre tiene precedencia. No se mueve ni duplica
+ningún runtime existente durante la migración de identidad.
 
 `material educativo/` y `var/` están ignorados por Git. Los extractores solo
 abren originales para lectura. PDF usa un temporal limitado dentro del runtime;
@@ -374,9 +378,9 @@ degrada falsamente a `no_evidence`.
 ```
 
 FastAPI inicia un polling incremental no bloqueante si
-`DEUTSCHOS_EDUCATIONAL_LIBRARY_SCAN_ON_STARTUP=true`; el intervalo mínimo es 60
+`LLC_EDUCATIONAL_LIBRARY_SCAN_ON_STARTUP=true`; el intervalo mínimo es 60
 segundos y se configura con
-`DEUTSCHOS_EDUCATIONAL_LIBRARY_SCAN_INTERVAL_SECONDS`. No instala un daemon.
+`LLC_EDUCATIONAL_LIBRARY_SCAN_INTERVAL_SECONDS`. No instala un daemon.
 
 La sección web `/library` empieza por **Pregunta a tu biblioteca**: pregunta
 natural, progreso comprensible, explicación, ejemplos, confianza, continuaciones

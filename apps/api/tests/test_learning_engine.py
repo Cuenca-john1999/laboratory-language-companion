@@ -6,21 +6,21 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import func, select, text
 
-from deutschos_api.core.time import utc_now
-from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION
-from deutschos_api.learning_engine.schemas import AttemptCreate
-from deutschos_api.learning_engine.scoring import (
+from llc_api.core.time import utc_now
+from llc_api.learning_engine.curriculum import CURRICULUM_VERSION
+from llc_api.learning_engine.schemas import AttemptCreate
+from llc_api.learning_engine.scoring import (
     ENGINE_VERSION,
     AttemptOutcome,
     calculate_mastery_update,
 )
-from deutschos_api.learning_engine.service import (
+from llc_api.learning_engine.service import (
     LearningEngineBusyError,
     _priority_categories,
     create_daily_plan,
     record_attempt,
 )
-from deutschos_api.models import (
+from llc_api.models import (
     DailyPlan,
     LearningSession,
     SkillEvidence,

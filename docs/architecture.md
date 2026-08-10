@@ -1,6 +1,13 @@
 # Arquitectura
 
-DeutschOS es un monorepo local-first. El navegador habla únicamente con FastAPI; FastAPI gestiona SQLite mediante SQLAlchemy y accede a inferencia a través de `ModelProvider`. `LMStudioProvider` traduce el HTTP específico de LM Studio a conceptos internos (`health_check`, `list_models`, `chat`, `structured_generate`). Ninguna ruta depende del JSON propio de LM Studio.
+LLC — Laboratory Language Companion es un monorepo desktop local-first para
+aprendizaje de idiomas orientado a profesionales de laboratorio y life sciences.
+German es la primera implementación y la arquitectura de referencia, no la
+identidad global de la aplicación. El navegador habla únicamente con FastAPI;
+FastAPI gestiona SQLite mediante SQLAlchemy y accede a inferencia a través de
+`ModelProvider`. `LMStudioProvider` traduce el HTTP específico de LM Studio a
+conceptos internos (`health_check`, `list_models`, `chat`,
+`structured_generate`). Ninguna ruta depende del JSON propio de LM Studio.
 
 La API es la autoridad para datos de aprendizaje. El historial del LLM no es memoria: cada petición recibe solo el perfil y un contexto estructurado pequeño consultado explícitamente. Los datos, el código y los modelos permanecen separados (`data/`, repositorio y almacenamiento de LM Studio respectivamente).
 
@@ -43,7 +50,7 @@ desde otro directorio del SSD. La API activa claves foráneas en cada conexión.
 Alembic desactiva su enforcement solo durante reconstrucciones de tabla de
 SQLite y ejecuta `foreign_key_check` antes y después.
 
-Milestone 1 añade `deutschos_api.learning_engine`, separado tanto de FastAPI
+Milestone 1 añade `llc_api.learning_engine`, separado tanto de FastAPI
 como del proveedor de modelos. `curriculum` define el catálogo versionado;
 `scoring` y `reviews` son reglas puras; `planner` produce decisiones
 reproducibles; `service` es la única capa que proyecta esas decisiones en

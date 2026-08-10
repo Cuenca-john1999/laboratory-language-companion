@@ -21,18 +21,24 @@ DEFAULT_DATABASE_URL = "sqlite:///./data/deutschos.sqlite3"
 DEFAULT_LM_STUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 DEFAULT_PUBLIC_API_URL = "http://127.0.0.1:8000"
 
-PUBLIC_KEYS = {
-    "DEUTSCHOS_BACKUP_DIR",
-    "DEUTSCHOS_CORS_ORIGINS",
-    "DEUTSCHOS_DATABASE_URL",
-    "DEUTSCHOS_LM_STUDIO_BASE_URL",
-    "DEUTSCHOS_LM_STUDIO_MODEL",
-    "DEUTSCHOS_LM_STUDIO_DEEP_MODEL",
-    "DEUTSCHOS_LM_STUDIO_EMBEDDING_MODEL",
-    "DEUTSCHOS_TIMEZONE",
+LLC_PUBLIC_KEYS = {
+    "LLC_BACKUP_DIR",
+    "LLC_CORS_ORIGINS",
+    "LLC_DATABASE_URL",
+    "LLC_LM_STUDIO_BASE_URL",
+    "LLC_LM_STUDIO_MODEL",
+    "LLC_LM_STUDIO_DEEP_MODEL",
+    "LLC_LM_STUDIO_EMBEDDING_MODEL",
+    "LLC_TIMEZONE",
     "NEXT_PUBLIC_API_URL",
     "NEXT_TELEMETRY_DISABLED",
 }
+LEGACY_PUBLIC_KEYS = {
+    key.replace("LLC_", "DEUTSCHOS_", 1)
+    for key in LLC_PUBLIC_KEYS
+    if key.startswith("LLC_")
+}
+PUBLIC_KEYS = LLC_PUBLIC_KEYS | LEGACY_PUBLIC_KEYS
 KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -79,18 +85,29 @@ def read_dotenv(path: Path) -> dict[str, str]:
 
 
 def get_config_value(root: Path, key: str, default: str = "") -> str:
+    """Return canonical configuration first, then its legacy equivalent."""
     if key in os.environ:
         return os.environ[key]
-    return read_dotenv(root / ".env").get(key, default)
+    legacy_key = (
+        key.replace("LLC_", "DEUTSCHOS_", 1) if key.startswith("LLC_") else None
+    )
+    if legacy_key and legacy_key in os.environ:
+        return os.environ[legacy_key]
+    values = read_dotenv(root / ".env")
+    if key in values:
+        return values[key]
+    if legacy_key and legacy_key in values:
+        return values[legacy_key]
+    return default
 
 
 def database_path(root: Path) -> Path:
     """Resolve the configured SQLite URL relative to the repository root."""
-    url = get_config_value(root, "DEUTSCHOS_DATABASE_URL", DEFAULT_DATABASE_URL)
+    url = get_config_value(root, "LLC_DATABASE_URL", DEFAULT_DATABASE_URL)
     scheme, separator, raw_path = url.partition(":///")
     if not separator or scheme not in {"sqlite", "sqlite+pysqlite"}:
         raise ConfigurationError(
-            "DEUTSCHOS_DATABASE_URL debe ser una URL SQLite local (sqlite:///...)."
+            "LLC_DATABASE_URL debe ser una URL SQLite local (sqlite:///...)."
         )
 
     raw_path = raw_path.split("?", 1)[0]

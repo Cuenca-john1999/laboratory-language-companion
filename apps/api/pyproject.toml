@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "deutschos-api"
+name = "llc-api"
 version = "0.4.0"
-description = "Local-first DeutschOS API"
+description = "Local-first language learning API for Laboratory Language Companion"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.13,<2",
@@ -20,7 +20,7 @@ dependencies = [
 dev = ["pytest>=8.3,<9", "ruff>=0.8,<1"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/deutschos_api"]
+packages = ["src/llc_api"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

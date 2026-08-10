@@ -21,7 +21,7 @@ import type {
   TeacherConversationSummary,
   TeacherEvidenceConfidence,
   TeacherQuery,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -971,7 +971,7 @@ export function LibraryWorkspace() {
           <div className="teacher-progress" role="status" aria-live="polite">
             <span className="progress-pulse" />
             <strong>{PROGRESS_STEPS[progressStep]}</strong>
-            <small>DeutschOS está consultando memoria y evidencia local.</small>
+            <small>LLC está consultando memoria y evidencia local.</small>
           </div>
         ) : null}
       </section>

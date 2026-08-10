@@ -59,7 +59,7 @@ coverage/
 *.sqlite3-wal
 
 # Local model stores and model weights. Keep this anchored so that the
-# application package `deutschos_api/models` remains tracked.
+# application package `llc_api/models` remains tracked.
 /models/
 /LM Studio/
 /lm_studio/

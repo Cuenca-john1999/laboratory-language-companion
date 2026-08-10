@@ -9,7 +9,7 @@ El núcleo no depende del frontend, LM Studio o cualquier otro proveedor de mode
 los endpoints se limitan a validar, traducir y proyectar sus contratos.
 
 La implementación vive en
-`apps/api/src/deutschos_api/diagnostic_engine/` y usa la versión
+`apps/api/src/llc_api/diagnostic_engine/` y usa la versión
 `diagnostic-engine.v1`. Sus contratos son esquemas Pydantic estrictos: los
 campos desconocidos se rechazan y los scores y confianzas están limitados al
 intervalo cerrado 0–1.
@@ -34,15 +34,15 @@ y mappings curriculares se fija en
 
 El paquete separa reglas puras de persistencia:
 
-| Módulo | Responsabilidad |
-| --- | --- |
-| `schemas.py` | Comandos, recibos, candidatos y objetos de valor estrictos |
-| `state_machine.py` | Transiciones explícitas de sesión y tarea |
-| `selector.py` | Elegibilidad, dificultad, prioridad, desempate y parada |
-| `scoring.py` | Evaluación determinista de respuestas textuales cerradas |
-| `aggregation.py` | Estimaciones conservadoras por eje y dimensión curricular |
-| `service.py` | Transacciones SQLite, idempotencia y reconstrucción del estado |
-| `exceptions.py` | Errores esperados de transición, concurrencia y conflictos |
+| Módulo             | Responsabilidad                                                |
+| ------------------ | -------------------------------------------------------------- |
+| `schemas.py`       | Comandos, recibos, candidatos y objetos de valor estrictos     |
+| `state_machine.py` | Transiciones explícitas de sesión y tarea                      |
+| `selector.py`      | Elegibilidad, dificultad, prioridad, desempate y parada        |
+| `scoring.py`       | Evaluación determinista de respuestas textuales cerradas       |
+| `aggregation.py`   | Estimaciones conservadoras por eje y dimensión curricular      |
+| `service.py`       | Transacciones SQLite, idempotencia y reconstrucción del estado |
+| `exceptions.py`    | Errores esperados de transición, concurrencia y conflictos     |
 
 Las decisiones pedagógicas están en funciones puras. `DiagnosticEngineService`
 coordina las filas de `0005`, pero no elige scores, dificultad o bandas por su
@@ -108,14 +108,14 @@ conteo.
 
 La API interna ofrece seis estados resumidos:
 
-| Estado del motor | Estado persistido equivalente |
-| --- | --- |
-| `created` | `not_started` |
-| `active` | `onboarding`, `calibrating`, `assessing`, `reviewing`, `time_limited` o `completing` |
-| `paused` | `paused` |
-| `completed` | `completed` |
-| `abandoned` | `cancelled` o `abandoned` |
-| `failed` | `error` |
+| Estado del motor | Estado persistido equivalente                                                        |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `created`        | `not_started`                                                                        |
+| `active`         | `onboarding`, `calibrating`, `assessing`, `reviewing`, `time_limited` o `completing` |
+| `paused`         | `paused`                                                                             |
+| `completed`      | `completed`                                                                          |
+| `abandoned`      | `cancelled` o `abandoned`                                                            |
+| `failed`         | `error`                                                                              |
 
 Los estados persistidos conservan las fases pedagógicas del diseño:
 
@@ -166,19 +166,19 @@ contar el tiempo anterior a `start_session`.
 
 La máquina permite estas transiciones:
 
-| Desde | Acción | Hacia |
-| --- | --- | --- |
-| `selected` | presentar | `presented` |
-| `selected` | invalidar | `invalidated` |
-| `presented` | responder | `answered` |
-| `presented` | omitir | `skipped` |
-| `presented` | instrucción no entendida | `not_understood` |
-| `presented` | abandonar | `abandoned` |
-| `presented` | invalidar | `invalidated` |
-| `not_understood` | reintentar | `presented` |
-| `not_understood` | omitir o abandonar | `skipped` o `abandoned` |
-| `answered` | evaluar | `evaluated` |
-| `evaluated` | único reintento explícito | `presented` |
+| Desde            | Acción                    | Hacia                   |
+| ---------------- | ------------------------- | ----------------------- |
+| `selected`       | presentar                 | `presented`             |
+| `selected`       | invalidar                 | `invalidated`           |
+| `presented`      | responder                 | `answered`              |
+| `presented`      | omitir                    | `skipped`               |
+| `presented`      | instrucción no entendida  | `not_understood`        |
+| `presented`      | abandonar                 | `abandoned`             |
+| `presented`      | invalidar                 | `invalidated`           |
+| `not_understood` | reintentar                | `presented`             |
+| `not_understood` | omitir o abandonar        | `skipped` o `abandoned` |
+| `answered`       | evaluar                   | `evaluated`             |
+| `evaluated`      | único reintento explícito | `presented`             |
 
 Repetir la acción correspondiente sobre `presented`, `skipped`,
 `not_understood`, `abandoned`, `evaluated` o `invalidated` es idempotente. Las
@@ -288,13 +288,13 @@ evidencias sigan siendo contradictorias o insuficientes.
 El vocabulario público del motor usa `incorrect`; al persistir se transforma al
 valor histórico `failure` de `DiagnosticResponse`. Los scores versionados son:
 
-| Resultado | Score | Polaridad habitual |
-| --- | ---: | --- |
-| `incorrect` | 0,0 | negativa |
-| `partial` | 0,4 | positiva parcial |
-| `correct_with_help` | 0,7 | positiva |
-| `correct_without_help` | 1,0 | positiva |
-| `not_evaluable` | nulo | insuficiente |
+| Resultado              | Score | Polaridad habitual |
+| ---------------------- | ----: | ------------------ |
+| `incorrect`            |   0,0 | negativa           |
+| `partial`              |   0,4 | positiva parcial   |
+| `correct_with_help`    |   0,7 | positiva           |
+| `correct_without_help` |   1,0 | positiva           |
+| `not_evaluable`        |  nulo | insuficiente       |
 
 Las estrategias disponibles son coincidencia exacta, lista de respuestas
 aceptadas y tokens ordenados. La normalización usa Unicode NFC, espacios
@@ -306,10 +306,10 @@ explícitas.
 El riesgo de ambigüedad del candidato fija la confianza del evaluador:
 
 | Riesgo | Confianza |
-| --- | ---: |
-| bajo | 1,00 |
-| medio | 0,85 |
-| alto | 0,65 |
+| ------ | --------: |
+| bajo   |      1,00 |
+| medio  |      0,85 |
+| alto   |      0,65 |
 
 Una ayuda distinta de `none` convierte una coincidencia correcta en
 `correct_with_help`. La respuesta queda `not_evaluable`, con score nulo y
@@ -360,13 +360,13 @@ media. Por eso la confianza aplica una política de autonomía separada.
 
 La confianza parte de anclas por cantidad:
 
-| Evidencias independientes | Base |
-| ---: | ---: |
-| 1 | 0,25 |
-| 2 | 0,52 |
-| 3 | 0,66 |
-| 4 | 0,78 |
-| más de 4 | +0,04 por muestra, con límite de base 0,90 |
+| Evidencias independientes |                                       Base |
+| ------------------------: | -----------------------------------------: |
+|                         1 |                                       0,25 |
+|                         2 |                                       0,52 |
+|                         3 |                                       0,66 |
+|                         4 |                                       0,78 |
+|                  más de 4 | +0,04 por muestra, con límite de base 0,90 |
 
 Se añade 0,08 por dos o más tipos de tarea y 0,04 por dificultades variadas.
 La media de confianza de los evaluadores modula el total. Después se multiplica
@@ -492,7 +492,7 @@ prerrequisitos, repetición de tipos o límites. No se exige que una sesión con
 respuestas vacías o no evaluables produzca cobertura completa: ese cierre parcial
 describe evidencia insuficiente, no necesariamente un banco inválido.
 
-`deutschos_api.content.diagnostic_reachability` automatiza estas invariantes sin
+`llc_api.content.diagnostic_reachability` automatiza estas invariantes sin
 alterar el runtime. Convierte el banco validado a `TaskCandidate`, llama a
 `select_next_task` y `decide_stop`, ejecuta escenarios cerrados y explora un
 grafo acotado de resultados. La firma memoizada conserva tareas y equivalencias
@@ -673,20 +673,20 @@ los contratos estrictos de `schemas/diagnostic_api.py`. No contiene reglas de
 selección, scoring, agregación ni persistencia. Cada mutación conserva el
 `BEGIN IMMEDIATE` y el commit único del servicio interno.
 
-| Método y ruta | Resultado público |
-| --- | --- |
-| `POST /sessions` | Crea o reproduce una sesión (`201`) |
-| `GET /sessions/{session_id}` | Estado real, tarea vigente y agregados |
-| `POST /sessions/{session_id}/start` | Inicia la sesión |
-| `POST /sessions/{session_id}/pause` | Pausa la sesión |
-| `POST /sessions/{session_id}/resume` | Reanuda la sesión |
-| `POST /sessions/{session_id}/abandon` | Abandona la sesión |
-| `POST /sessions/{session_id}/fail` | Registra un fallo técnico |
-| `POST /sessions/{session_id}/next-task` | Selecciona o reproduce la siguiente tarea |
-| `POST /sessions/{session_id}/responses` | Guarda y evalúa una respuesta atómicamente |
-| `POST /responses/{response_id}/corrections` | Añade una revisión append-only |
-| `GET /sessions/{session_id}/results` | Lee agregados sin crear revisiones |
-| `POST /sessions/{session_id}/complete` | Completa solo cuando el motor lo permite |
+| Método y ruta                               | Resultado público                          |
+| ------------------------------------------- | ------------------------------------------ |
+| `POST /sessions`                            | Crea o reproduce una sesión (`201`)        |
+| `GET /sessions/{session_id}`                | Estado real, tarea vigente y agregados     |
+| `POST /sessions/{session_id}/start`         | Inicia la sesión                           |
+| `POST /sessions/{session_id}/pause`         | Pausa la sesión                            |
+| `POST /sessions/{session_id}/resume`        | Reanuda la sesión                          |
+| `POST /sessions/{session_id}/abandon`       | Abandona la sesión                         |
+| `POST /sessions/{session_id}/fail`          | Registra un fallo técnico                  |
+| `POST /sessions/{session_id}/next-task`     | Selecciona o reproduce la siguiente tarea  |
+| `POST /sessions/{session_id}/responses`     | Guarda y evalúa una respuesta atómicamente |
+| `POST /responses/{response_id}/corrections` | Añade una revisión append-only             |
+| `GET /sessions/{session_id}/results`        | Lee agregados sin crear revisiones         |
+| `POST /sessions/{session_id}/complete`      | Completa solo cuando el motor lo permite   |
 
 Los cuerpos de creación y de cada mutación contienen UUID de operación. El
 servicio conserva el fingerprint del contenido: repetir exactamente una

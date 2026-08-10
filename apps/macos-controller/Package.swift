@@ -3,12 +3,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "DeutschOSController",
+    name: "LLCController",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "DeutschOSController", targets: ["DeutschOSController"])
+        .executable(name: "LLCController", targets: ["LLCController"])
     ],
     targets: [
-        .executableTarget(name: "DeutschOSController"),
+        .executableTarget(name: "LLCController"),
     ]
 )

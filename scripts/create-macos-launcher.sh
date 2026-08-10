@@ -4,7 +4,7 @@ set -Eeuo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 DIST_DIR="$PROJECT_ROOT/dist"
 LEGACY_DIR="$DIST_DIR/legacy"
-APP_PATH="$LEGACY_DIR/DeutschOS Launcher.app"
+APP_PATH="$LEGACY_DIR/LLC Launcher.app"
 TEMP_SOURCE=""
 TEMP_APP=""
 
@@ -29,8 +29,8 @@ trap cleanup EXIT HUP INT TERM
 }
 
 mkdir -p "$LEGACY_DIR"
-TEMP_SOURCE="$(mktemp "$LEGACY_DIR/.deutschos-launcher.applescript.XXXXXX")"
-TEMP_APP="$LEGACY_DIR/.DeutschOS-Launcher.$$.app"
+TEMP_SOURCE="$(mktemp "$LEGACY_DIR/.llc-launcher.applescript.XXXXXX")"
+TEMP_APP="$LEGACY_DIR/.LLC-Launcher.$$.app"
 
 ESCAPED_ROOT="$(printf '%s' "$PROJECT_ROOT" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 cat >"$TEMP_SOURCE" <<APPLESCRIPT
@@ -42,22 +42,22 @@ on run
   try
     do shell script ("/bin/test -d " & quoted form of projectRoot)
   on error
-    display alert "DeutschOS no está disponible" message ("Conecta el SSD y confirma que existe " & projectRoot & ".") as critical
+    display alert "LLC no está disponible" message ("Conecta el SSD y confirma que existe " & projectRoot & ".") as critical
     return
   end try
   try
-    do shell script ("DEUTSCHOS_APP_WRAPPER=1 " & quoted form of startScript)
+    do shell script ("LLC_APP_WRAPPER=1 " & quoted form of startScript)
   on error errorMessage number errorNumber
-    display alert "DeutschOS no pudo iniciarse" message errorMessage as critical
+    display alert "LLC no pudo iniciarse" message errorMessage as critical
   end try
 end run
 APPLESCRIPT
 
 /usr/bin/osacompile -o "$TEMP_APP" "$TEMP_SOURCE"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleName DeutschOS Launcher' "$TEMP_APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string DeutschOS Launcher' \
+/usr/libexec/PlistBuddy -c 'Set :CFBundleName LLC Launcher' "$TEMP_APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :CFBundleDisplayName string LLC Launcher' \
   "$TEMP_APP/Contents/Info.plist" 2>/dev/null \
-  || /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName DeutschOS Launcher' \
+  || /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName LLC Launcher' \
     "$TEMP_APP/Contents/Info.plist"
 /usr/bin/codesign --force --deep --sign - "$TEMP_APP"
 rm -rf -- "$APP_PATH"

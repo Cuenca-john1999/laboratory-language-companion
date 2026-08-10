@@ -7,20 +7,20 @@ from uuid import uuid4
 
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import (
     _MIGRATION_0001,
     _MIGRATION_0002,
     _MIGRATION_0003,
     LibraryDatabase,
 )
-from deutschos_api.educational_library.dependencies import get_library_memory
-from deutschos_api.educational_library.memory import (
+from llc_api.educational_library.dependencies import get_library_memory
+from llc_api.educational_library.memory import (
     PedagogicalMemoryService,
     normalize_concept,
     query_target,
 )
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.schemas import (
     ConceptAliasCreate,
     ConceptRelationCreate,
     EvidenceLocationCreate,
@@ -32,8 +32,8 @@ from deutschos_api.educational_library.schemas import (
     PedagogicalConceptCreate,
     PedagogicalMemoryImportRequest,
 )
-from deutschos_api.educational_library.service import EducationalLibraryService, utc_text
-from deutschos_api.main import app
+from llc_api.educational_library.service import EducationalLibraryService, utc_text
+from llc_api.main import app
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ import type {
   LaboratorySource,
   LaboratorySourceDetail,
   LaboratorySummary,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import { useCallback, useEffect, useState } from "react";
 
 import {

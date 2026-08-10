@@ -2,7 +2,7 @@
 
 ## 1. Objetivo y alcance
 
-DeutschOS mantiene el contenido pedagógico local bajo:
+LLC mantiene el contenido pedagógico local bajo:
 
 ```text
 data/
@@ -78,22 +78,22 @@ para Jhon.
 
 ### Campos del manifiesto
 
-| Campo | Regla |
-| --- | --- |
-| `bank_id` | Identidad estable en minúsculas; no cambia entre revisiones del mismo banco |
-| `bank_version` | Publicación editorial del banco |
-| `schema_version` | Contrato de serialización; versiones desconocidas se rechazan |
-| `diagnostic_version` | Versión de sesión compatible; nunca se mezclan versiones |
-| `target_language` | `de` en texto v1 |
-| `levels` | Bandas cubiertas realmente por las tareas: `pre-A1` y/o `A1` |
-| `modalities` | Exactamente `text` en v1 |
-| `axes` | Inventario de ejes primarios y secundarios presentes; no acredita cobertura |
-| `editorial_status` | `draft`, `reviewed`, `production` o `deprecated` |
-| `created_on` | Fecha ISO 8601 de creación editorial |
-| `updated_on` | Fecha ISO 8601 de revisión; nunca anterior a `created_on` |
-| `files` | Lista cerrada de archivos relativos `.tasks.json` |
-| `minimum_compatibility` | Aplicación, motor y currículo mínimos admitidos |
-| `editorial_notes` | Decisiones, revisión pendiente y contexto de publicación |
+| Campo                   | Regla                                                                       |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `bank_id`               | Identidad estable en minúsculas; no cambia entre revisiones del mismo banco |
+| `bank_version`          | Publicación editorial del banco                                             |
+| `schema_version`        | Contrato de serialización; versiones desconocidas se rechazan               |
+| `diagnostic_version`    | Versión de sesión compatible; nunca se mezclan versiones                    |
+| `target_language`       | `de` en texto v1                                                            |
+| `levels`                | Bandas cubiertas realmente por las tareas: `pre-A1` y/o `A1`                |
+| `modalities`            | Exactamente `text` en v1                                                    |
+| `axes`                  | Inventario de ejes primarios y secundarios presentes; no acredita cobertura |
+| `editorial_status`      | `draft`, `reviewed`, `production` o `deprecated`                            |
+| `created_on`            | Fecha ISO 8601 de creación editorial                                        |
+| `updated_on`            | Fecha ISO 8601 de revisión; nunca anterior a `created_on`                   |
+| `files`                 | Lista cerrada de archivos relativos `.tasks.json`                           |
+| `minimum_compatibility` | Aplicación, motor y currículo mínimos admitidos                             |
+| `editorial_notes`       | Decisiones, revisión pendiente y contexto de publicación                    |
 
 Los niveles, modalidades y ejes declarados deben coincidir con las tareas. Esta
 coherencia estructural no demuestra cobertura: la alcanzabilidad se calcula solo
@@ -152,28 +152,28 @@ Una tarea separa explícitamente tres ámbitos:
 
 El resto del objeto contiene identidad, selección y compatibilidad:
 
-| Campo | Tipo o límite |
-| --- | --- |
-| `id` | ID estable, 2–100 caracteres permitidos |
-| `version` | Versión de la tarea |
-| `level` | `pre-A1` o `A1` |
-| `axis` | `DiagnosticAxis` existente |
-| `secondary_axes` | Ejes descriptivos adicionales, textuales y sin duplicados; no generan evidencia |
-| `skill_id` | Entero positivo o `null`; el campo es obligatorio |
-| `task_type` | `DiagnosticTaskType` existente |
-| `difficulty` | Entero 1–5 |
-| `modality` | Literal `text` |
-| `response_type` | `single_choice`, `short_text`, `ordered_tokens` o `free_text` |
-| `estimated_seconds` | 5–600 |
-| `prerequisites` | IDs presentes en el mismo banco |
-| `equivalence_group` | Grupo estable que mide la misma dimensión |
-| `ambiguity_risk` | `low`, `medium` o `high` |
-| `scoring_mode` | `deterministic` o `manual` |
-| `rubric_version` | Versión independiente de la semántica evaluadora |
-| `public` | Contenido visible estricto |
-| `private` | Rúbrica y política de scoring estrictas |
-| `metadata` | Tema y contexto no sensibles |
-| `editorial` | Tags y `authoring_notes` |
+| Campo               | Tipo o límite                                                                   |
+| ------------------- | ------------------------------------------------------------------------------- |
+| `id`                | ID estable, 2–100 caracteres permitidos                                         |
+| `version`           | Versión de la tarea                                                             |
+| `level`             | `pre-A1` o `A1`                                                                 |
+| `axis`              | `DiagnosticAxis` existente                                                      |
+| `secondary_axes`    | Ejes descriptivos adicionales, textuales y sin duplicados; no generan evidencia |
+| `skill_id`          | Entero positivo o `null`; el campo es obligatorio                               |
+| `task_type`         | `DiagnosticTaskType` existente                                                  |
+| `difficulty`        | Entero 1–5                                                                      |
+| `modality`          | Literal `text`                                                                  |
+| `response_type`     | `single_choice`, `short_text`, `ordered_tokens` o `free_text`                   |
+| `estimated_seconds` | 5–600                                                                           |
+| `prerequisites`     | IDs presentes en el mismo banco                                                 |
+| `equivalence_group` | Grupo estable que mide la misma dimensión                                       |
+| `ambiguity_risk`    | `low`, `medium` o `high`                                                        |
+| `scoring_mode`      | `deterministic` o `manual`                                                      |
+| `rubric_version`    | Versión independiente de la semántica evaluadora                                |
+| `public`            | Contenido visible estricto                                                      |
+| `private`           | Rúbrica y política de scoring estrictas                                         |
+| `metadata`          | Tema y contexto no sensibles                                                    |
+| `editorial`         | Tags y `authoring_notes`                                                        |
 
 El formato admite representar `manual` únicamente para preparación editorial
 futura, pero un banco `production` de la versión actual solo puede contener

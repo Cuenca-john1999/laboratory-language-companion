@@ -5,7 +5,7 @@ import type {
   ChatRequest,
   ChatStreamEvent,
   TeacherRole,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import type { FormEvent } from "react";
 import { useRef, useState } from "react";
 

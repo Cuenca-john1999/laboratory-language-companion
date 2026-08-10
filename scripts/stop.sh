@@ -7,7 +7,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 source "$PROJECT_ROOT/scripts/launcher-common.sh"
 
 ensure_launcher_directories
-launcher_log "Inicio del apagado completo de DeutschOS."
+launcher_log "Inicio del apagado completo de LLC."
 FAILURES=0
 
 for ROLE in api web; do
@@ -53,7 +53,7 @@ for SPEC in "FastAPI:$API_PORT" "Next.js:$WEB_PORT"; do
     FAILURES=$((FAILURES + 1))
   fi
 done
-if [[ "${DEUTSCHOS_LM_APP_WILL_CLOSE:-0}" != "1" ]]; then
+if [[ "${LLC_LM_APP_WILL_CLOSE:-0}" != "1" ]]; then
   if ! wait_for_port_free "LM Studio" "$LM_STUDIO_PORT" 5; then
     FAILURES=$((FAILURES + 1))
   fi

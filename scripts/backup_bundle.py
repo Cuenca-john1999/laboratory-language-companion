@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an atomic, private DeutschOS backup bundle."""
+"""Create an atomic, private LLC backup bundle."""
 
 from __future__ import annotations
 
@@ -60,9 +60,13 @@ class BackupError(RuntimeError):
 def is_safe_public_configuration(key: str, value: str) -> bool:
     """Reject credential-bearing URLs even when their key is otherwise public."""
 
-    if key in {"DEUTSCHOS_LM_STUDIO_BASE_URL", "NEXT_PUBLIC_API_URL"}:
+    if key in {
+        "LLC_LM_STUDIO_BASE_URL",
+        "DEUTSCHOS_LM_STUDIO_BASE_URL",
+        "NEXT_PUBLIC_API_URL",
+    }:
         return is_loopback_url(value)
-    if key == "DEUTSCHOS_CORS_ORIGINS":
+    if key in {"LLC_CORS_ORIGINS", "DEUTSCHOS_CORS_ORIGINS"}:
         origins = [origin.strip() for origin in value.split(",") if origin.strip()]
         return bool(origins) and all(is_loopback_url(origin) for origin in origins)
     return True
@@ -242,7 +246,7 @@ def build_manifest(staging: Path, metadata: dict[str, object]) -> None:
 def create_backup(args: argparse.Namespace) -> Path:
     root = args.root.resolve(strict=False)
     configured_destination = args.destination or get_config_value(
-        root, "DEUTSCHOS_BACKUP_DIR", "backups"
+        root, "LLC_BACKUP_DIR", "backups"
     )
     destination_root = Path(configured_destination).expanduser()
     if not destination_root.is_absolute():
@@ -280,7 +284,7 @@ def create_backup(args: argparse.Namespace) -> Path:
 
     created_at = datetime.now(UTC).replace(microsecond=0)
     timestamp = created_at.strftime("%Y%m%dT%H%M%SZ")
-    basename = f"deutschos-{timestamp}"
+    basename = f"llc-{timestamp}"
     if args.label:
         basename = f"{basename}-{args.label}"
     final_path = unique_bundle_path(destination_root, basename)
@@ -335,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "destination",
         nargs="?",
-        help="Destino (por defecto DEUTSCHOS_BACKUP_DIR o ./backups)",
+        help="Destino (por defecto LLC_BACKUP_DIR o ./backups)",
     )
     parser.add_argument(
         "--database-only", action="store_true", help="Copia solo SQLite"

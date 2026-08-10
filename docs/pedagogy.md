@@ -1,6 +1,6 @@
 # Pedagogía
 
-El nivel es multidimensional: lectura, escucha, habla y escritura pueden divergir. DeutschOS evita asignar una etiqueta única sin evidencias. El profesor explica principalmente en español, introduce alemán de forma progresiva, diferencia corrección de estilo, explica patrones y solicita producción activa. En nivel inicial plantea una sola pregunta pedagógica cada vez.
+El nivel es multidimensional: lectura, escucha, habla y escritura pueden divergir. LLC evita asignar una etiqueta única sin evidencias. El profesor explica principalmente en español, introduce alemán de forma progresiva, diferencia corrección de estilo, explica patrones y solicita producción activa. En nivel inicial plantea una sola pregunta pedagógica cada vez.
 
 Los intereses personales y el lenguaje de laboratorio sirven para relevancia,
 no como adorno obligatorio. El currículo inicial incluye vocabulario cotidiano

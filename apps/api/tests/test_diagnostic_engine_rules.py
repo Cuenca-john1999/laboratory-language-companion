@@ -3,13 +3,13 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from deutschos_api.diagnostic_engine.aggregation import aggregate_axis, aggregate_by_axis
-from deutschos_api.diagnostic_engine.exceptions import (
+from llc_api.diagnostic_engine.aggregation import aggregate_axis, aggregate_by_axis
+from llc_api.diagnostic_engine.exceptions import (
     CandidateUnavailableError,
     InvalidSubmissionContractError,
     InvalidTransitionError,
 )
-from deutschos_api.diagnostic_engine.schemas import (
+from llc_api.diagnostic_engine.schemas import (
     CORE_TEXT_AXES,
     AmbiguityRisk,
     AxisAggregate,
@@ -28,14 +28,14 @@ from deutschos_api.diagnostic_engine.schemas import (
     TaskAction,
     TaskCandidate,
 )
-from deutschos_api.diagnostic_engine.scoring import evaluate_response, evaluate_submission
-from deutschos_api.diagnostic_engine.selector import decide_stop, select_next_task
-from deutschos_api.diagnostic_engine.state_machine import (
+from llc_api.diagnostic_engine.scoring import evaluate_response, evaluate_submission
+from llc_api.diagnostic_engine.selector import decide_stop, select_next_task
+from llc_api.diagnostic_engine.state_machine import (
     engine_state,
     session_transition,
     task_transition,
 )
-from deutschos_api.models import (
+from llc_api.models import (
     DiagnosticAxis,
     DiagnosticBand,
     DiagnosticPolarity,

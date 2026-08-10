@@ -6,11 +6,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import LibraryDatabase
-from deutschos_api.educational_library.dependencies import get_library_service
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.main import app
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import LibraryDatabase
+from llc_api.educational_library.dependencies import get_library_service
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.main import app
 
 
 @pytest.fixture
@@ -245,7 +245,7 @@ def test_inventory_does_not_call_extraction_ocr_models_or_create_artifacts(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("processing capability was initialized")
 
-    monkeypatch.setattr("deutschos_api.educational_library.service.extract", forbidden)
+    monkeypatch.setattr("llc_api.educational_library.service.extract", forbidden)
     result = document_library.detect_document_changes()
 
     with document_library.database.connect() as connection:

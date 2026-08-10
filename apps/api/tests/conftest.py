@@ -1,7 +1,7 @@
 import json
 import os
 
-os.environ["DEUTSCHOS_DATABASE_URL"] = "sqlite://"
+os.environ["LLC_DATABASE_URL"] = "sqlite://"
 
 import httpx
 import pytest
@@ -9,11 +9,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from deutschos_api.db.base import Base
-from deutschos_api.db.session import get_db, make_engine
-from deutschos_api.learning_engine.curriculum import CURRICULUM, CURRICULUM_VERSION
-from deutschos_api.main import app
-from deutschos_api.models import (
+from llc_api.db.base import Base
+from llc_api.db.session import get_db, make_engine
+from llc_api.learning_engine.curriculum import CURRICULUM, CURRICULUM_VERSION
+from llc_api.main import app
+from llc_api.models import (
     Curriculum,
     CurriculumSkill,
     Skill,
@@ -49,7 +49,7 @@ def _seed_database(factory):
         db.add(
             Curriculum(
                 version=CURRICULUM_VERSION,
-                name="DeutschOS A0 → A1",
+                name="LLC A0 → A1",
                 cefr_from="A0",
                 cefr_to="A1",
                 is_active=True,

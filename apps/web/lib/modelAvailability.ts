@@ -1,6 +1,6 @@
 "use client";
 
-import type { LibraryModelRouting } from "@deutschos/shared";
+import type { LibraryModelRouting } from "@llc/shared";
 import { useSyncExternalStore } from "react";
 
 import { getLibraryModelRoles } from "./api";

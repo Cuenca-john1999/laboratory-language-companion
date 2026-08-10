@@ -8,7 +8,7 @@ import type {
   ClosureSnapshot,
   ClosureStatus,
   DocumentReviewSummaryItem,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import { useCallback, useEffect, useState } from "react";
 
 import {

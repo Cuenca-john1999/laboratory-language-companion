@@ -9,7 +9,7 @@ import type {
   ProposedHierarchyNode,
   StructureCandidate,
   StructureCandidateList,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 

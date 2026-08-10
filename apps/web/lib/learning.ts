@@ -3,7 +3,7 @@ import type {
   DailyPlanBlock,
   LearningSkill,
   PlanIntensity,
-} from "@deutschos/shared";
+} from "@llc/shared";
 
 export const intensityLabel: Record<PlanIntensity, string> = {
   low: "Baja",

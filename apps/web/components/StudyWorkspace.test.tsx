@@ -1,8 +1,4 @@
-import type {
-  StudyDashboard,
-  StudyPath,
-  StudySection,
-} from "@deutschos/shared";
+import type { StudyDashboard, StudyPath, StudySection } from "@llc/shared";
 import {
   cleanup,
   fireEvent,

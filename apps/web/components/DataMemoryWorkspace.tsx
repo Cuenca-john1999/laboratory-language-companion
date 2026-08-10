@@ -1,6 +1,6 @@
 "use client";
 
-import type { StudyData, StudySessionSummary } from "@deutschos/shared";
+import type { StudyData, StudySessionSummary } from "@llc/shared";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -147,8 +147,8 @@ export function DataMemoryWorkspace() {
           <p className="eyebrow">CONTROL LOCAL</p>
           <h1>Datos y memoria</h1>
           <p>
-            Consulta las jornadas guardadas y el estado estructurado que
-            DeutschOS conserva sobre tu aprendizaje.
+            Consulta las jornadas guardadas y el estado estructurado que LLC
+            conserva sobre tu aprendizaje.
           </p>
         </div>
         <span className="local-data-badge">Solo en este Mac</span>
@@ -322,7 +322,7 @@ export function DataMemoryWorkspace() {
             <p className="eyebrow">ÁREA 2 · SOLO LECTURA</p>
             <h2 id="memory-title">Memoria de aprendizaje</h2>
             <p>
-              Estado local y estructurado que DeutschOS ha persistido sobre tu
+              Estado local y estructurado que LLC ha persistido sobre tu
               recorrido. Este bloque no ofrece un reinicio total.
             </p>
           </div>

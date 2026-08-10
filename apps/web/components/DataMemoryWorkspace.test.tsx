@@ -1,4 +1,4 @@
-import type { StudyData } from "@deutschos/shared";
+import type { StudyData } from "@llc/shared";
 import {
   cleanup,
   fireEvent,

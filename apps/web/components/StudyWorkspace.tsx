@@ -9,7 +9,7 @@ import type {
   StudySection,
   StudySession,
   TeacherQuery,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";

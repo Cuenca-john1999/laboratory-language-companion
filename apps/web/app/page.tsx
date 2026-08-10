@@ -41,7 +41,7 @@ export default async function DashboardPage() {
           <p className="eyebrow">
             {dashboard
               ? `GUTEN TAG, ${dashboard.preferred_name.toUpperCase()}`
-              : "DEUTSCHOS LOCAL"}
+              : "LLC LOCAL"}
           </p>
           <h1>
             Un poco de alemán.

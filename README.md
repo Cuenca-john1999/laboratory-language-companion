@@ -1,9 +1,17 @@
-# DeutschOS
+# LLC — Laboratory Language Companion
 
-Sistema privado, local-first y de usuario único para aprender alemán. La API es
-FastAPI, la interfaz usa Next.js y el estado del estudiante se conserva en
-SQLite mediante migraciones Alembic. LM Studio es opcional: si está apagado, el
-perfil, el dashboard y el resto de la aplicación siguen disponibles.
+**Local-first language learning for laboratory and life-science professionals.**
+
+LLC es una aplicación desktop, local-first y open source para aprender idiomas
+con una especialización progresiva en laboratorio, biomedicina y life sciences.
+German es la primera implementación y la arquitectura de referencia; no define
+la identidad completa del producto ni impide futuras implementaciones de otros
+idiomas.
+
+La implementación actual combina FastAPI, Next.js, Swift y SQLite. LM Studio es
+opcional: si está apagado, el perfil, Study, Library y el resto de las funciones
+deterministas siguen disponibles. Los modelos locales se usan únicamente para
+las funciones que realmente requieren inferencia.
 
 ## Requisitos (macOS Apple Silicon)
 
@@ -30,13 +38,16 @@ python -m pip install -e 'apps/api[dev]'
 
 `.env` es configuración privada y está excluido de Git. Los valores
 predeterminados usan únicamente loopback y guardan la base en
-`data/deutschos.sqlite3`. `DEUTSCHOS_TIMEZONE` controla la fecha civil del plan
+`data/deutschos.sqlite3`. `LLC_TIMEZONE` controla la fecha civil del plan
 diario y usa `Europe/Berlin` por defecto; los instantes se guardan en UTC.
+`LLC_*` es el prefijo canónico de configuración. Las variables `DEUTSCHOS_*`
+equivalentes siguen aceptándose como fallback temporal y siempre pierden ante
+su equivalente `LLC_*`. El nombre legacy del archivo SQLite se conserva para no
+forzar una migración destructiva o una segunda copia de datos.
 
 ## Inicio diario
 
 ```bash
-cd /Volumes/Juegos/DeutschOS
 ./scripts/doctor.sh
 ./scripts/dev.sh
 ```
@@ -58,20 +69,22 @@ script. No se instala ni descarga nada automáticamente.
 Para compilar la aplicación nativa de control sin abrir Xcode:
 
 ```bash
-cd /Volumes/Juegos/DeutschOS
 ./scripts/build-macos-app.sh
-open dist/DeutschOS.app
+open dist/LLC.app
 ```
 
-El resultado es `dist/DeutschOS.app`. Es una aplicación SwiftUI ligera con una
+El resultado es `dist/LLC.app`. Es una aplicación SwiftUI ligera con una
 ventana de estado; no abre Terminal ni incorpora un navegador. Arrástrala desde
 Finder al Dock —no hace falta mover el bundle— y ábrela siempre con el SSD
-conectado. La ruta del proyecto queda registrada durante el build, por lo que
-también puede copiarse a `~/Applications` sin perder el proyecto del SSD.
+conectado. La ruta del proyecto se descubre desde los scripts y queda registrada
+en el bundle durante el build; el nombre físico del directorio del clon no forma
+parte del contrato.
 
 - **Iniciar** ejecuta `scripts/start.sh`, espera a LM Studio, FastAPI y Next.js,
-  y abre o activa `~/Applications/DeutschOS.app` mediante su bundle exacto.
-  Safari se usa una sola vez como respaldo si esa aplicación falta o no abre.
+  y abre o activa `~/Applications/LLC.app` mediante su bundle exacto.
+  Durante la transición también reconoce `~/Applications/DeutschOS.app` como
+  fallback legacy, sin crearla, copiarla ni eliminarla. Safari se usa una sola
+  vez como respaldo si ninguna aplicación web instalada puede abrirse.
 - **Detener** cierra la web app exacta, FastAPI, Next.js, el servidor local y
   `LM Studio.app`, verifica los puertos y mantiene abierta la ventana.
 - **Salir** realiza el mismo apagado completo antes de terminar la aplicación.
@@ -103,7 +116,7 @@ regenerarlo y usarlo temporalmente:
 
 ```bash
 ./scripts/create-macos-launcher.sh
-open "dist/legacy/DeutschOS Launcher.app"
+open "dist/legacy/LLC Launcher.app"
 ```
 
 Ese respaldo mantiene el comportamiento antiguo de arrancar y abrir la web sin
@@ -173,10 +186,10 @@ Una copia manual se crea por defecto dentro de `./backups`:
 Para guardarla en otra unidad:
 
 ```bash
-./scripts/backup.sh "/Volumes/Otro Disco/DeutschOS-backups"
+./scripts/backup.sh "/Volumes/Otro Disco/LLC-backups"
 ```
 
-También se puede definir `DEUTSCHOS_BACKUP_DIR` en el entorno o en `.env`. Cada
+También se puede definir `LLC_BACKUP_DIR` en el entorno o en `.env`. Cada
 bundle incluye una copia SQLite consistente, configuración local editable y
 datos pedagógicos adicionales compatibles. Incluye un manifiesto con hashes y
 excluye almacenes y pesos de modelos. De `.env` solo conserva una lista cerrada
@@ -200,7 +213,7 @@ cd ../..
 ./scripts/test-macos-app.sh --integration
 ./scripts/build-macos-app.sh
 npm run lint:web
-npm --workspace @deutschos/web run typecheck
+npm --workspace @llc/web run typecheck
 npm run build:web
 ```
 
@@ -228,3 +241,13 @@ Más contexto: [arquitectura](docs/architecture.md),
 [seguridad](docs/security.md), [modelo de datos](docs/data-model.md) y
 [pedagogía](docs/pedagogy.md). El alcance implementado y pendiente del núcleo
 de Milestone 1 está en [Learning Engine](docs/learning-engine.md).
+
+## Origen y repositorio
+
+LLC se desarrolló originalmente como **DeutschOS**, una aplicación personal
+para aprender alemán con material estructurado e IA local. Ese nombre se
+conserva únicamente en historia, identificadores persistentes y fallbacks de
+compatibilidad documentados.
+
+El hogar público del proyecto es
+[`Cuenca-john1999/laboratory-language-companion`](https://github.com/Cuenca-john1999/laboratory-language-companion).

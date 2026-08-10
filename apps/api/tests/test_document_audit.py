@@ -13,14 +13,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 from test_document_review import review_library as review_library_fixture  # noqa: E402
 
-from deutschos_api.educational_library.audit import (  # noqa: E402
+from llc_api.educational_library.audit import (  # noqa: E402
     DECISION_SCHEMA,
     DocumentAuditService,
 )
-from deutschos_api.educational_library.dependencies import get_document_audit  # noqa: E402
-from deutschos_api.educational_library.review import DocumentReviewService  # noqa: E402
-from deutschos_api.educational_library.schemas import LibraryContractError  # noqa: E402
-from deutschos_api.main import app  # noqa: E402
+from llc_api.educational_library.dependencies import get_document_audit  # noqa: E402
+from llc_api.educational_library.review import DocumentReviewService  # noqa: E402
+from llc_api.educational_library.schemas import LibraryContractError  # noqa: E402
+from llc_api.main import app  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

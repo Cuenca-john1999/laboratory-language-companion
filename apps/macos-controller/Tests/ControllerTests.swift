@@ -139,6 +139,7 @@ struct ControllerTests {
     try await scriptExecutorRunsWithoutTerminal()
     try await webAppPathUsesCurrentHome()
     try await existingWebAppOpensWithoutSafari()
+    try await legacyWebAppOpensWithoutSafari()
     try await runningWebAppActivatesWithoutDuplicate()
     try await missingWebAppFallsBackOnce()
     try await webAppOpenErrorFallsBackOnce()
@@ -156,7 +157,7 @@ struct ControllerTests {
     try await lmStudioFailureCleansOnlyOwnedComponents()
     try controllerStartingPhasesAreBusyAndStoppable()
     if let integrationRoot = ProcessInfo.processInfo.environment[
-      "DEUTSCHOS_CONTROLLER_INTEGRATION_ROOT"
+      "LLC_CONTROLLER_INTEGRATION_ROOT"
     ] {
       try await realLifecycle(projectRoot: URL(fileURLWithPath: integrationRoot))
     }
@@ -292,7 +293,7 @@ struct ControllerTests {
       try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path.path)
     }
 
-    let appURL = root.appendingPathComponent("dist/DeutschOS.app")
+    let appURL = root.appendingPathComponent("dist/LLC.app")
     let located = ProjectLocator.locate(appURL: appURL, configuredRoot: root.path)
     try expect(located?.standardizedFileURL == root.standardizedFileURL, "project root")
     passed += 1
@@ -339,7 +340,7 @@ struct ControllerTests {
     let home = URL(fileURLWithPath: "/private/tmp/current-user-home", isDirectory: true)
     let launcher = WebAppLauncher(workspace: MockWorkspace(), homeDirectory: home)
     try expect(
-      launcher.applicationURL.path == "/private/tmp/current-user-home/Applications/DeutschOS.app",
+      launcher.applicationURL.path == "/private/tmp/current-user-home/Applications/LLC.app",
       "web app path does not derive from current home"
     )
     passed += 1
@@ -348,7 +349,7 @@ struct ControllerTests {
   private static func existingWebAppOpensWithoutSafari() async throws {
     let manager = FileManager.default
     let home = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let app = home.appendingPathComponent("Applications/DeutschOS.app")
+    let app = home.appendingPathComponent("Applications/LLC.app")
     try manager.createDirectory(at: app, withIntermediateDirectories: true)
     defer { try? manager.removeItem(at: home) }
     let workspace = MockWorkspace()
@@ -365,6 +366,29 @@ struct ControllerTests {
       "wrong web app path opened"
     )
     try expect(workspace.openedURLs.isEmpty, "Safari opened alongside web app")
+    passed += 1
+  }
+
+  private static func legacyWebAppOpensWithoutSafari() async throws {
+    let manager = FileManager.default
+    let home = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let app = home.appendingPathComponent("Applications/DeutschOS.app")
+    try manager.createDirectory(at: app, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: home) }
+    let workspace = MockWorkspace()
+    let outcome = try await WebAppLauncher(
+      workspace: workspace,
+      fileManager: manager,
+      homeDirectory: home
+    ).launch()
+
+    try expect(outcome == .opened, "legacy web app was not opened")
+    try expect(
+      workspace.openedApplications.map(\.standardizedFileURL.path)
+        == [app.standardizedFileURL.path],
+      "legacy fallback opened the wrong path"
+    )
+    try expect(workspace.openedURLs.isEmpty, "Safari opened alongside legacy web app")
     passed += 1
   }
 
@@ -403,7 +427,7 @@ struct ControllerTests {
   private static func webAppOpenErrorFallsBackOnce() async throws {
     let manager = FileManager.default
     let home = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    let app = home.appendingPathComponent("Applications/DeutschOS.app")
+    let app = home.appendingPathComponent("Applications/LLC.app")
     try manager.createDirectory(at: app, withIntermediateDirectories: true)
     defer { try? manager.removeItem(at: home) }
     let workspace = MockWorkspace()

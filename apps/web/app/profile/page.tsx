@@ -1,4 +1,4 @@
-import type { Profile } from "@deutschos/shared";
+import type { Profile } from "@llc/shared";
 import { ProfileForm } from "../../components/ProfileForm";
 import { getProfile } from "../../lib/api";
 

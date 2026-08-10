@@ -5,22 +5,22 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>es</string>
     <key>CFBundleDisplayName</key>
-    <string>DeutschOS</string>
+    <string>LLC</string>
     <key>CFBundleExecutable</key>
-    <string>DeutschOS</string>
+    <string>LLC</string>
     <key>CFBundleIdentifier</key>
     <string>local.deutschos.controller</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>DeutschOS</string>
+    <string>LLC</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>0.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
-    <key>DeutschOSProjectRoot</key>
+    <key>LLCProjectRoot</key>
     <string>__PROJECT_ROOT__</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>

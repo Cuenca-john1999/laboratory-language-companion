@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from deutschos_api.content.diagnostic import (
+from llc_api.content.diagnostic import (
     DIAGNOSTIC_BANK_SCHEMA_VERSION,
     DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION,
     DiagnosticBankManifest,
@@ -16,14 +16,14 @@ from deutschos_api.content.diagnostic import (
     file_sha256,
     load_diagnostic_banks,
 )
-from deutschos_api.content.diagnostic_reachability import (
+from llc_api.content.diagnostic_reachability import (
     DiagnosticReachabilityReport,
     ReachabilityIssueCode,
     analyze_diagnostic_bank,
 )
-from deutschos_api.diagnostic_engine.schemas import CORE_TEXT_AXES
-from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION
-from deutschos_api.models import DiagnosticAxis, DiagnosticTaskType
+from llc_api.diagnostic_engine.schemas import CORE_TEXT_AXES
+from llc_api.learning_engine.curriculum import CURRICULUM_VERSION
+from llc_api.models import DiagnosticAxis, DiagnosticTaskType
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 REPOSITORY_BANK = PROJECT_ROOT / "data" / "diagnostic"
@@ -207,7 +207,7 @@ def run_validator(directory: Path, *arguments: str) -> subprocess.CompletedProce
     return subprocess.run(
         [str(VALIDATOR), *arguments, str(directory)],
         cwd=PROJECT_ROOT,
-        env={**os.environ, "DEUTSCHOS_DATABASE_URL": "sqlite://"},
+        env={**os.environ, "LLC_DATABASE_URL": "sqlite://"},
         capture_output=True,
         text=True,
         check=False,

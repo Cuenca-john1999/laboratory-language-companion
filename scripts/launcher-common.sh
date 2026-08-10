@@ -7,17 +7,52 @@ if [[ -z "${PROJECT_ROOT:-}" ]]; then
   return 2
 fi
 
+promote_legacy_environment() {
+  local canonical legacy
+  canonical="$1"
+  legacy="$2"
+  if ! declare -p "$canonical" >/dev/null 2>&1 \
+    && declare -p "$legacy" >/dev/null 2>&1; then
+    export "$canonical=${!legacy}"
+  fi
+}
+
+# LLC_* always wins. Legacy names remain a transition-only fallback for local
+# launch configurations created before the product identity migration.
+for LLC_SUFFIX in \
+  APP_WRAPPER \
+  EDUCATIONAL_LIBRARY_RUNTIME_DIR \
+  EDUCATIONAL_MATERIALS_DIR \
+  LAUNCHER_API_PORT \
+  LAUNCHER_LMS_BIN \
+  LAUNCHER_LM_STUDIO_BIN \
+  LAUNCHER_LM_STUDIO_PORT \
+  LAUNCHER_LOG_DIR \
+  LAUNCHER_NO_ALERT \
+  LAUNCHER_NO_OPEN \
+  LAUNCHER_RUN_DIR \
+  LAUNCHER_TEST_MODE \
+  LAUNCHER_TIMEOUT \
+  LAUNCHER_WEB_PORT \
+  LM_APP_WILL_CLOSE \
+  LM_STUDIO_READY
+do
+  promote_legacy_environment \
+    "LLC_$LLC_SUFFIX" "DEUTSCHOS_$LLC_SUFFIX"
+done
+unset LLC_SUFFIX
+
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PROJECT_ROOT/.venv/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export NEXT_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 
-LAUNCHER_TEST_MODE="${DEUTSCHOS_LAUNCHER_TEST_MODE:-0}"
+LAUNCHER_TEST_MODE="${LLC_LAUNCHER_TEST_MODE:-0}"
 if [[ "$LAUNCHER_TEST_MODE" == "1" ]]; then
-  LM_STUDIO_PORT="${DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT:-1234}"
-  API_PORT="${DEUTSCHOS_LAUNCHER_API_PORT:-8000}"
-  WEB_PORT="${DEUTSCHOS_LAUNCHER_WEB_PORT:-3000}"
-  RUN_DIR="${DEUTSCHOS_LAUNCHER_RUN_DIR:-$PROJECT_ROOT/run}"
-  LOG_DIR="${DEUTSCHOS_LAUNCHER_LOG_DIR:-$PROJECT_ROOT/logs}"
+  LM_STUDIO_PORT="${LLC_LAUNCHER_LM_STUDIO_PORT:-1234}"
+  API_PORT="${LLC_LAUNCHER_API_PORT:-8000}"
+  WEB_PORT="${LLC_LAUNCHER_WEB_PORT:-3000}"
+  RUN_DIR="${LLC_LAUNCHER_RUN_DIR:-$PROJECT_ROOT/run}"
+  LOG_DIR="${LLC_LAUNCHER_LOG_DIR:-$PROJECT_ROOT/logs}"
 else
   LM_STUDIO_PORT=1234
   API_PORT=8000
@@ -37,7 +72,7 @@ LMS_BIN_DISPLAY=""
 
 resolve_lms_bin() {
   local configured candidate
-  configured="${DEUTSCHOS_LAUNCHER_LMS_BIN:-${DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN:-}}"
+  configured="${LLC_LAUNCHER_LMS_BIN:-${LLC_LAUNCHER_LM_STUDIO_BIN:-}}"
   if [[ -n "$configured" ]]; then
     if [[ -x "$configured" && ! -d "$configured" ]]; then
       LMS_BIN="$configured"
@@ -83,13 +118,13 @@ launcher_log() {
 show_macos_error() {
   local message
   message="$1"
-  if [[ "${DEUTSCHOS_APP_WRAPPER:-0}" == "1" || "${DEUTSCHOS_LAUNCHER_NO_ALERT:-0}" == "1" ]]; then
+  if [[ "${LLC_APP_WRAPPER:-0}" == "1" || "${LLC_LAUNCHER_NO_ALERT:-0}" == "1" ]]; then
     return 0
   fi
   if [[ -x /usr/bin/osascript ]]; then
     /usr/bin/osascript - "$message" >/dev/null 2>&1 <<'APPLESCRIPT' || true
 on run argv
-  display alert "DeutschOS no pudo iniciarse" message (item 1 of argv) as critical
+  display alert "LLC no pudo iniciarse" message (item 1 of argv) as critical
 end run
 APPLESCRIPT
   fi
@@ -131,7 +166,7 @@ expected_process() {
   command_line="$(ps -o command= -p "$pid" 2>/dev/null || true)"
   case "$role" in
     api)
-      [[ "$command_line" == *"uvicorn"*"deutschos_api.main:app"*"$PROJECT_ROOT/apps/api/src"* ]]
+      [[ "$command_line" == *"uvicorn"*"llc_api.main:app"*"$PROJECT_ROOT/apps/api/src"* ]]
       ;;
     web)
       [[ "$command_line" == *"next"*"dev"*"$PROJECT_ROOT/apps/web"* ]]
@@ -256,13 +291,13 @@ if not all(
 api_ready() {
   local response
   response="$(curl --silent --fail --connect-timeout 1 --max-time 3 "$API_URL/health" 2>/dev/null)" || return 1
-  [[ "$response" == *'"status":"ok"'* && "$response" == *'"service":"deutschos-api"'* ]]
+  [[ "$response" == *'"status":"ok"'* && "$response" == *'"service":"llc-api"'* ]]
 }
 
 web_ready() {
   local response
   response="$(curl --silent --fail --connect-timeout 1 --max-time 5 "$WEB_URL" 2>/dev/null)" || return 1
-  [[ "$response" == *"<title>DeutschOS</title>"* ]]
+  [[ "$response" == *"<title>LLC</title>"* ]]
 }
 
 active_model_names() {

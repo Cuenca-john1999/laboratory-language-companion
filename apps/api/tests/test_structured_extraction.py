@@ -8,13 +8,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import LibraryDatabase
-from deutschos_api.educational_library.dependencies import get_library_service
-from deutschos_api.educational_library.schemas import DocumentPageRepeatRequest
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.educational_library.structured_extraction import StructuredExtractionService
-from deutschos_api.main import app
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import LibraryDatabase
+from llc_api.educational_library.dependencies import get_library_service
+from llc_api.educational_library.schemas import DocumentPageRepeatRequest
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.educational_library.structured_extraction import StructuredExtractionService
+from llc_api.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

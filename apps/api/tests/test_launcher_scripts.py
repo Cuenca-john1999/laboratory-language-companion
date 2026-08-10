@@ -17,17 +17,17 @@ def launcher_environment(tmp_path: Path) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
         {
-            "DEUTSCHOS_LAUNCHER_TEST_MODE": "1",
-            "DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT": "19434",
-            "DEUTSCHOS_LAUNCHER_API_PORT": "19000",
-            "DEUTSCHOS_LAUNCHER_WEB_PORT": "19300",
-            "DEUTSCHOS_LAUNCHER_RUN_DIR": str(tmp_path / "run"),
-            "DEUTSCHOS_LAUNCHER_LOG_DIR": str(tmp_path / "logs"),
-            "DEUTSCHOS_LAUNCHER_NO_OPEN": "1",
-            "DEUTSCHOS_LAUNCHER_NO_ALERT": "1",
-            "DEUTSCHOS_LAUNCHER_TIMEOUT": "1",
-            "DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR": str(materials),
-            "DEUTSCHOS_EDUCATIONAL_LIBRARY_RUNTIME_DIR": str(tmp_path / "library"),
+            "LLC_LAUNCHER_TEST_MODE": "1",
+            "LLC_LAUNCHER_LM_STUDIO_PORT": "19434",
+            "LLC_LAUNCHER_API_PORT": "19000",
+            "LLC_LAUNCHER_WEB_PORT": "19300",
+            "LLC_LAUNCHER_RUN_DIR": str(tmp_path / "run"),
+            "LLC_LAUNCHER_LOG_DIR": str(tmp_path / "logs"),
+            "LLC_LAUNCHER_NO_OPEN": "1",
+            "LLC_LAUNCHER_NO_ALERT": "1",
+            "LLC_LAUNCHER_TIMEOUT": "1",
+            "LLC_EDUCATIONAL_MATERIALS_DIR": str(materials),
+            "LLC_EDUCATIONAL_LIBRARY_RUNTIME_DIR": str(tmp_path / "library"),
         }
     )
     return environment
@@ -90,9 +90,22 @@ def terminate_process_group(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=5)
 
 
+def test_launcher_prefers_llc_environment_and_accepts_legacy_fallback(tmp_path):
+    environment = launcher_environment(tmp_path)
+    environment["LLC_LAUNCHER_API_PORT"] = "19001"
+    environment["DEUTSCHOS_LAUNCHER_API_PORT"] = "19002"
+    environment.pop("LLC_LAUNCHER_WEB_PORT")
+    environment["DEUTSCHOS_LAUNCHER_WEB_PORT"] = "19302"
+
+    result = run_launcher_helper('printf "%s %s\\n" "$API_PORT" "$WEB_PORT"', environment)
+
+    assert result.returncode == 0
+    assert result.stdout == "19001 19302\n"
+
+
 def test_start_reports_missing_lm_studio_with_nonzero_status(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN"] = str(tmp_path / "lm_studio-does-not-exist")
+    environment["LLC_LAUNCHER_LM_STUDIO_BIN"] = str(tmp_path / "lm_studio-does-not-exist")
 
     result = run_script("start.sh", environment)
 
@@ -104,8 +117,8 @@ def test_start_reports_missing_lm_studio_with_nonzero_status(tmp_path):
 @pytest.mark.skip(reason="LM Studio model storage is managed externally")
 def test_start_reports_missing_model_without_downloading(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN"] = "/usr/bin/true"
-    environment["DEUTSCHOS_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
+    environment["LLC_LAUNCHER_LM_STUDIO_BIN"] = "/usr/bin/true"
+    environment["LLC_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
 
     result = run_script("start.sh", environment)
 
@@ -127,12 +140,12 @@ def test_start_rejects_lm_studio_port_owned_by_external_process(tmp_path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
-    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_BIN"] = "/usr/bin/true"
+    environment["LLC_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
+    environment["LLC_LAUNCHER_LM_STUDIO_BIN"] = "/usr/bin/true"
     models = tmp_path / "models" / "manifests"
     models.mkdir(parents=True)
     (models / "qwen3-14b").write_text("manifest", encoding="utf-8")
-    environment["DEUTSCHOS_LAUNCHER_MODELS_DIR"] = str(tmp_path / "models")
+    environment["LLC_LAUNCHER_MODELS_DIR"] = str(tmp_path / "models")
 
     try:
         result = run_script("start.sh", environment)
@@ -160,7 +173,7 @@ def test_lm_studio_probe_rejects_noncompatible_http_200(tmp_path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
+    environment["LLC_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
     try:
         result = run_launcher_helper("lm_studio_ready", environment)
     finally:
@@ -173,7 +186,7 @@ def test_lm_studio_probe_rejects_noncompatible_http_200(tmp_path):
 
 def test_cli_exit_zero_without_models_endpoint_is_not_success(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LMS_BIN"] = "/usr/bin/true"
+    environment["LLC_LAUNCHER_LMS_BIN"] = "/usr/bin/true"
 
     result = run_script("start.sh", environment)
 
@@ -204,7 +217,7 @@ def test_lms_resolution_is_absolute_and_does_not_depend_on_path(tmp_path):
 
 def test_status_reports_and_stop_cleans_stale_pid_without_signalling(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
+    environment["LLC_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
     run_directory = tmp_path / "run"
     run_directory.mkdir()
     stale_pid = run_directory / "api.pid"
@@ -222,7 +235,7 @@ def test_status_reports_and_stop_cleans_stale_pid_without_signalling(tmp_path):
 
 def test_status_machine_output_is_stable_and_parseable(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
+    environment["LLC_LAUNCHER_MODELS_DIR"] = str(tmp_path / "empty-models")
 
     result = subprocess.run(
         [str(SCRIPTS / "status.sh"), "--machine"],
@@ -272,7 +285,7 @@ def test_status_machine_queries_lm_studio_models_once(tmp_path):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
+    environment["LLC_LAUNCHER_LM_STUDIO_PORT"] = str(server.server_port)
 
     try:
         result = subprocess.run(
@@ -298,7 +311,7 @@ def test_status_machine_queries_lm_studio_models_once(tmp_path):
 def test_status_machine_reuses_api_model_snapshot_when_api_is_running(tmp_path):
     model_requests = 0
 
-    class DeutschOSAPIHandler(BaseHTTPRequestHandler):
+    class LLCAPIHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             nonlocal model_requests
             if self.path == "/api/models":
@@ -308,7 +321,7 @@ def test_status_machine_reuses_api_model_snapshot_when_api_is_running(tmp_path):
                     b'"models":[{"name":"google/gemma-4-12b-qat"}],"error":null}'
                 )
             elif self.path == "/health":
-                payload = b'{"status":"ok","service":"deutschos-api"}'
+                payload = b'{"status":"ok","service":"llc-api"}'
             else:
                 self.send_response(404)
                 self.end_headers()
@@ -321,11 +334,11 @@ def test_status_machine_reuses_api_model_snapshot_when_api_is_running(tmp_path):
         def log_message(self, format, *args):
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), DeutschOSAPIHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), LLCAPIHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_API_PORT"] = str(server.server_port)
+    environment["LLC_LAUNCHER_API_PORT"] = str(server.server_port)
 
     try:
         result = subprocess.run(
@@ -365,7 +378,7 @@ def test_process_start_token_is_independent_of_caller_timezone(tmp_path):
     assert len(set(tokens)) == 1
 
 
-@pytest.mark.skip(reason="DeutschOS no longer creates LM Studio PID files")
+@pytest.mark.skip(reason="LLC no longer creates LM Studio PID files")
 def test_pid_written_in_one_timezone_validates_in_another(tmp_path):
     environment = launcher_environment(tmp_path)
     process = start_fake_lm_studio()
@@ -388,7 +401,7 @@ def test_pid_written_in_one_timezone_validates_in_another(tmp_path):
         terminate_process_group(process)
 
 
-@pytest.mark.skip(reason="DeutschOS no longer creates LM Studio PID files")
+@pytest.mark.skip(reason="LLC no longer creates LM Studio PID files")
 def test_stop_rejects_reused_pid_token_without_signalling(tmp_path):
     environment = launcher_environment(tmp_path)
     process = start_fake_lm_studio()
@@ -440,7 +453,7 @@ def test_stop_rejects_external_command_even_with_valid_start_token(tmp_path):
 
 def test_stop_is_idempotent_when_all_services_are_closed(tmp_path):
     environment = launcher_environment(tmp_path)
-    environment["DEUTSCHOS_LAUNCHER_LMS_BIN"] = str(tmp_path / "missing-lms")
+    environment["LLC_LAUNCHER_LMS_BIN"] = str(tmp_path / "missing-lms")
 
     first = run_script("stop.sh", environment)
     second = run_script("stop.sh", environment)
@@ -456,9 +469,7 @@ def test_full_stop_has_no_ambiguous_process_kills_or_safari_target():
     common = (SCRIPTS / "launcher-common.sh").read_text(encoding="utf-8")
     controller_source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/DeutschOSController").glob(
-            "*.swift"
-        )
+        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/LLCController").glob("*.swift")
     )
 
     combined = "\n".join((stop_script, common, controller_source))
@@ -470,7 +481,7 @@ def test_full_stop_has_no_ambiguous_process_kills_or_safari_target():
     assert combined.index("terminate()") < combined.index("forceTerminate()")
 
 
-@pytest.mark.skip(reason="DeutschOS no longer manages LM Studio processes")
+@pytest.mark.skip(reason="LLC no longer manages LM Studio processes")
 def test_stop_does_not_adopt_service_that_changed_pid(tmp_path):
     environment = launcher_environment(tmp_path)
     original = start_fake_lm_studio()
@@ -491,7 +502,7 @@ def test_stop_does_not_adopt_service_that_changed_pid(tmp_path):
         terminate_process_group(replacement)
 
 
-@pytest.mark.skip(reason="DeutschOS no longer manages LM Studio processes")
+@pytest.mark.skip(reason="LLC no longer manages LM Studio processes")
 def test_stop_sends_sigterm_to_validated_managed_process(tmp_path):
     environment = launcher_environment(tmp_path)
     process = start_fake_lm_studio()
@@ -522,7 +533,7 @@ def test_launcher_artifacts_and_model_store_are_ignored():
 def test_launcher_uses_native_applescript_without_terminal():
     generator = (SCRIPTS / "create-macos-launcher.sh").read_text(encoding="utf-8")
     assert "/usr/bin/osacompile" in generator
-    assert 'APP_PATH="$LEGACY_DIR/DeutschOS Launcher.app"' in generator
+    assert 'APP_PATH="$LEGACY_DIR/LLC Launcher.app"' in generator
     assert 'do shell script ("/bin/test -d "' in generator
     assert "/usr/bin/test" not in generator
     assert "do shell script" in generator
@@ -532,9 +543,7 @@ def test_launcher_uses_native_applescript_without_terminal():
 def test_native_controller_build_reuses_launcher_scripts():
     source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/DeutschOSController").glob(
-            "*.swift"
-        )
+        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/LLCController").glob("*.swift")
     )
     build_script = (SCRIPTS / "build-macos-app.sh").read_text(encoding="utf-8")
 
@@ -544,7 +553,7 @@ def test_native_controller_build_reuses_launcher_scripts():
     assert "Process()" in source
     assert 'executable: URL(fileURLWithPath: "/bin/bash")' in source
     assert "Terminal" not in source
-    assert 'APP_PATH="$DIST_DIR/DeutschOS.app"' in build_script
+    assert 'APP_PATH="$DIST_DIR/LLC.app"' in build_script
     assert "/usr/bin/codesign" in build_script
 
 
@@ -552,14 +561,13 @@ def test_launcher_targets_web_app_exactly_and_never_uses_ambiguous_app_name():
     start_script = (SCRIPTS / "start.sh").read_text(encoding="utf-8")
     controller_source = "\n".join(
         path.read_text(encoding="utf-8")
-        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/DeutschOSController").glob(
-            "*.swift"
-        )
+        for path in (PROJECT_ROOT / "apps/macos-controller/Sources/LLCController").glob("*.swift")
     )
 
-    assert '$HOME/Applications/DeutschOS.app' in start_script
-    assert "open -a DeutschOS" not in start_script
-    assert "open -a DeutschOS" not in controller_source
+    assert "$HOME/Applications/LLC.app" in start_script
+    assert "$HOME/Applications/DeutschOS.app" in start_script
+    assert "open -a LLC" not in start_script
+    assert "open -a LLC" not in controller_source
     assert 'open -a "LM Studio"' not in controller_source
     assert "NSWorkspace.shared.openApplication" in controller_source
     assert "homeDirectoryForCurrentUser" in controller_source
@@ -567,23 +575,18 @@ def test_launcher_targets_web_app_exactly_and_never_uses_ambiguous_app_name():
 
 def test_native_startup_order_and_cancellation_are_explicit():
     controller = (
-        PROJECT_ROOT
-        / "apps/macos-controller/Sources/DeutschOSController/ControllerModel.swift"
+        PROJECT_ROOT / "apps/macos-controller/Sources/LLCController/ControllerModel.swift"
     ).read_text(encoding="utf-8")
     coordinator = (
-        PROJECT_ROOT
-        / "apps/macos-controller/Sources/DeutschOSController/LMStudioCoordinator.swift"
+        PROJECT_ROOT / "apps/macos-controller/Sources/LLCController/LMStudioCoordinator.swift"
     ).read_text(encoding="utf-8")
 
     assert controller.index("lmStudioCoordinator.ensureReady") < controller.index(
         'appendingPathComponent("scripts/start.sh")'
     )
-    assert controller.index("phase = .startingAPI") < controller.index(
-        "phase = .openingWeb"
-    )
+    assert controller.index("phase = .startingAPI") < controller.index("phase = .openingWeb")
     assert "stop-during-start" in (
-        PROJECT_ROOT
-        / "apps/macos-controller/Sources/DeutschOSController/ControllerView.swift"
+        PROJECT_ROOT / "apps/macos-controller/Sources/LLCController/ControllerView.swift"
     ).read_text(encoding="utf-8")
     assert "currentAction.cancel()" in controller
     assert "cleanupAfterFailure" in coordinator

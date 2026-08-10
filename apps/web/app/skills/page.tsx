@@ -12,8 +12,8 @@ export default async function SkillsPage() {
         <p className="eyebrow">PROGRESO INTERNO</p>
         <h1>Habilidades y evidencias.</h1>
         <p className="lead">
-          Consulta las estimaciones internas que usa DeutschOS para planificar.
-          No representan una certificación ni un nivel CEFR global.
+          Consulta las estimaciones internas que usa LLC para planificar. No
+          representan una certificación ni un nivel CEFR global.
         </p>
       </section>
 
