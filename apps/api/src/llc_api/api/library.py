@@ -1694,7 +1694,7 @@ def pedagogical_reading_scheduler(
 
 
 @router.post("/laboratory/reading/runs/{run_id}/start", status_code=status.HTTP_202_ACCEPTED)
-def start_pedagogical_reading(
+async def start_pedagogical_reading(
     run_id: str,
     service: PedagogicalReadingService = Depends(get_pedagogical_reading),
 ) -> dict[str, Any]:

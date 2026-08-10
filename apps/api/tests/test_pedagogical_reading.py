@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import sys
@@ -529,10 +530,18 @@ def test_process_restart_marks_active_reading_as_interrupted(reading_library):
 
 
 @pytest.mark.anyio
-async def test_reading_api_exposes_read_only_views_and_explicit_controls(reading_library):
+async def test_reading_api_exposes_read_only_views_and_explicit_controls(
+    reading_library, monkeypatch
+):
     database, version_id = reading_library
     router = FixtureRouter()
     service = PedagogicalReadingService(database, router)  # type: ignore[arg-type]
+    started_run_ids: list[str] = []
+
+    async def execute(run_id: str) -> None:
+        started_run_ids.append(run_id)
+
+    monkeypatch.setattr(service, "execute", execute)
     app.dependency_overrides[get_pedagogical_reading] = lambda: service
     app.dependency_overrides[get_library_model_router] = lambda: router
     try:
@@ -558,7 +567,13 @@ async def test_reading_api_exposes_read_only_views_and_explicit_controls(reading
             run_id = created.json()["id"]
             paused = await client.post(f"/api/library/laboratory/reading/runs/{run_id}/pause")
             assert paused.status_code == 422
-            service._control(run_id, "queued", None)
+            started = await client.post(
+                f"/api/library/laboratory/reading/runs/{run_id}/start"
+            )
+            await asyncio.sleep(0)
+            assert started.status_code == 202
+            assert started.json()["state"] == "queued"
+            assert started_run_ids == [run_id]
             paused = await client.post(f"/api/library/laboratory/reading/runs/{run_id}/pause")
             resumed = await client.post(f"/api/library/laboratory/reading/runs/{run_id}/resume")
             cancelled = await client.post(f"/api/library/laboratory/reading/runs/{run_id}/cancel")
