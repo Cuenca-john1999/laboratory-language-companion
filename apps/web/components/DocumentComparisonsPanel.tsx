@@ -6,7 +6,7 @@ import type {
   LaboratorySource,
   PageCorrespondence,
   VersionComparison,
-} from "@deutschos/shared";
+} from "@llc/shared";
 import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 

@@ -10,7 +10,7 @@ STARTED_WEB=""
 LOCK_DIR="$RUN_DIR/start.lock"
 LOCK_OWNED=0
 START_SUCCEEDED=0
-START_TIMEOUT="${DEUTSCHOS_LAUNCHER_TIMEOUT:-60}"
+START_TIMEOUT="${LLC_LAUNCHER_TIMEOUT:-60}"
 
 cleanup_started_role() {
   local role pid attempt
@@ -58,17 +58,18 @@ all_services_ready() {
   lm_studio_ready && api_ready && web_ready
 }
 
-open_deutschos() {
-  local web_app
-  if [[ "$LAUNCHER_TEST_MODE" == "1" && "${DEUTSCHOS_LAUNCHER_NO_OPEN:-1}" == "1" ]]; then
+open_llc() {
+  local web_app legacy_web_app
+  if [[ "$LAUNCHER_TEST_MODE" == "1" && "${LLC_LAUNCHER_NO_OPEN:-1}" == "1" ]]; then
     launcher_log "Apertura de la interfaz omitida en modo de prueba."
     return 0
   fi
-  if [[ "${DEUTSCHOS_APP_WRAPPER:-0}" == "1" ]]; then
+  if [[ "${LLC_APP_WRAPPER:-0}" == "1" ]]; then
     launcher_log "Servicios listos; el controlador abrirá la aplicación web mediante NSWorkspace."
     return 0
   fi
-  web_app="$HOME/Applications/DeutschOS.app"
+  web_app="$HOME/Applications/LLC.app"
+  legacy_web_app="$HOME/Applications/DeutschOS.app"
   if [[ -d "$web_app" ]]; then
     launcher_log "Aplicación web localizada; abriendo su bundle exacto."
     if /usr/bin/open "$web_app" >>"$LAUNCHER_LOG" 2>&1; then
@@ -76,6 +77,13 @@ open_deutschos() {
       return 0
     fi
     launcher_log "Error de apertura de la aplicación web; fallback único a Safari."
+  elif [[ -d "$legacy_web_app" ]]; then
+    launcher_log "Aplicación web legacy localizada; abriendo DeutschOS.app como fallback."
+    if /usr/bin/open "$legacy_web_app" >>"$LAUNCHER_LOG" 2>&1; then
+      launcher_log "Aplicación web legacy abierta."
+      return 0
+    fi
+    launcher_log "Error de apertura de la aplicación web legacy; fallback único a Safari."
   else
     launcher_log "Aplicación web ausente; fallback único a Safari."
   fi
@@ -102,11 +110,11 @@ acquire_start_lock() {
     command_line="$(ps -o command= -p "$lock_pid" 2>/dev/null || true)"
   fi
   if [[ -n "$lock_pid" && -n "$lock_start" && "$lock_start" == "$actual_start" && "$command_line" == *"scripts/start.sh"* ]]; then
-    launcher_log "Otro arranque de DeutschOS está en curso; esperando su resultado."
+    launcher_log "Otro arranque de LLC está en curso; esperando su resultado."
     attempt=0
     while ((attempt < START_TIMEOUT)); do
       if all_services_ready; then
-        open_deutschos || true
+        open_llc || true
         return 2
       fi
       sleep 1
@@ -136,7 +144,7 @@ else
   LOCK_RESULT=$?
   if [[ "$LOCK_RESULT" == 2 ]]; then
     START_SUCCEEDED=1
-    launcher_log "DeutschOS ya quedó listo mediante el otro arranque."
+    launcher_log "LLC ya quedó listo mediante el otro arranque."
     exit 0
   fi
   fail_launcher "No se pudo adquirir el bloqueo de arranque; revisa $LOCK_DIR."
@@ -145,7 +153,7 @@ fi
 if lm_studio_ready; then
   launcher_log "LM Studio está activo; se reutiliza sin reiniciarlo."
 else
-  if [[ "${DEUTSCHOS_LM_STUDIO_READY:-0}" == "1" ]]; then
+  if [[ "${LLC_LM_STUDIO_READY:-0}" == "1" ]]; then
     fail_launcher "LM Studio dejó de responder después de la verificación nativa."
   fi
   if port_is_busy "$LM_STUDIO_PORT"; then
@@ -172,13 +180,13 @@ fi
 if ! api_ready; then
   launcher_log "Verificando dependencias y migraciones mediante dev.sh --prepare-only."
   "$PROJECT_ROOT/scripts/dev.sh" --prepare-only >>"$LAUNCHER_LOG" 2>&1 \
-    || fail_launcher "La preparación de DeutschOS falló. Revisa logs/launcher.log."
+    || fail_launcher "La preparación de LLC falló. Revisa logs/launcher.log."
 fi
 
 clean_invalid_pid_file api
 if api_ready; then
   if pid_file_state api; then
-    launcher_log "FastAPI ya está activa y continúa gestionada por DeutschOS."
+    launcher_log "FastAPI ya está activa y continúa gestionada por LLC."
   else
     launcher_log "FastAPI ya está activa; se reutiliza sin duplicarla ni asumir su propiedad."
   fi
@@ -186,12 +194,12 @@ elif pid_file_state api; then
   wait_for_probe "FastAPI" api_ready "$PID_VALUE" "$START_TIMEOUT" \
     || fail_launcher "La API gestionada no llegó a estar disponible. Revisa logs/api.log."
 elif port_is_busy "$API_PORT"; then
-  fail_launcher "El puerto $API_PORT está ocupado por un proceso ajeno a DeutschOS."
+  fail_launcher "El puerto $API_PORT está ocupado por un proceso ajeno a LLC."
 else
   launcher_log "Iniciando FastAPI en $API_URL"
   (
     cd "$PROJECT_ROOT"
-    exec /usr/bin/nohup "$PYTHON" -m uvicorn deutschos_api.main:app \
+    exec /usr/bin/nohup "$PYTHON" -m uvicorn llc_api.main:app \
       --app-dir "$PROJECT_ROOT/apps/api/src" \
       --host 127.0.0.1 \
       --port "$API_PORT" </dev/null
@@ -207,7 +215,7 @@ fi
 clean_invalid_pid_file web
 if web_ready; then
   if pid_file_state web; then
-    launcher_log "Next.js ya está activa y continúa gestionada por DeutschOS."
+    launcher_log "Next.js ya está activa y continúa gestionada por LLC."
   else
     launcher_log "Next.js ya está activa; se reutiliza sin duplicarla ni asumir su propiedad."
   fi
@@ -215,7 +223,7 @@ elif pid_file_state web; then
   wait_for_probe "Next.js" web_ready "$PID_VALUE" "$START_TIMEOUT" \
     || fail_launcher "La web gestionada no llegó a estar disponible. Revisa logs/web.log."
 elif port_is_busy "$WEB_PORT"; then
-  fail_launcher "El puerto $WEB_PORT está ocupado por un proceso ajeno a DeutschOS."
+  fail_launcher "El puerto $WEB_PORT está ocupado por un proceso ajeno a LLC."
 else
   launcher_log "Iniciando Next.js en $WEB_URL"
   /usr/bin/nohup /usr/bin/env \
@@ -237,7 +245,7 @@ MODEL_NAMES="$(active_model_names || true)"
 [[ -n "$MODEL_NAMES" ]] || fail_launcher "LM Studio responde, pero no informa modelos disponibles."
 launcher_log "Modelos activos: $MODEL_NAMES"
 
-open_deutschos || fail_launcher "Los servicios están listos, pero macOS no pudo abrir ninguna interfaz."
+open_llc || fail_launcher "Los servicios están listos, pero macOS no pudo abrir ninguna interfaz."
 START_SUCCEEDED=1
-launcher_log "DeutschOS listo en $WEB_URL"
+launcher_log "LLC listo en $WEB_URL"
 exit 0

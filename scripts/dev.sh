@@ -74,7 +74,7 @@ cleanup() {
   status=$?
   trap - EXIT HUP INT TERM
   if [[ -n "$API_PID" || -n "$WEB_PID" ]]; then
-    printf '\nCerrando DeutschOS...\n'
+    printf '\nCerrando LLC...\n'
   fi
   if [[ -n "$WEB_PID" ]]; then
     terminate_tree "$WEB_PID"
@@ -113,7 +113,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 cd "$ROOT"
-printf 'Preparando DeutschOS en %s\n' "$ROOT"
+printf 'Preparando LLC en %s\n' "$ROOT"
 
 require_command node
 require_command npm
@@ -130,11 +130,11 @@ node -e 'const [major, minor] = process.versions.node.split(".").map(Number); pr
 
 mkdir -p "$ROOT/data" || fail "no se pudo crear data/."
 DATABASE_PATH="$($PYTHON "$CONFIG_HELPER" --root "$ROOT" database-path)" \
-  || fail "DEUTSCHOS_DATABASE_URL no es una URL SQLite local válida."
+  || fail "LLC_DATABASE_URL no es una URL SQLite local válida."
 mkdir -p "$(dirname "$DATABASE_PATH")" \
   || fail "no se pudo crear el directorio de la base configurada."
 
-WRITE_PROBE="$(mktemp "$(dirname "$DATABASE_PATH")/.deutschos-write.XXXXXX" 2>/dev/null)" \
+WRITE_PROBE="$(mktemp "$(dirname "$DATABASE_PATH")/.llc-write.XXXXXX" 2>/dev/null)" \
   || fail "no hay permisos de escritura junto a la base configurada."
 rm -f -- "$WRITE_PROBE"
 
@@ -150,9 +150,9 @@ print(parsed.port or (443 if parsed.scheme == "https" else 80))
 [[ "$PUBLIC_API_PORT" == "8000" ]] \
   || fail "dev.sh inicia FastAPI en 8000; NEXT_PUBLIC_API_URL debe usar ese puerto."
 
-LM_STUDIO_URL="$($PYTHON "$CONFIG_HELPER" --root "$ROOT" value DEUTSCHOS_LM_STUDIO_BASE_URL --default 'http://127.0.0.1:1234/v1')"
+LM_STUDIO_URL="$($PYTHON "$CONFIG_HELPER" --root "$ROOT" value LLC_LM_STUDIO_BASE_URL --default 'http://127.0.0.1:1234/v1')"
 "$PYTHON" "$CONFIG_HELPER" --root "$ROOT" is-loopback "$LM_STUDIO_URL" \
-  || fail "DEUTSCHOS_LM_STUDIO_BASE_URL debe apuntar a localhost/loopback."
+  || fail "LLC_LM_STUDIO_BASE_URL debe apuntar a localhost/loopback."
 curl --silent --fail --connect-timeout 1 --max-time 5 "$LM_STUDIO_URL/models" >/dev/null \
   || fail "LM Studio no responde en $LM_STUDIO_URL. Inicia su servidor local."
 
@@ -233,7 +233,7 @@ if ((PREPARE_ONLY == 1)); then
 fi
 
 printf '\nIniciando FastAPI en http://127.0.0.1:8000\n'
-"$PYTHON" -m uvicorn deutschos_api.main:app \
+"$PYTHON" -m uvicorn llc_api.main:app \
   --app-dir "$ROOT/apps/api/src" \
   --host 127.0.0.1 \
   --port 8000 \
@@ -242,7 +242,7 @@ printf '\nIniciando FastAPI en http://127.0.0.1:8000\n'
 API_PID=$!
 
 printf 'Iniciando Next.js en http://127.0.0.1:3000\n'
-npm --workspace @deutschos/web run dev -- --port 3000 &
+npm --workspace @llc/web run dev -- --port 3000 &
 WEB_PID=$!
 
 wait_for_url() {
@@ -269,7 +269,7 @@ wait_for_url "FastAPI" "http://127.0.0.1:8000/health" \
 wait_for_url "Next.js" "http://127.0.0.1:3000" \
   || fail "Next.js no alcanzó un estado listo."
 
-printf '\nDeutschOS está listo. Pulsa Ctrl-C para cerrar ambos procesos.\n'
+printf '\nLLC está listo. Pulsa Ctrl-C para cerrar ambos procesos.\n'
 EXIT_STATUS=0
 while :; do
   if ! process_is_running "$API_PID"; then

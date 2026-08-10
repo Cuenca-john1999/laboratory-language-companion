@@ -9,8 +9,8 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from deutschos_api.api import diagnostic as diagnostic_api
-from deutschos_api.content.diagnostic import (
+from llc_api.api import diagnostic as diagnostic_api
+from llc_api.content.diagnostic import (
     DIAGNOSTIC_BANK_SCHEMA_VERSION,
     DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION,
     DIAGNOSTIC_TASK_FILE_SCHEMA_VERSION_V2,
@@ -22,12 +22,12 @@ from deutschos_api.content.diagnostic import (
     file_sha256,
     load_diagnostic_banks,
 )
-from deutschos_api.db.session import get_db
-from deutschos_api.diagnostic_engine.exceptions import CandidateUnavailableError
-from deutschos_api.diagnostic_engine.schemas import EvaluationOutcome, ResponseSubmission
-from deutschos_api.diagnostic_engine.scoring import evaluate_response
-from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION
-from deutschos_api.main import app
+from llc_api.db.session import get_db
+from llc_api.diagnostic_engine.exceptions import CandidateUnavailableError
+from llc_api.diagnostic_engine.schemas import EvaluationOutcome, ResponseSubmission
+from llc_api.diagnostic_engine.scoring import evaluate_response
+from llc_api.learning_engine.curriculum import CURRICULUM_VERSION
+from llc_api.main import app
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 VALIDATOR = PROJECT_ROOT / "scripts" / "validate-diagnostic-bank.sh"
@@ -689,7 +689,7 @@ def test_editorial_tool_validates_draft_summarises_and_does_not_modify_files(tmp
     before = {
         path: (path.read_bytes(), path.stat().st_mtime_ns) for path in (manifest_path, task_path)
     }
-    environment = {**os.environ, "DEUTSCHOS_DATABASE_URL": "sqlite://"}
+    environment = {**os.environ, "LLC_DATABASE_URL": "sqlite://"}
 
     result = subprocess.run(
         [str(VALIDATOR), str(tmp_path)],
@@ -719,7 +719,7 @@ def test_editorial_tool_returns_nonzero_and_location_for_invalid_fixture(tmp_pat
         tmp_path / "invalid.bank.json",
         manifest_payload("test.bank", file_path="invalid.tasks.json"),
     )
-    environment = {**os.environ, "DEUTSCHOS_DATABASE_URL": "sqlite://"}
+    environment = {**os.environ, "LLC_DATABASE_URL": "sqlite://"}
 
     result = subprocess.run(
         [str(VALIDATOR), str(tmp_path)],

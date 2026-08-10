@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from deutschos_api.learning_engine.curriculum import CURRICULUM, CURRICULUM_VERSION
-from deutschos_api.models import ExerciseAttempt, LearningSession, Mistake
+from llc_api.learning_engine.curriculum import CURRICULUM, CURRICULUM_VERSION
+from llc_api.models import ExerciseAttempt, LearningSession, Mistake
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
@@ -67,7 +67,7 @@ def test_mistake_confidence_constraint(db_session_factory):
 
 def run_alembic(database_path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment["DEUTSCHOS_DATABASE_URL"] = f"sqlite:///{database_path}"
+    environment["LLC_DATABASE_URL"] = f"sqlite:///{database_path}"
     environment["DEUTSCHOS_ALLOW_DESTRUCTIVE_DOWNGRADE"] = "1"
     return subprocess.run(
         [
@@ -412,10 +412,10 @@ def test_profile_persists_across_api_process_restarts(tmp_path):
     database_path = tmp_path / "persistent.sqlite3"
     run_alembic(database_path, "upgrade", "head")
     environment = os.environ.copy()
-    environment["DEUTSCHOS_DATABASE_URL"] = f"sqlite:///{database_path}"
+    environment["LLC_DATABASE_URL"] = f"sqlite:///{database_path}"
     update_code = """
 import asyncio, httpx
-from deutschos_api.main import app
+from llc_api.main import app
 async def main():
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
         profile = (await client.get('/api/profile')).json()
@@ -438,7 +438,7 @@ asyncio.run(main())
 
     read_code = """
 import asyncio, httpx
-from deutschos_api.main import app
+from llc_api.main import app
 async def main():
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
         response = await client.get('/api/profile')
@@ -483,11 +483,11 @@ def test_hardening_migration_refuses_invalid_existing_values(tmp_path):
 
 def test_default_database_path_is_independent_of_cwd(tmp_path):
     environment = os.environ.copy()
-    environment.pop("DEUTSCHOS_DATABASE_URL", None)
+    environment.pop("LLC_DATABASE_URL", None)
     command = [
         sys.executable,
         "-c",
-        "from deutschos_api.core.config import Settings; print(Settings().database_path)",
+        "from llc_api.core.config import Settings; print(Settings().database_path)",
     ]
     from_root = subprocess.run(
         command,

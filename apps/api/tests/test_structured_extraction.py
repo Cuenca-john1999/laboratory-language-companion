@@ -8,13 +8,13 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import LibraryDatabase
-from deutschos_api.educational_library.dependencies import get_library_service
-from deutschos_api.educational_library.schemas import DocumentPageRepeatRequest
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.educational_library.structured_extraction import StructuredExtractionService
-from deutschos_api.main import app
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import LibraryDatabase
+from llc_api.educational_library.dependencies import get_library_service
+from llc_api.educational_library.schemas import DocumentPageRepeatRequest
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.educational_library.structured_extraction import StructuredExtractionService
+from llc_api.main import app
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -60,18 +60,18 @@ def structured_library(tmp_path: Path):
     return library, settings, version_id
 
 
-def test_schema_11_is_reversible_and_preserves_existing_counts(tmp_path: Path):
+def test_schema_12_is_reversible_and_preserves_existing_counts(tmp_path: Path):
     database = LibraryDatabase(tmp_path / "library.sqlite3")
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     with database.connect() as connection:
         connection.execute(
             "INSERT INTO sources(id,current_path,name,kind,format,size_bytes,mtime_ns,status,"
             "processing_state,first_seen_at,last_seen_at) VALUES "
             "('s','s.pdf','s','document','.pdf',1,1,'present','pending','now','now')"
         )
-    assert database.rollback_version_11() == 10
+    assert database.rollback_version_12() == 11
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     assert database.integrity() == ("ok", [])
     with database.connect() as connection:
         assert connection.execute("SELECT count(*) FROM sources").fetchone()[0] == 1

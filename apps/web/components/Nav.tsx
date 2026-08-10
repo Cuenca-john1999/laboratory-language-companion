@@ -21,8 +21,12 @@ export function Nav() {
 
   return (
     <header className="nav">
-      <Link className="brand" href="/">
-        <span>Deutsch</span>OS
+      <Link
+        aria-label="Laboratory Language Companion"
+        className="brand"
+        href="/"
+      >
+        <span>LLC</span>
       </Link>
       <nav aria-label="Navegación principal">
         {sections.map(({ href, label }) => {

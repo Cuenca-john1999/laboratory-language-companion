@@ -6,11 +6,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import LibraryDatabase
-from deutschos_api.educational_library.dependencies import get_library_service
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.main import app
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import LibraryDatabase
+from llc_api.educational_library.dependencies import get_library_service
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.main import app
 
 
 @pytest.fixture
@@ -245,7 +245,7 @@ def test_inventory_does_not_call_extraction_ocr_models_or_create_artifacts(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("processing capability was initialized")
 
-    monkeypatch.setattr("deutschos_api.educational_library.service.extract", forbidden)
+    monkeypatch.setattr("llc_api.educational_library.service.extract", forbidden)
     result = document_library.detect_document_changes()
 
     with document_library.database.connect() as connection:
@@ -287,10 +287,11 @@ async def test_laboratory_api_exposes_summary_history_versions_and_inventory(
     assert latest.json()["job_id"] == inventory.json()["job_id"]
 
 
-def test_schema_6_to_11_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
+def test_schema_6_to_12_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     database = LibraryDatabase(path)
-    assert database.migrate() == 11
+    assert database.migrate() == 12
+    assert database.rollback_version_12() == 11
     assert database.rollback_version_11() == 10
     assert database.rollback_version_10() == 9
     assert database.rollback_version_9() == 8
@@ -311,7 +312,7 @@ def test_schema_6_to_11_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
             "UPDATE sources SET current_version_id=? WHERE id='legacy'", (cursor.lastrowid,)
         )
 
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     with database.connect() as connection:
         counts = connection.execute(
             "SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM source_versions),"
@@ -320,6 +321,7 @@ def test_schema_6_to_11_preserve_legacy_rows_and_are_reversible(tmp_path: Path):
         assert tuple(counts) == (1, 1, 1)
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
+    assert database.rollback_version_12() == 11
     assert database.rollback_version_11() == 10
     assert database.rollback_version_10() == 9
     assert database.rollback_version_9() == 8

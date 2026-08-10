@@ -6,26 +6,26 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.comparisons import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.comparisons import (
     DocumentComparisonService,
     normalize_text,
     text_difference,
     text_fingerprint,
     visual_fingerprint,
 )
-from deutschos_api.educational_library.dependencies import (
+from llc_api.educational_library.dependencies import (
     get_document_comparisons,
     get_library_service,
 )
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.schemas import (
     CorrespondenceAdjust,
     LibraryBusyError,
     LibraryContractError,
     VersionComparisonCreate,
 )
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.main import app
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.main import app
 
 PDF_FIXTURES = Path(__file__).parent / "fixtures" / "page_comparisons"
 
@@ -113,11 +113,12 @@ def test_model_identity_hash_idempotency_stale_and_rollback(comparison_library):
     assert service.execute(first.id).state == "stale"
 
     database = comparison_library.database
+    assert database.rollback_version_12() == 11
     assert database.rollback_version_11() == 10
     assert database.rollback_version_10() == 9
     assert database.rollback_version_9() == 8
     assert database.rollback_version_8() == 7
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     assert database.integrity() == ("ok", [])
 
 

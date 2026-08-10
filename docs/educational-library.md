@@ -6,12 +6,16 @@ No realiza fine-tuning, no sube documentos y no escribe en el Learning Engine.
 
 ## Límites de datos
 
-- Originales: `DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR`, por defecto
+- Originales: `LLC_EDUCATIONAL_MATERIALS_DIR`, por defecto
   `./material educativo`.
-- Runtime: `DEUTSCHOS_EDUCATIONAL_LIBRARY_RUNTIME_DIR`, por defecto
+- Runtime: `LLC_EDUCATIONAL_LIBRARY_RUNTIME_DIR`, por defecto
   `./var/educational-library`.
 - Catálogo: `var/educational-library/library.sqlite3`.
 - Informes: `var/educational-library/reports/`.
+
+Las variables `DEUTSCHOS_EDUCATIONAL_*` equivalentes se aceptan como fallback
+legacy; una variable `LLC_*` siempre tiene precedencia. No se mueve ni duplica
+ningún runtime existente durante la migración de identidad.
 
 `material educativo/` y `var/` están ignorados por Git. Los extractores solo
 abren originales para lectura. PDF usa un temporal limitado dentro del runtime;
@@ -22,7 +26,7 @@ macros o archivos comprimidos genéricos.
 ## Catálogo y migración propia
 
 La base documental está separada de `data/deutschos.sqlite3`. Su migración
-ordenada `library_schema` está actualmente en la versión 11 e incluye fuentes,
+ordenada `library_schema` está actualmente en la versión 12 e incluye fuentes,
 versiones, documentos, secciones, chunks, FTS5, embeddings opcionales, trabajos,
 KnowledgeUnits, revisiones, borradores fundamentados, conversaciones y consultas
 docentes. La versión 3 añade metadatos editoriales, índices de sección revisables,
@@ -51,7 +55,11 @@ no reconstruye ni inventa candidatos históricos.
 La versión 10 añade decisiones editoriales append-only, consolidación de temas,
 jerarquía y relaciones, clasificación visual y readiness estructural. La versión
 11 registra metadata de export/import y snapshots documentales; los paquetes
-continúan fuera de SQLite.
+continúan fuera de SQLite. La versión 12 separa temas sin resolver, temas con
+práctica directa y temas cuya identidad está resuelta por el índice pero para los
+que el workbook declara explícitamente que no existe práctica directa. En este
+último caso `primary_candidate_id` permanece nulo y el candidato de índice se
+conserva únicamente como evidencia auditada.
 Puede eliminarse y reconstruirse desde los originales; no contiene progreso del
 alumno.
 
@@ -370,9 +378,9 @@ degrada falsamente a `no_evidence`.
 ```
 
 FastAPI inicia un polling incremental no bloqueante si
-`DEUTSCHOS_EDUCATIONAL_LIBRARY_SCAN_ON_STARTUP=true`; el intervalo mínimo es 60
+`LLC_EDUCATIONAL_LIBRARY_SCAN_ON_STARTUP=true`; el intervalo mínimo es 60
 segundos y se configura con
-`DEUTSCHOS_EDUCATIONAL_LIBRARY_SCAN_INTERVAL_SECONDS`. No instala un daemon.
+`LLC_EDUCATIONAL_LIBRARY_SCAN_INTERVAL_SECONDS`. No instala un daemon.
 
 La sección web `/library` empieza por **Pregunta a tu biblioteca**: pregunta
 natural, progreso comprensible, explicación, ejemplos, confianza, continuaciones

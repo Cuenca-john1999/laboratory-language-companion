@@ -7,15 +7,15 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 
-from deutschos_api.api.diagnostic import get_diagnostic_candidate_provider
-from deutschos_api.db.session import get_db
-from deutschos_api.diagnostic_engine.schemas import (
+from llc_api.api.diagnostic import get_diagnostic_candidate_provider
+from llc_api.db.session import get_db
+from llc_api.diagnostic_engine.schemas import (
     DeterministicRubric,
     RubricStrategy,
     TaskCandidate,
 )
-from deutschos_api.main import app
-from deutschos_api.models import (
+from llc_api.main import app
+from llc_api.models import (
     DiagnosticAxis,
     DiagnosticResponse,
     DiagnosticResult,
@@ -25,7 +25,7 @@ from deutschos_api.models import (
     SkillEvidence,
     StudentSkill,
 )
-from deutschos_api.providers.lm_studio import LMStudioProvider
+from llc_api.providers.lm_studio import LMStudioProvider
 
 pytestmark = pytest.mark.anyio
 

@@ -35,8 +35,8 @@ if [[ "${1:-}" == "--machine" ]]; then
     printf 'model_count=0\n'
   fi
 
-  LIBRARY_MATERIALS_DIR="${DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
-  LIBRARY_RUNTIME_DIR="${DEUTSCHOS_EDUCATIONAL_LIBRARY_RUNTIME_DIR:-$PROJECT_ROOT/var/educational-library}"
+  LIBRARY_MATERIALS_DIR="${LLC_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
+  LIBRARY_RUNTIME_DIR="${LLC_EDUCATIONAL_LIBRARY_RUNTIME_DIR:-$PROJECT_ROOT/var/educational-library}"
   printf 'library_path=%s\n' "$LIBRARY_MATERIALS_DIR"
   if [[ -d "$LIBRARY_MATERIALS_DIR" ]]; then
     printf 'library=available\n'
@@ -101,7 +101,7 @@ fi
 FAILURES=0
 STALE_PID_FILES=0
 
-printf 'DeutschOS launcher status\n'
+printf 'LLC launcher status\n'
 printf 'Proyecto: %s\n' "$PROJECT_ROOT"
 
 if [[ -d "$PROJECT_ROOT" ]] && df -P "$PROJECT_ROOT" >/dev/null 2>&1; then
@@ -111,7 +111,7 @@ else
   FAILURES=$((FAILURES + 1))
 fi
 
-LIBRARY_MATERIALS_DIR="${DEUTSCHOS_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
+LIBRARY_MATERIALS_DIR="${LLC_EDUCATIONAL_MATERIALS_DIR:-$PROJECT_ROOT/material educativo}"
 if [[ -d "$LIBRARY_MATERIALS_DIR" ]]; then
   printf '✓ Biblioteca educativa disponible (%s)\n' "$LIBRARY_MATERIALS_DIR"
 else

@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-SOURCE_DIR="$PROJECT_ROOT/apps/macos-controller/Sources/DeutschOSController"
+SOURCE_DIR="$PROJECT_ROOT/apps/macos-controller/Sources/LLCController"
 TEST_SOURCE="$PROJECT_ROOT/apps/macos-controller/Tests/ControllerTests.swift"
 BUILD_DIR="$PROJECT_ROOT/.build/macos-controller-tests"
 SWIFTC="$(xcrun --find swiftc 2>/dev/null || true)"
@@ -12,8 +12,9 @@ SWIFTC="$(xcrun --find swiftc 2>/dev/null || true)"
   exit 1
 }
 
-if [[ -n "${DEUTSCHOS_MACOS_SDK:-}" ]]; then
-  SDK_PATH="$DEUTSCHOS_MACOS_SDK"
+if [[ -n "${LLC_MACOS_SDK:-${DEUTSCHOS_MACOS_SDK:-}}" ]]; then
+  LLC_MACOS_SDK="${LLC_MACOS_SDK:-$DEUTSCHOS_MACOS_SDK}"
+  SDK_PATH="$LLC_MACOS_SDK"
 elif [[ -d /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk ]]; then
   SDK_PATH=/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk
 else
@@ -36,7 +37,7 @@ TARGET="$(uname -m)-apple-macosx13.0"
   -o "$BUILD_DIR/ControllerTests"
 
 if [[ "${1:-}" == "--integration" ]]; then
-  DEUTSCHOS_CONTROLLER_INTEGRATION_ROOT="$PROJECT_ROOT" "$BUILD_DIR/ControllerTests"
+  LLC_CONTROLLER_INTEGRATION_ROOT="$PROJECT_ROOT" "$BUILD_DIR/ControllerTests"
 else
   "$BUILD_DIR/ControllerTests"
 fi

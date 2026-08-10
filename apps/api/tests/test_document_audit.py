@@ -13,14 +13,14 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 from test_document_review import review_library as review_library_fixture  # noqa: E402
 
-from deutschos_api.educational_library.audit import (  # noqa: E402
+from llc_api.educational_library.audit import (  # noqa: E402
     DECISION_SCHEMA,
     DocumentAuditService,
 )
-from deutschos_api.educational_library.dependencies import get_document_audit  # noqa: E402
-from deutschos_api.educational_library.review import DocumentReviewService  # noqa: E402
-from deutschos_api.educational_library.schemas import LibraryContractError  # noqa: E402
-from deutschos_api.main import app  # noqa: E402
+from llc_api.educational_library.dependencies import get_document_audit  # noqa: E402
+from llc_api.educational_library.review import DocumentReviewService  # noqa: E402
+from llc_api.educational_library.schemas import LibraryContractError  # noqa: E402
+from llc_api.main import app  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -71,14 +71,45 @@ def candidate_state(database, candidate_id: str) -> str:
         )
 
 
-def test_schema_11_is_reversible_without_removing_review_data(audit_library):
+def index_only_decision_set(export: dict, topic_id: str, evidence_candidate_id: str):
+    return {
+        "decision_schema": DECISION_SCHEMA,
+        "package_logical_hash": export["logical_hash"],
+        "source_id": export["source_id"],
+        "source_version_id": export["source_version_id"],
+        "document_hash": export["document_hash"],
+        "reviewer": "external-human-reviewer",
+        "reviewed_at": "2026-08-10T01:00:00+00:00",
+        "decisions": [
+            {
+                "target_type": "topic",
+                "target_id": topic_id,
+                "expected_previous_state": "pending",
+                "action": "resolve_topic_identity",
+                "replacement": {
+                    "identity_resolution": "index_only_no_direct_practice",
+                    "evidence_candidate_id": evidence_candidate_id,
+                },
+                "evidence_references": [
+                    f"topics.json#{topic_id}",
+                    f"candidates.json#{evidence_candidate_id}",
+                ],
+                "rationale": "The index explicitly marks this canonical topic with dashes "
+                "for every exercise and solution column.",
+                "confidence": 1.0,
+            }
+        ],
+    }
+
+
+def test_schema_12_is_reversible_without_removing_review_or_audit_data(audit_library):
     database, _, _ = audit_library
     with database.connect() as connection:
         review_count = connection.execute("SELECT count(*) FROM document_review_runs").fetchone()[0]
         candidate_count = connection.execute(
             "SELECT count(*) FROM document_structure_candidates"
         ).fetchone()[0]
-    assert database.rollback_version_11() == 10
+    assert database.rollback_version_12() == 11
     with database.connect() as connection:
         assert (
             connection.execute("SELECT count(*) FROM document_review_runs").fetchone()[0]
@@ -88,13 +119,14 @@ def test_schema_11_is_reversible_without_removing_review_data(audit_library):
             connection.execute("SELECT count(*) FROM document_structure_candidates").fetchone()[0]
             == candidate_count
         )
-        assert (
-            connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE name='document_audit_exports'"
-            ).fetchone()
-            is None
-        )
-    assert database.migrate() == 11
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='document_audit_exports'"
+        ).fetchone()
+        topic_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(document_consolidated_topics)")
+        }
+        assert "identity_resolution" not in topic_columns
+    assert database.migrate() == 12
     assert database.integrity() == ("ok", [])
 
 
@@ -239,7 +271,8 @@ def test_closure_snapshots_are_immutable_stable_and_separate_ai_readiness(audit_
             connection.execute("DELETE FROM document_closure_snapshots WHERE id=?", (first["id"],))
     with database.transaction(immediate=True) as connection:
         connection.execute(
-            "UPDATE document_consolidated_topics SET state='pending',primary_candidate_id=NULL "
+            "UPDATE document_consolidated_topics SET state='pending',primary_candidate_id=NULL,"
+            "identity_resolution='unresolved' "
             "WHERE source_version_id=? AND theme_number=51",
             (version_id,),
         )
@@ -248,6 +281,168 @@ def test_closure_snapshots_are_immutable_stable_and_separate_ai_readiness(audit_
     blocked = service.create_snapshot(version_id)
     assert blocked["ai_readiness"] == "blocked_for_ai"
     assert blocked["snapshot_hash"] != first["snapshot_hash"]
+
+
+def test_genuinely_unresolved_topic_still_blocks_ai_readiness(audit_library):
+    database, service, version_id = audit_library
+    with database.transaction(immediate=True) as connection:
+        connection.execute(
+            "UPDATE document_consolidated_topics SET state='pending',primary_candidate_id=NULL,"
+            "identity_resolution='unresolved',identity_evidence_candidate_id=NULL,"
+            "resolution_method=NULL WHERE source_version_id=? AND theme_number=51",
+            (version_id,),
+        )
+    readiness = service.recalculate_readiness(version_id)
+    assert readiness["state"] == "blocked"
+    assert readiness["blockers"] == ["principal_topics_unresolved:1"]
+    assert service.closure_status(version_id)["ai_readiness"] == "blocked_for_ai"
+
+
+def test_external_index_only_resolution_keeps_primary_null_and_changes_only_blocker(
+    audit_library,
+):
+    database, service, version_id = audit_library
+    with database.transaction(immediate=True) as connection:
+        topic = connection.execute(
+            "SELECT id FROM document_consolidated_topics WHERE source_version_id=? "
+            "AND theme_number=1",
+            (version_id,),
+        ).fetchone()
+        connection.execute(
+            "DELETE FROM document_consolidated_nodes WHERE source_version_id=? "
+            "AND theme_number=1 AND node_type='topic_heading'",
+            (version_id,),
+        )
+        connection.execute(
+            "UPDATE document_consolidated_topics SET state='pending',primary_candidate_id=NULL,"
+            "pdf_page_number=NULL,printed_page=NULL,identity_resolution='unresolved',"
+            "identity_evidence_candidate_id=NULL,resolution_method=NULL,"
+            "issues_json='[\"principal_topic_evidence_insufficient\"]' WHERE id=?",
+            (topic["id"],),
+        )
+    blocked = service.recalculate_readiness(version_id)
+    old_snapshot = service.create_snapshot(version_id)
+    export = service.create_export(
+        version_id,
+        mode="targeted",
+        selection={"theme_number": 1},
+    )
+    value = index_only_decision_set(export, topic["id"], "index-1")
+    assert service.validate_decision_set(value)["valid"] is True
+    with database.connect() as connection:
+        protected_before = tuple(
+            connection.execute(
+                "SELECT (SELECT count(*) FROM chunks),(SELECT count(*) FROM embeddings),"
+                "(SELECT activation_state FROM source_versions WHERE id=?),"
+                "(SELECT is_active FROM source_versions WHERE id=?)",
+                (version_id, version_id),
+            ).fetchone()
+        )
+        queue_before = dict(
+            connection.execute(
+                "SELECT coalesce(s.priority,'P2'),count(*) FROM "
+                "document_candidate_review_state s JOIN document_structure_candidates c "
+                "ON c.id=s.candidate_id WHERE c.source_version_id=? AND "
+                "s.editorial_state IN ('needs_review','conflicted') GROUP BY 1",
+                (version_id,),
+            ).fetchall()
+        )
+        hierarchy_before = [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT id,source_candidate_id,parent_node_id,theme_number,state "
+                "FROM document_consolidated_nodes WHERE source_version_id=? ORDER BY id",
+                (version_id,),
+            ).fetchall()
+        ]
+        children_before = connection.execute(
+            "SELECT count(*) FROM document_consolidated_nodes WHERE source_version_id=? "
+            "AND theme_number BETWEEN 2 AND 51",
+            (version_id,),
+        ).fetchone()[0]
+
+    applied = service.apply_decision_set(value)
+    new_snapshot = service.create_snapshot(version_id)
+    with database.connect() as connection:
+        resolved = connection.execute(
+            "SELECT * FROM document_consolidated_topics WHERE id=?", (topic["id"],)
+        ).fetchone()
+        evidence = json.loads(resolved["evidence_json"])
+        assert resolved["state"] == "confirmed"
+        assert resolved["identity_resolution"] == "index_only_no_direct_practice"
+        assert resolved["identity_evidence_candidate_id"] == "index-1"
+        assert resolved["resolution_method"] == "external_audit"
+        assert resolved["primary_candidate_id"] is None
+        assert json.loads(resolved["issues_json"]) == []
+        assert evidence["identity_source"] == "index"
+        assert evidence["principal_body_heading_required"] is False
+        assert evidence["direct_exercises_expected"] is False
+        assert evidence["direct_solutions_expected"] is False
+        index_state = connection.execute(
+            "SELECT editorial_state,reason FROM document_candidate_review_state "
+            "WHERE candidate_id='index-1'"
+        ).fetchone()
+        assert tuple(index_state) == ("rejected", "index_entry_not_principal_topic")
+        decision = connection.execute(
+            "SELECT method,previous_state,new_state,evidence_json FROM "
+            "document_candidate_decisions WHERE candidate_id='index-1' "
+            "ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        assert tuple(decision)[:3] == ("external_audit", "rejected", "rejected")
+        ledger_evidence = json.loads(decision["evidence_json"])
+        assert ledger_evidence["target_id"] == topic["id"]
+        assert ledger_evidence["package_logical_hash"] == export["logical_hash"]
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM document_consolidated_nodes WHERE "
+                "source_candidate_id='index-1'"
+            ).fetchone()[0]
+            == 0
+        )
+        assert [
+            tuple(row)
+            for row in connection.execute(
+                "SELECT id,source_candidate_id,parent_node_id,theme_number,state "
+                "FROM document_consolidated_nodes WHERE source_version_id=? ORDER BY id",
+                (version_id,),
+            ).fetchall()
+        ] == hierarchy_before
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM document_consolidated_nodes WHERE source_version_id=? "
+                "AND theme_number BETWEEN 2 AND 51",
+                (version_id,),
+            ).fetchone()[0]
+            == children_before
+        )
+        protected_after = tuple(
+            connection.execute(
+                "SELECT (SELECT count(*) FROM chunks),(SELECT count(*) FROM embeddings),"
+                "(SELECT activation_state FROM source_versions WHERE id=?),"
+                "(SELECT is_active FROM source_versions WHERE id=?)",
+                (version_id, version_id),
+            ).fetchone()
+        )
+        queue_after = dict(
+            connection.execute(
+                "SELECT coalesce(s.priority,'P2'),count(*) FROM "
+                "document_candidate_review_state s JOIN document_structure_candidates c "
+                "ON c.id=s.candidate_id WHERE c.source_version_id=? AND "
+                "s.editorial_state IN ('needs_review','conflicted') GROUP BY 1",
+                (version_id,),
+            ).fetchall()
+        )
+    assert applied["state"] == "applied"
+    assert blocked["blockers"] == ["principal_topics_unresolved:1"]
+    assert applied["impact"]["readiness"] == "structurally_ready_with_issues"
+    assert service.closure_status(version_id)["ai_readiness"] == "ready_for_ai_with_issues"
+    assert protected_after == protected_before
+    assert queue_after == queue_before
+    assert old_snapshot["state"] == "blocked"
+    assert service.snapshot(old_snapshot["id"])["state"] == "blocked"
+    assert new_snapshot["id"] != old_snapshot["id"]
+    assert new_snapshot["state"] == "ready_with_issues"
+    assert new_snapshot["snapshot_hash"] != old_snapshot["snapshot_hash"]
 
 
 def test_audit_operations_never_activate_or_create_ocr_chunks_or_embeddings(audit_library):
@@ -361,3 +556,41 @@ async def test_audit_api_preview_export_dry_run_and_snapshots(audit_library):
             ).status_code == 200
     finally:
         app.dependency_overrides.pop(get_document_audit, None)
+
+
+@pytest.mark.anyio
+async def test_audit_get_endpoints_remain_read_only(audit_library):
+    database, service, version_id = audit_library
+    export = service.create_export(version_id, mode="review_only")
+    snapshot = service.create_snapshot(version_id)
+    app.dependency_overrides[get_document_audit] = lambda: service
+
+    def mutation_counts():
+        with database.connect() as connection:
+            return tuple(
+                connection.execute(
+                    "SELECT (SELECT count(*) FROM document_audit_exports),"
+                    "(SELECT count(*) FROM document_audit_imports),"
+                    "(SELECT count(*) FROM document_candidate_decisions),"
+                    "(SELECT count(*) FROM document_readiness_snapshots),"
+                    "(SELECT count(*) FROM document_closure_snapshots)"
+                ).fetchone()
+            )
+
+    before = mutation_counts()
+    transport = httpx.ASGITransport(app=app)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            responses = [
+                await client.get("/api/library/laboratory/audit/exports"),
+                await client.get(f"/api/library/laboratory/audit/exports/{export['id']}"),
+                await client.get(f"/api/library/laboratory/audit/exports/{export['id']}/manifest"),
+                await client.get("/api/library/laboratory/audit/imports"),
+                await client.get(f"/api/library/laboratory/audit/versions/{version_id}/closure"),
+                await client.get("/api/library/laboratory/audit/snapshots"),
+                await client.get(f"/api/library/laboratory/audit/snapshots/{snapshot['id']}"),
+            ]
+            assert all(response.status_code == 200 for response in responses)
+    finally:
+        app.dependency_overrides.pop(get_document_audit, None)
+    assert mutation_counts() == before

@@ -9,20 +9,20 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.dependencies import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.dependencies import (
     get_library_editorial,
     get_library_teacher,
 )
-from deutschos_api.educational_library.editorial import LibraryEditorialService
-from deutschos_api.educational_library.schemas import CoreSourceAssignmentRequest
-from deutschos_api.educational_library.service import (
+from llc_api.educational_library.editorial import LibraryEditorialService
+from llc_api.educational_library.schemas import CoreSourceAssignmentRequest
+from llc_api.educational_library.service import (
     EducationalLibraryService,
     json_dump,
     utc_text,
 )
-from deutschos_api.main import app
-from deutschos_api.models import (
+from llc_api.main import app
+from llc_api.models import (
     SkillEvidence,
     StudentSkill,
     StudyEvent,
@@ -33,10 +33,10 @@ from deutschos_api.models import (
     StudySectionState,
     StudySession,
 )
-from deutschos_api.providers.dependencies import get_model_provider
-from deutschos_api.study.dependencies import get_study_service
-from deutschos_api.study.missions import build_mission, build_plan, resolve_mission_type
-from deutschos_api.study.schemas import (
+from llc_api.providers.dependencies import get_model_provider
+from llc_api.study.dependencies import get_study_service
+from llc_api.study.missions import build_mission, build_plan, resolve_mission_type
+from llc_api.study.schemas import (
     StudyNoteWrite,
     StudyPositionUpdate,
     StudyQuestionStatusUpdate,
@@ -47,7 +47,7 @@ from deutschos_api.study.schemas import (
     WorkbookLinkReview,
     WorkbookLinkUpdate,
 )
-from deutschos_api.study.service import GuidedStudyService
+from llc_api.study.service import GuidedStudyService
 
 
 @pytest.fixture
@@ -352,7 +352,7 @@ async def test_real_study_database_error_is_logged_and_not_returned_as_empty(cli
             )
 
     app.dependency_overrides[get_study_service] = lambda: BrokenStudyService()
-    caplog.set_level(logging.ERROR, logger="deutschos_api.api.study")
+    caplog.set_level(logging.ERROR, logger="llc_api.api.study")
 
     response = await client.get("/api/study/history")
 

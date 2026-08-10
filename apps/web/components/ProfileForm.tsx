@@ -1,6 +1,6 @@
 "use client";
 
-import type { Profile, ProfileUpdate } from "@deutschos/shared";
+import type { Profile, ProfileUpdate } from "@llc/shared";
 import type { FormEvent } from "react";
 import { useState } from "react";
 

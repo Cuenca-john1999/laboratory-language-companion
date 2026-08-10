@@ -12,14 +12,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
 
-from deutschos_api.db.session import make_engine
-from deutschos_api.diagnostic_engine.exceptions import (
+from llc_api.db.session import make_engine
+from llc_api.diagnostic_engine.exceptions import (
     CandidateUnavailableError,
     DiagnosticIdempotencyConflictError,
     EvaluationConflictError,
     InvalidTransitionError,
 )
-from deutschos_api.diagnostic_engine.schemas import (
+from llc_api.diagnostic_engine.schemas import (
     CorrectEvaluationCommand,
     CreateSessionCommand,
     DeterministicRubric,
@@ -32,8 +32,8 @@ from deutschos_api.diagnostic_engine.schemas import (
     SessionQuery,
     TaskCandidate,
 )
-from deutschos_api.diagnostic_engine.service import DiagnosticEngineService
-from deutschos_api.models import (
+from llc_api.diagnostic_engine.service import DiagnosticEngineService
+from llc_api.models import (
     CurriculumSkill,
     DiagnosticAxis,
     DiagnosticPolarity,
@@ -133,7 +133,7 @@ def option_candidate(*, label: str = "Alpha", version: str = "2") -> TaskCandida
 
 def run_alembic(database_path: Path, *arguments: str) -> None:
     environment = os.environ.copy()
-    environment["DEUTSCHOS_DATABASE_URL"] = f"sqlite:///{database_path}"
+    environment["LLC_DATABASE_URL"] = f"sqlite:///{database_path}"
     subprocess.run(
         [
             sys.executable,

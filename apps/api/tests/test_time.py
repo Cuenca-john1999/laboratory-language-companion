@@ -3,8 +3,8 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from deutschos_api.core.config import Settings
-from deutschos_api.core.time import local_date
+from llc_api.core.config import Settings
+from llc_api.core.time import local_date
 
 
 def test_plan_date_uses_configured_civil_timezone():

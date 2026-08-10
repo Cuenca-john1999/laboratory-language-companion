@@ -1,4 +1,4 @@
-import type { Mistake } from "@deutschos/shared";
+import type { Mistake } from "@llc/shared";
 
 import { getMistakes } from "../../lib/api";
 

@@ -54,11 +54,11 @@ Next.js se ejecute desde su workspace.
 ## Aplicación nativa de control para macOS
 
 `./scripts/build-macos-app.sh` compila en release el paquete Swift de
-`apps/macos-controller` y crea `dist/DeutschOS.app`. No requiere abrir Xcode,
+`apps/macos-controller` y crea `dist/LLC.app`. No requiere abrir Xcode,
 no añade dependencias y firma el bundle localmente de forma ad hoc. Usa el SDK
 15.4 incluido en las Command Line Tools cuando está presente porque algunas
 CLT 26.6 distribuyen un compilador y un SDK 26.5 con revisiones Swift
-incompatibles. `DEUTSCHOS_MACOS_SDK` permite seleccionar otro SDK.
+incompatibles. `LLC_MACOS_SDK` permite seleccionar otro SDK.
 
 La aplicación SwiftUI ejecuta directamente con `Process`, sin Terminal. Al
 pulsar **Iniciar** aplica esta secuencia:
@@ -81,14 +81,17 @@ pulsar **Iniciar** aplica esta secuencia:
 La resolución no usa `lms` por nombre ni depende del PATH de Finder. Cada ruta
 se valida como archivo ejecutable antes de crear el proceso. Después de
 confirmar que LM Studio, API y web responden, **Iniciar** abre mediante
-`NSWorkspace` el bundle exacto `~/Applications/DeutschOS.app`. Si su bundle
+`NSWorkspace` el bundle exacto `~/Applications/LLC.app`. Si su bundle
 identifier ya está ejecutándose, lo activa sin crear otra instancia. Safari
 solo recibe `http://127.0.0.1:3000` como respaldo cuando la web app falta o
-macOS devuelve un error al abrirla.
+macOS devuelve un error al abrirla. Durante la transición se prefiere
+`LLC.app`, se acepta `DeutschOS.app` como fallback instalado y nunca se elimina
+ni se crea una segunda copia legacy. El identificador Safari existente se
+conserva para activar y detener exactamente esa Web App.
 
 La interfaz muestra por separado **Abriendo LM Studio**, **Iniciando servidor
 de LM Studio**, **Esperando LM Studio**, **Iniciando API**, **Iniciando Web**,
-**Abriendo DeutschOS**, **Activo** y **Error**. Durante el arranque, **Iniciar**
+**Abriendo LLC**, **Activo** y **Error**. Durante el arranque, **Iniciar**
 queda bloqueado y **Detener** cancela el proceso en curso, impide abrir la web y
 ejecuta la limpieza normal. Si falla LM Studio, no se inicia API ni web. La
 limpieza cierra el servidor o la aplicación únicamente cuando esa parte fue
@@ -114,14 +117,17 @@ cierre sin dejar la app oculta.
 ./scripts/test-macos-app.sh
 ./scripts/test-macos-app.sh --integration
 ./scripts/build-macos-app.sh
-open dist/DeutschOS.app
+open dist/LLC.app
 ```
 
-Para añadirla al Dock, localiza `dist/DeutschOS.app` en Finder y arrástrala al
-Dock. El bundle incorpora la raíz absoluta para poder copiarlo a
-`~/Applications`; tras mover el proyecto o cambiar su punto de montaje hay que
-recompilar. Si la app permanece en el SSD, macOS no puede ejecutarla mientras
-la unidad está desconectada. **Abrir logs** abre `logs/`; `controller.log`
+Para añadir el controlador al Dock, localiza `dist/LLC.app` en Finder y
+arrástralo al Dock. El bundle incorpora la raíz resuelta durante el build; tras
+mover el proyecto o cambiar su punto de montaje hay que recompilar. El bundle
+identifier del controlador sigue siendo `local.deutschos.controller` por
+compatibilidad con preferencias, permisos, firma y detección de procesos. No se
+ha inventado un reverse-domain nuevo. Si la app permanece en el SSD, macOS no
+puede ejecutarla mientras la unidad está desconectada. **Abrir logs** abre
+`logs/`; `controller.log`
 registra únicamente acciones y transiciones operativas, nunca conversaciones.
 
 ### Launcher AppleScript de respaldo
@@ -131,7 +137,7 @@ la app principal:
 
 ```bash
 ./scripts/create-macos-launcher.sh
-open "dist/legacy/DeutschOS Launcher.app"
+open "dist/legacy/LLC Launcher.app"
 ```
 
 Ese respaldo ejecuta `start.sh` y abre la web directamente, sin ventana de
@@ -200,7 +206,7 @@ Eliminar el runtime obliga a reindexar, pero nunca elimina originales.
 ./scripts/backup.sh "/ruta/local/con espacios"
 ```
 
-La precedencia del destino es: argumento, `DEUTSCHOS_BACKUP_DIR` y
+La precedencia del destino es: argumento, `LLC_BACKUP_DIR` y
 `./backups`. Una ruta relativa se resuelve desde el proyecto, no desde la shell
 del usuario. Dentro del repositorio solo se admite `./backups`, que está
 ignorado por Git; cualquier otro destino debe quedar fuera del repositorio. El
@@ -225,6 +231,11 @@ rechazan. Sus nombres, nunca sus valores, quedan en
 `excluded_configuration_keys`. Archivos arbitrarios de `config/local` tampoco
 se copian porque podrían contener credenciales futuras.
 
+`LLC_*` es el prefijo canónico. Cuando una opción `LLC_*` no existe, los scripts
+y la API aceptan la opción `DEUTSCHOS_*` equivalente como fallback de transición;
+si ambas existen, gana `LLC_*`. El guard histórico de las migraciones se traduce
+en `alembic/env.py` sin editar las revisiones ya publicadas.
+
 ## Restauración
 
 La restauración permanece deliberadamente manual para evitar sobrescribir datos
@@ -233,7 +244,7 @@ por accidente:
 1. Detén `dev.sh` y conserva la base actual con otro nombre o en otra unidad.
 2. Revisa `manifest.json` y verifica los hashes de los archivos que restaurarás.
 3. Copia el snapshot de `database/` a la ruta indicada por
-   `DEUTSCHOS_DATABASE_URL` solo cuando hayas confirmado el bundle correcto.
+   `LLC_DATABASE_URL` solo cuando hayas confirmado el bundle correcto.
 4. Restaura la configuración saneada o archivos pedagógicos de forma selectiva.
 5. Ejecuta `./scripts/doctor.sh` antes de volver a arrancar.
 
@@ -244,5 +255,5 @@ El script nunca aplica retención ni elimina backups antiguos.
 Los downgrades no forman parte del flujo normal. La revisión inicial rechaza
 eliminar tablas y la revisión del Learning Engine rechaza borrar evidencia. Solo
 una restauración o reset deliberado, después de verificar un backup, puede usar
-temporalmente `DEUTSCHOS_ALLOW_DESTRUCTIVE_DOWNGRADE=1`. `dev.sh` nunca define
+temporalmente `LLC_ALLOW_DESTRUCTIVE_DOWNGRADE=1`. `dev.sh` nunca define
 esa variable ni ejecuta downgrades.

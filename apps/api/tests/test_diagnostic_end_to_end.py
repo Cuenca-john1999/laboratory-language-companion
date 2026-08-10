@@ -25,12 +25,12 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
-from deutschos_api.api.diagnostic import get_diagnostic_candidate_provider
-from deutschos_api.content import FilesystemCandidateProvider
-from deutschos_api.db.session import get_db, make_engine
-from deutschos_api.diagnostic_engine.schemas import CORE_TEXT_AXES, RubricStrategy, TaskCandidate
-from deutschos_api.main import app
-from deutschos_api.models import (
+from llc_api.api.diagnostic import get_diagnostic_candidate_provider
+from llc_api.content import FilesystemCandidateProvider
+from llc_api.db.session import get_db, make_engine
+from llc_api.diagnostic_engine.schemas import CORE_TEXT_AXES, RubricStrategy, TaskCandidate
+from llc_api.main import app
+from llc_api.models import (
     CurriculumSkill,
     DailyPlan,
     DailyPlanBlock,
@@ -242,7 +242,7 @@ class EndToEndHarness:
 def migrated_database_template(tmp_path_factory) -> Path:
     directory = tmp_path_factory.mktemp("diagnostic-e2e-migrated")
     database_path = directory / "migrated-0005.sqlite3"
-    environment = {**os.environ, "DEUTSCHOS_DATABASE_URL": f"sqlite:///{database_path}"}
+    environment = {**os.environ, "LLC_DATABASE_URL": f"sqlite:///{database_path}"}
     completed = subprocess.run(
         [
             sys.executable,

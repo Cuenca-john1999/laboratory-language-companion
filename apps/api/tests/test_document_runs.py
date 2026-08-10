@@ -6,21 +6,21 @@ from pathlib import Path
 import httpx
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import LibraryDatabase
-from deutschos_api.educational_library.dependencies import get_library_service
-from deutschos_api.educational_library.runs import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import LibraryDatabase
+from llc_api.educational_library.dependencies import get_library_service
+from llc_api.educational_library.runs import (
     DocumentRunService,
     stable_configuration_hash,
 )
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.schemas import (
     DocumentRunCreate,
     DocumentRunPassCreate,
     LibraryBusyError,
     LibraryContractError,
 )
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.main import app
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.main import app
 
 
 @pytest.fixture
@@ -218,7 +218,7 @@ def test_preflight_is_safe_and_hash_mismatch_becomes_stale(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("forbidden processing capability called")
 
-    monkeypatch.setattr("deutschos_api.educational_library.service.extract", forbidden)
+    monkeypatch.setattr("llc_api.educational_library.service.extract", forbidden)
     detail = service.run_preflight(run.id)
     assert next(stage for stage in detail.stages if stage.name == "preflight").state == (
         "completed"
@@ -402,16 +402,16 @@ def test_restart_recovery_pauses_runs_without_false_success(
     )
 
 
-def test_schema_11_migrate_rollback_migrate_preserves_legacy_jobs(tmp_path: Path):
+def test_schema_12_migrate_rollback_migrate_preserves_legacy_jobs(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     database = LibraryDatabase(path)
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     with database.transaction(immediate=True) as connection:
         connection.execute(
             "INSERT INTO processing_jobs(id,kind,state,created_at,updated_at) "
             "VALUES ('legacy-job','scan','interrupted','now','now')"
         )
-    assert database.rollback_version_11() == 10
+    assert database.rollback_version_12() == 11
     with sqlite3.connect(path) as connection:
         assert (
             connection.execute(
@@ -419,7 +419,7 @@ def test_schema_11_migrate_rollback_migrate_preserves_legacy_jobs(tmp_path: Path
             ).fetchone()[0]
             == 1
         )
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     with database.connect() as connection:
         job = connection.execute(
             "SELECT document_run_id,legacy FROM processing_jobs WHERE id='legacy-job'"

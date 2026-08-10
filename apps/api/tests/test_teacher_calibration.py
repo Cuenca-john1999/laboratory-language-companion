@@ -1,14 +1,14 @@
-from deutschos_api.educational_library.routing import ModelRole
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.routing import ModelRole
+from llc_api.educational_library.schemas import (
     QueryAmbiguity,
     TeacherAskRequest,
     TeacherIntent,
     TeacherQueryPlan,
 )
-from deutschos_api.educational_library.teacher import EducationalTeacherService
-from deutschos_api.models import StudyMissionType
-from deutschos_api.prompts.contracts import TEACHER_CONTRACT_VERSION, teacher_prompt
-from deutschos_api.study.missions import build_mission
+from llc_api.educational_library.teacher import EducationalTeacherService
+from llc_api.models import StudyMissionType
+from llc_api.prompts.contracts import TEACHER_CONTRACT_VERSION, teacher_prompt
+from llc_api.study.missions import build_mission
 
 
 def _plan(**updates):

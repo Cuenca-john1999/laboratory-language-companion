@@ -2,7 +2,12 @@
 
 `StudentProfile` contiene contexto editable del único estudiante. `Skill` define capacidades y `StudentSkill` guarda estimación, confianza y agenda sin confundirlas con certificación CEFR. `LearningSession` agrupa actividad y `ExerciseAttempt` conserva evidencias. `Mistake` mantiene recurrencia, estado y revisión. `VocabularyItem` representa el término; `StudentVocabulary` separa reconocimiento, producción escrita y hablada.
 
-SQLite es configurable con `DEUTSCHOS_DATABASE_URL`. Todo cambio de esquema debe entrar mediante una revisión Alembic; nunca se debe recrear ni sobrescribir silenciosamente la base del usuario.
+SQLite es configurable con `LLC_DATABASE_URL`; `DEUTSCHOS_DATABASE_URL` se
+acepta únicamente como fallback legacy y pierde si ambas están definidas. El
+archivo predeterminado sigue siendo `data/deutschos.sqlite3`: es un identificador
+persistente conservado para abrir datos existentes sin copiar ni renombrar la
+base. Todo cambio de esquema debe entrar mediante una revisión Alembic; nunca se
+debe recrear ni sobrescribir silenciosamente la base del usuario.
 
 `Curriculum` identifica una versión A0–A1. `CurriculumSkill` relaciona las
 habilidades estables con orden, referencia de contenido, dificultad, ejercicios
@@ -79,7 +84,7 @@ evaluación asíncrona, hará falta una migración futura explícita.
 Todos los instantes representan UTC. SQLite los conserva sin offset y el
 adaptador ORM los devuelve conscientes de zona; la API emite ISO 8601 con
 `Z`/`+00:00`. Solo `DailyPlan.plan_date` es una fecha civil calculada con
-`DEUTSCHOS_TIMEZONE` (por defecto `Europe/Berlin`).
+`LLC_TIMEZONE` (por defecto `Europe/Berlin`).
 
 La revisión `0006` añade el acompañamiento no evaluativo:
 

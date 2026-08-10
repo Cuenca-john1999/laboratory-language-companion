@@ -1,4 +1,4 @@
-import type { LearningSkill } from "@deutschos/shared";
+import type { LearningSkill } from "@llc/shared";
 
 import { formatLocalDateTime, formatPercent } from "../lib/format";
 import { outcomeLabel, skillCategoryLabel, skillName } from "../lib/learning";
@@ -75,8 +75,8 @@ export function LearningSkills({ skills }: { skills: LearningSkill[] }) {
                 ) : (
                   <div className="skill-no-evidence">
                     <p>
-                      Sin evidencia evaluada; DeutschOS no muestra porcentajes
-                      sin datos.
+                      Sin evidencia evaluada; LLC no muestra porcentajes sin
+                      datos.
                     </p>
                     <p className="muted">
                       Próximo repaso: sin fecha programada

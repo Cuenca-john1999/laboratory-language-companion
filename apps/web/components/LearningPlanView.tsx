@@ -1,4 +1,4 @@
-import type { DailyPlan, LearningSkill } from "@deutschos/shared";
+import type { DailyPlan, LearningSkill } from "@llc/shared";
 
 import { formatCivilDate, formatLocalDateTime } from "../lib/format";
 import { blockKindLabel, intensityLabel, skillName } from "../lib/learning";

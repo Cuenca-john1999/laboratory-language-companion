@@ -1,6 +1,6 @@
 # Memoria pedagógica verificable
 
-## Qué recuerda DeutschOS
+## Qué recuerda LLC
 
 La memoria pedagógica conserva hechos documentales pequeños y corregibles:
 conceptos, alias, relaciones propuestas y ubicaciones en versiones concretas de

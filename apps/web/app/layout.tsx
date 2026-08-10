@@ -4,8 +4,23 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DeutschOS",
-  description: "Tu sistema local para aprender alemán",
+  applicationName: "LLC",
+  title: {
+    default: "LLC",
+    template: "%s · LLC",
+  },
+  description:
+    "Local-first language learning for laboratory and life-science professionals.",
+  openGraph: {
+    title: "Laboratory Language Companion",
+    description:
+      "Local-first language learning for laboratory and life-science professionals.",
+    type: "website",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "LLC",
+  },
 };
 
 export const viewport: Viewport = {
@@ -19,7 +34,7 @@ export default function RootLayout({
       <body>
         <Nav />
         <main>{children}</main>
-        <footer>DeutschOS · local-first · tus datos se quedan contigo</footer>
+        <footer>LLC · local-first · tus datos se quedan contigo</footer>
       </body>
     </html>
   );

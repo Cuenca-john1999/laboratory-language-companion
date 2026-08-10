@@ -21,6 +21,9 @@ describe("dark application shell", () => {
     const navigation = screen.getByRole("navigation", {
       name: "Navegación principal",
     });
+    expect(
+      screen.getByRole("link", { name: "Laboratory Language Companion" }),
+    ).toHaveTextContent("LLC");
     expect(navigation.querySelectorAll("a")).toHaveLength(10);
     expect(screen.getByRole("link", { name: "Estudio" })).toHaveAttribute(
       "aria-current",
@@ -71,5 +74,21 @@ describe("dark application shell", () => {
     expect(`${css}\n${layout}`).not.toMatch(
       /theme.?toggle|selector de tema|prefers-color-scheme:\s*light/i,
     );
+  });
+
+  it("uses the LLC title and full product metadata", () => {
+    const layout = readFileSync(
+      join(process.cwd(), "app", "layout.tsx"),
+      "utf8",
+    );
+
+    expect(layout).toContain('applicationName: "LLC"');
+    expect(layout).toContain('default: "LLC"');
+    expect(layout).toContain('title: "LLC"');
+    expect(layout).toContain('title: "Laboratory Language Companion"');
+    expect(layout).toContain(
+      "Local-first language learning for laboratory and life-science professionals.",
+    );
+    expect(layout).not.toContain('title: "DeutschOS"');
   });
 });

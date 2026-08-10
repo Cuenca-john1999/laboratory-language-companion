@@ -1262,6 +1262,12 @@ export type ConsolidatedNode = {
   pdf_page_number: number;
   reading_order: number;
   state: string;
+  identity_resolution:
+    | "unresolved"
+    | "body_practice"
+    | "index_only_no_direct_practice";
+  identity_evidence_candidate_id: string | null;
+  resolution_method: string | null;
   raw_text: string | null;
   children: ConsolidatedNode[];
 };

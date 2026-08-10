@@ -1,4 +1,4 @@
-import type { Session } from "@deutschos/shared";
+import type { Session } from "@llc/shared";
 
 import { getSessions } from "../../lib/api";
 import { formatLocalDateTime } from "../../lib/format";

@@ -2,7 +2,7 @@
 
 ## 1. Objetivo
 
-El diagnóstico inicial de DeutschOS debe obtener una primera imagen útil y
+El diagnóstico inicial de LLC debe obtener una primera imagen útil y
 auditable de las capacidades de Jhon sin convertir una muestra breve en una
 etiqueta global. La experiencia debe sentirse como una primera clase: explica
 qué está ocurriendo, permite equivocarse, ofrece aclaraciones y termina con
@@ -69,21 +69,21 @@ evidencia diagnóstica.
 
 ## 3. Habilidades medidas
 
-| Eje | Qué se observa | Texto v1 | Hito posterior | Límite de interpretación |
-| --- | --- | --- | --- | --- |
-| Comprensión escrita | Localizar información, relaciones y significado en textos breves | Sí | Textos más largos | No prueba comprensión auditiva |
-| Producción escrita | Claridad, adecuación y construcción de mensajes breves | Sí | Escritura extensa | Una muestra corta no prueba escritura sostenida |
-| Gramática activa | Selección y producción de formas en contexto | Sí | Producción oral | Reconocer una regla no equivale a usarla espontáneamente |
-| Vocabulario receptivo | Reconocer significado en contexto | Sí | Reconocimiento auditivo | No equivale a disponibilidad productiva |
-| Vocabulario productivo | Recuperar palabras para expresar una intención | Sí | Producción oral | Se registra por separado del receptivo |
-| Comprensión auditiva | Extraer información de alemán hablado a distintas velocidades | No | Audio local | Requiere estímulos versionados y controles de reproducción |
-| Producción oral | Formular mensajes hablados comprensibles | No | Voz local | No se infiere de texto escrito |
-| Pronunciación | Inteligibilidad y rasgos orientativos | No | Voz local, orientativo | Nunca se presenta como diagnóstico clínico ni acento «correcto» |
-| Fluidez | Continuidad, pausas y capacidad de formular | Solo proxy escrito | Voz local | El tiempo escrito no representa fluidez oral |
-| Mantener la comunicación | Reformular, pedir aclaración y rodear una palabra desconocida | Sí, en simulación escrita | Interacción oral | Debe conservar la modalidad en el resultado |
-| Confianza de estimación | Calidad, cantidad, variedad y acuerdo de las evidencias | Sí | Sí | Es certeza de la estimación, no confianza personal del alumno |
-| Alemán cotidiano | Comprensión y producción en situaciones comunes | Sí | Escucha e interacción | La familiaridad temática no sustituye competencia lingüística |
-| Alemán profesional/laboratorio | Reconocimiento y uso inicial de términos en contexto | Sí, exploratorio | Escenarios multimodales | No presupone dominio por la profesión de Jhon |
+| Eje                            | Qué se observa                                                   | Texto v1                  | Hito posterior          | Límite de interpretación                                        |
+| ------------------------------ | ---------------------------------------------------------------- | ------------------------- | ----------------------- | --------------------------------------------------------------- |
+| Comprensión escrita            | Localizar información, relaciones y significado en textos breves | Sí                        | Textos más largos       | No prueba comprensión auditiva                                  |
+| Producción escrita             | Claridad, adecuación y construcción de mensajes breves           | Sí                        | Escritura extensa       | Una muestra corta no prueba escritura sostenida                 |
+| Gramática activa               | Selección y producción de formas en contexto                     | Sí                        | Producción oral         | Reconocer una regla no equivale a usarla espontáneamente        |
+| Vocabulario receptivo          | Reconocer significado en contexto                                | Sí                        | Reconocimiento auditivo | No equivale a disponibilidad productiva                         |
+| Vocabulario productivo         | Recuperar palabras para expresar una intención                   | Sí                        | Producción oral         | Se registra por separado del receptivo                          |
+| Comprensión auditiva           | Extraer información de alemán hablado a distintas velocidades    | No                        | Audio local             | Requiere estímulos versionados y controles de reproducción      |
+| Producción oral                | Formular mensajes hablados comprensibles                         | No                        | Voz local               | No se infiere de texto escrito                                  |
+| Pronunciación                  | Inteligibilidad y rasgos orientativos                            | No                        | Voz local, orientativo  | Nunca se presenta como diagnóstico clínico ni acento «correcto» |
+| Fluidez                        | Continuidad, pausas y capacidad de formular                      | Solo proxy escrito        | Voz local               | El tiempo escrito no representa fluidez oral                    |
+| Mantener la comunicación       | Reformular, pedir aclaración y rodear una palabra desconocida    | Sí, en simulación escrita | Interacción oral        | Debe conservar la modalidad en el resultado                     |
+| Confianza de estimación        | Calidad, cantidad, variedad y acuerdo de las evidencias          | Sí                        | Sí                      | Es certeza de la estimación, no confianza personal del alumno   |
+| Alemán cotidiano               | Comprensión y producción en situaciones comunes                  | Sí                        | Escucha e interacción   | La familiaridad temática no sustituye competencia lingüística   |
+| Alemán profesional/laboratorio | Reconocimiento y uso inicial de términos en contexto             | Sí, exploratorio          | Escenarios multimodales | No presupone dominio por la profesión de Jhon                   |
 
 La aspiración pedagógica es multidimensional: una respuesta podría aportar
 evidencia positiva de comprensión del mensaje y evidencia insuficiente de
@@ -124,20 +124,20 @@ repite la instrucción de la tarea activa o se ofrece omitirla.
 
 ### Sesión
 
-| Estado | Significado | Transiciones permitidas |
-| --- | --- | --- |
-| `not_started` | Existe la sesión, sin consentimiento ni tareas | `onboarding`, `cancelled` |
-| `onboarding` | Se confirma contexto y consentimiento | `calibrating`, `paused`, `cancelled` |
-| `calibrating` | Se obtienen las primeras anclas | `assessing`, `paused`, `error` |
-| `assessing` | El controlador selecciona y presenta tareas | `reviewing`, `paused`, `time_limited`, `error` |
-| `reviewing` | Se comprueba cobertura y contradicciones | `assessing`, `completing`, `paused` |
-| `paused` | Estado persistido y reanudable | Estado anterior, `cancelled` |
-| `time_limited` | Se alcanzó el límite; se cierra con lo observado | `completing` |
-| `completing` | Se calcula y persiste el resultado | `completed`, `error` |
-| `completed` | Resultado inmutable disponible | Sin transición; repetir crea otra sesión |
-| `cancelled` | El alumno decidió no continuar | Sin transición; puede iniciar otra sesión |
-| `abandoned` | Una sesión ya iniciada se cerró sin completarse | Sin transición; puede iniciar otra sesión |
-| `error` | Fallo recuperable o cierre seguro | Estado estable anterior, `cancelled` |
+| Estado         | Significado                                      | Transiciones permitidas                        |
+| -------------- | ------------------------------------------------ | ---------------------------------------------- |
+| `not_started`  | Existe la sesión, sin consentimiento ni tareas   | `onboarding`, `cancelled`                      |
+| `onboarding`   | Se confirma contexto y consentimiento            | `calibrating`, `paused`, `cancelled`           |
+| `calibrating`  | Se obtienen las primeras anclas                  | `assessing`, `paused`, `error`                 |
+| `assessing`    | El controlador selecciona y presenta tareas      | `reviewing`, `paused`, `time_limited`, `error` |
+| `reviewing`    | Se comprueba cobertura y contradicciones         | `assessing`, `completing`, `paused`            |
+| `paused`       | Estado persistido y reanudable                   | Estado anterior, `cancelled`                   |
+| `time_limited` | Se alcanzó el límite; se cierra con lo observado | `completing`                                   |
+| `completing`   | Se calcula y persiste el resultado               | `completed`, `error`                           |
+| `completed`    | Resultado inmutable disponible                   | Sin transición; repetir crea otra sesión       |
+| `cancelled`    | El alumno decidió no continuar                   | Sin transición; puede iniciar otra sesión      |
+| `abandoned`    | Una sesión ya iniciada se cerró sin completarse  | Sin transición; puede iniciar otra sesión      |
+| `error`        | Fallo recuperable o cierre seguro                | Estado estable anterior, `cancelled`           |
 
 `starting`, `pausing` o `resuming` pueden ser estados de interfaz, pero no deben
 persistirse si no añaden significado de dominio. Toda transición persistida
@@ -190,18 +190,18 @@ escala reserve niveles para crecer.
 
 ### Límites y parada
 
-| Límite | Valor propuesto para texto v1 |
-| --- | --- |
+| Límite                                             | Valor propuesto para texto v1                                          |
+| -------------------------------------------------- | ---------------------------------------------------------------------- |
 | Cobertura mínima prevista para un informe completo | 10 respuestas evaluables y cobertura de los ejes textuales principales |
-| Objetivo normal | 12–16 tareas evaluables |
-| Máximo absoluto | 20 tareas presentadas |
-| Mínimo por eje prioritario | 2 evidencias independientes o estado explícito «no evaluado» |
-| Objetivo por eje prioritario | 3 evidencias válidas con al menos 2 tipos de tarea |
-| Máximo por eje | 5 tareas, incluido un desempate |
-| Tiempo objetivo | 15–25 minutos activos |
-| Corte temporal | Al llegar a 25 minutos activos, terminar la tarea actual y cerrar |
-| Aclaraciones | 1 reformulación por tarea |
-| Reintentos | 1, solo si la tarea lo permite y queda marcado como asistencia |
+| Objetivo normal                                    | 12–16 tareas evaluables                                                |
+| Máximo absoluto                                    | 20 tareas presentadas                                                  |
+| Mínimo por eje prioritario                         | 2 evidencias independientes o estado explícito «no evaluado»           |
+| Objetivo por eje prioritario                       | 3 evidencias válidas con al menos 2 tipos de tarea                     |
+| Máximo por eje                                     | 5 tareas, incluido un desempate                                        |
+| Tiempo objetivo                                    | 15–25 minutos activos                                                  |
+| Corte temporal                                     | Al llegar a 25 minutos activos, terminar la tarea actual y cerrar      |
+| Aclaraciones                                       | 1 reformulación por tarea                                              |
+| Reintentos                                         | 1, solo si la tarea lo permite y queda marcado como asistencia         |
 
 El alumno siempre puede terminar antes; en ese caso recibe un informe parcial y
 no se convierte la falta de cobertura en resultados negativos. El tiempo activo
@@ -237,20 +237,20 @@ El conjunto inicial debe ser pequeño y versionado. Una plantilla declara los
 ejes que puede medir, la dificultad, la respuesta admisible y una rúbrica o
 clave verificable.
 
-| Tipo | Habilidad principal | Dificultad | Entrada y respuesta | Evaluación | Ambigüedad y uso de LLM |
-| --- | --- | --- | --- | --- | --- |
-| Elegir entre dos formas | Gramática activa o vocabulario receptivo | 1–2 | Frase y dos opciones; una selección | Clave determinista | Bajo riesgo si solo hay una solución contextual |
-| Ordenar palabras | Gramática activa | 1–3 | Tokens versionados; secuencia ordenada | Conjunto explícito de órdenes válidos | Separables, puntuación y mayúsculas no deben crear falsos fallos; no necesita LLM |
-| Completar una frase | Gramática o vocabulario productivo | 1–3 | Frase con hueco; texto corto | Lista de variantes y normalización limitada | Si hay muchas soluciones válidas, LLM acotado o revisión conservadora |
-| Corregir una frase | Gramática activa | 2–4 | Frase con un error objetivo; corrección | Cambio objetivo más variantes permitidas | Debe evitar frases con varios errores discutibles; normalmente determinista |
-| Respuesta personal breve | Producción escrita y vocabulario productivo | 1–3 | Pregunta sencilla; 1–2 frases | Rúbrica estructurada: comprensibilidad, objetivo y autonomía | LLM útil pero no imprescindible; no evaluar la veracidad personal |
-| Mensaje corto | Producción escrita y comunicación funcional | 2–4 | Situación y propósito; 2–4 frases | Elementos comunicativos y rasgos lingüísticos separados | Varias respuestas válidas; LLM limitado por rúbrica y salida estructurada |
-| Comprender texto breve | Comprensión escrita y vocabulario receptivo | 1–4 | Texto versionado y pregunta; selección o texto breve | Información explícita con claves | Determinista para selección; respuesta libre requiere equivalencias controladas |
-| Explicar con palabras propias | Comprensión y reformulación escrita | 3–5 | Texto o idea breve; paráfrasis | Cobertura de ideas, no coincidencia literal | LLM estructurado; alto riesgo si el texto fuente es ambiguo |
-| Describir una situación | Producción escrita, vocabulario y gramática | 2–5 | Escena textual o imagen futura; mensaje | Rúbrica multidimensional | No exigir detalles no presentes; LLM estructurado para texto libre |
-| Resolver una falta de vocabulario | Mantenimiento de comunicación | 2–4 | Intención con una palabra desconocida; reformulación | Si logra comunicar la intención y pedir/crear una alternativa | Puede evaluarse con rúbrica; siempre etiquetar modalidad escrita |
-| Escucha futura | Comprensión auditiva | 1–5 | Audio local, controles y respuesta | Clave/rúbrica por estímulo | Requiere audio versionado; el LLM no controla reproducción ni dificultad |
-| Respuesta oral futura | Producción oral, fluidez y pronunciación orientativa | 1–5 | Consigna, grabación local | Transcripción más rúbricas separadas | Requiere voz; la pronunciación debe tener baja pretensión diagnóstica |
+| Tipo                              | Habilidad principal                                  | Dificultad | Entrada y respuesta                                  | Evaluación                                                    | Ambigüedad y uso de LLM                                                           |
+| --------------------------------- | ---------------------------------------------------- | ---------- | ---------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Elegir entre dos formas           | Gramática activa o vocabulario receptivo             | 1–2        | Frase y dos opciones; una selección                  | Clave determinista                                            | Bajo riesgo si solo hay una solución contextual                                   |
+| Ordenar palabras                  | Gramática activa                                     | 1–3        | Tokens versionados; secuencia ordenada               | Conjunto explícito de órdenes válidos                         | Separables, puntuación y mayúsculas no deben crear falsos fallos; no necesita LLM |
+| Completar una frase               | Gramática o vocabulario productivo                   | 1–3        | Frase con hueco; texto corto                         | Lista de variantes y normalización limitada                   | Si hay muchas soluciones válidas, LLM acotado o revisión conservadora             |
+| Corregir una frase                | Gramática activa                                     | 2–4        | Frase con un error objetivo; corrección              | Cambio objetivo más variantes permitidas                      | Debe evitar frases con varios errores discutibles; normalmente determinista       |
+| Respuesta personal breve          | Producción escrita y vocabulario productivo          | 1–3        | Pregunta sencilla; 1–2 frases                        | Rúbrica estructurada: comprensibilidad, objetivo y autonomía  | LLM útil pero no imprescindible; no evaluar la veracidad personal                 |
+| Mensaje corto                     | Producción escrita y comunicación funcional          | 2–4        | Situación y propósito; 2–4 frases                    | Elementos comunicativos y rasgos lingüísticos separados       | Varias respuestas válidas; LLM limitado por rúbrica y salida estructurada         |
+| Comprender texto breve            | Comprensión escrita y vocabulario receptivo          | 1–4        | Texto versionado y pregunta; selección o texto breve | Información explícita con claves                              | Determinista para selección; respuesta libre requiere equivalencias controladas   |
+| Explicar con palabras propias     | Comprensión y reformulación escrita                  | 3–5        | Texto o idea breve; paráfrasis                       | Cobertura de ideas, no coincidencia literal                   | LLM estructurado; alto riesgo si el texto fuente es ambiguo                       |
+| Describir una situación           | Producción escrita, vocabulario y gramática          | 2–5        | Escena textual o imagen futura; mensaje              | Rúbrica multidimensional                                      | No exigir detalles no presentes; LLM estructurado para texto libre                |
+| Resolver una falta de vocabulario | Mantenimiento de comunicación                        | 2–4        | Intención con una palabra desconocida; reformulación | Si logra comunicar la intención y pedir/crear una alternativa | Puede evaluarse con rúbrica; siempre etiquetar modalidad escrita                  |
+| Escucha futura                    | Comprensión auditiva                                 | 1–5        | Audio local, controles y respuesta                   | Clave/rúbrica por estímulo                                    | Requiere audio versionado; el LLM no controla reproducción ni dificultad          |
+| Respuesta oral futura             | Producción oral, fluidez y pronunciación orientativa | 1–5        | Consigna, grabación local                            | Transcripción más rúbricas separadas                          | Requiere voz; la pronunciación debe tener baja pretensión diagnóstica             |
 
 Ejemplos meramente ilustrativos, no banco definitivo:
 
@@ -272,13 +272,13 @@ técnico necesario y medir alemán, no microbiología.
 El diagnóstico reutiliza conceptualmente las cuatro categorías del Learning
 Engine y añade un estado diagnóstico que no se proyecta como puntuación:
 
-| Resultado | Interpretación | Score interno de referencia |
-| --- | --- | --- |
-| `failure` | No cumple el objetivo lingüístico con la evidencia disponible | `0.0` |
-| `partial` | Cumple una parte relevante, pero falta un elemento necesario | `0.4` |
-| `correct_with_help` | Cumple el objetivo después de ayuda registrada | `0.7` |
-| `correct_without_help` | Cumple el objetivo sin ayuda ni reintento | `1.0` |
-| `not_evaluable` | No permite concluir por instrucción, técnica, omisión o ambigüedad | Sin score |
+| Resultado              | Interpretación                                                     | Score interno de referencia |
+| ---------------------- | ------------------------------------------------------------------ | --------------------------- |
+| `failure`              | No cumple el objetivo lingüístico con la evidencia disponible      | `0.0`                       |
+| `partial`              | Cumple una parte relevante, pero falta un elemento necesario       | `0.4`                       |
+| `correct_with_help`    | Cumple el objetivo después de ayuda registrada                     | `0.7`                       |
+| `correct_without_help` | Cumple el objetivo sin ayuda ni reintento                          | `1.0`                       |
+| `not_evaluable`        | No permite concluir por instrucción, técnica, omisión o ambigüedad | Sin score                   |
 
 Los valores 0, 0.4, 0.7 y 1.0 ya tienen significado versionado en
 `learning-engine-v2`; no deben reinterpretarse como «porcentaje de alemán». En
@@ -638,16 +638,16 @@ evidencias posteriores independientes antes de declarar dominio.
 La primera línea de trabajo es solo texto. Audio y voz empiezan después de la
 aceptación de esa versión.
 
-| Prompt | Alcance | Razonamiento | Consumo estimado | Dependencias | Criterio de finalización |
-| --- | --- | --- | --- | --- | --- |
-| `#006B` | Entidades diagnósticas, esquemas y migración reproducible | Alto | Moderado | Este diseño y decisiones de retención/proyección | Modelo append-only, restricciones 0–1, UTC, migración desde vacío y actualización probadas; sin motor ni UI |
-| `#006C` | Máquina de estados y motor adaptativo determinista de texto | Alto–ULTRA | Moderado–alto | `#006B`, plantillas mínimas y bandas acordadas | Selección, límites, pausa, reanudación, idempotencia y casos límite cubiertos; sin endpoints ni LLM |
-| `#006D` | Endpoints y contratos API | Alto | Moderado | `#006C` | Crear/reanudar/responder/pausar/completar/leer informe con códigos HTTP e idempotencia probados |
-| `#006E` | Interfaz de primera clase, pausa e informe | Alto | Moderado | `#006D` | Flujo accesible en español, estados reales, sin datos inventados y aceptación manual básica |
-| `#006F` | Generación/evaluación LLM estructurada con fallback | Alto–ULTRA | Moderado–alto | Flujo determinista estable | Esquemas estrictos, prompts versionados, auditoría, tolerancia a LM Studio apagado y comparación con evaluaciones deterministas |
-| `#006G` | Aceptación manual y ajuste conservador | Alto | Moderado | `#006B–F` | Sesión real de 15–25 minutos, pausa/reanudación, informe honesto, revisión de logs/datos y defectos corregidos |
-| `#006H` | Comprensión auditiva local | Alto | Moderado–alto | Texto aceptado, política de audio | Estímulos versionados, controles, evidencias auditivas separadas y funcionamiento offline |
-| `#006I` | Voz, fluidez y pronunciación orientativa | Alto–ULTRA | Alto | `#006H`, decisión de retención | Grabación explícita local, métricas prudentes, borrado probado y ninguna inferencia oral desde texto |
+| Prompt  | Alcance                                                     | Razonamiento | Consumo estimado | Dependencias                                     | Criterio de finalización                                                                                                        |
+| ------- | ----------------------------------------------------------- | ------------ | ---------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `#006B` | Entidades diagnósticas, esquemas y migración reproducible   | Alto         | Moderado         | Este diseño y decisiones de retención/proyección | Modelo append-only, restricciones 0–1, UTC, migración desde vacío y actualización probadas; sin motor ni UI                     |
+| `#006C` | Máquina de estados y motor adaptativo determinista de texto | Alto–ULTRA   | Moderado–alto    | `#006B`, plantillas mínimas y bandas acordadas   | Selección, límites, pausa, reanudación, idempotencia y casos límite cubiertos; sin endpoints ni LLM                             |
+| `#006D` | Endpoints y contratos API                                   | Alto         | Moderado         | `#006C`                                          | Crear/reanudar/responder/pausar/completar/leer informe con códigos HTTP e idempotencia probados                                 |
+| `#006E` | Interfaz de primera clase, pausa e informe                  | Alto         | Moderado         | `#006D`                                          | Flujo accesible en español, estados reales, sin datos inventados y aceptación manual básica                                     |
+| `#006F` | Generación/evaluación LLM estructurada con fallback         | Alto–ULTRA   | Moderado–alto    | Flujo determinista estable                       | Esquemas estrictos, prompts versionados, auditoría, tolerancia a LM Studio apagado y comparación con evaluaciones deterministas |
+| `#006G` | Aceptación manual y ajuste conservador                      | Alto         | Moderado         | `#006B–F`                                        | Sesión real de 15–25 minutos, pausa/reanudación, informe honesto, revisión de logs/datos y defectos corregidos                  |
+| `#006H` | Comprensión auditiva local                                  | Alto         | Moderado–alto    | Texto aceptado, política de audio                | Estímulos versionados, controles, evidencias auditivas separadas y funcionamiento offline                                       |
+| `#006I` | Voz, fluidez y pronunciación orientativa                    | Alto–ULTRA   | Alto             | `#006H`, decisión de retención                   | Grabación explícita local, métricas prudentes, borrado probado y ninguna inferencia oral desde texto                            |
 
 Cada prompt debe terminar en un commit aislado solo cuando sus validaciones
 pasen. `#006B` no debe incluir el motor, y `#006C` no debe anticipar la UI. Esta
@@ -662,7 +662,7 @@ cobertura mínima.
 
 ### Implementación de `#006C`
 
-El motor interno implementado en `deutschos_api.diagnostic_engine` concreta
+El motor interno implementado en `llc_api.diagnostic_engine` concreta
 este diseño sin modificar la migración `0005`:
 
 - expone comandos y recibos Pydantic que rechazan campos desconocidos;
@@ -699,20 +699,20 @@ en el ADR 0007.
 FastAPI expone el motor bajo `/api/diagnostic` mediante DTO Pydantic estrictos.
 El contrato disponible es:
 
-| Acción | Método y ruta | Idempotencia |
-| --- | --- | --- |
-| Crear | `POST /api/diagnostic/sessions` | `request_id` |
-| Leer | `GET /api/diagnostic/sessions/{session_id}` | Lectura sin efectos |
-| Iniciar | `POST /api/diagnostic/sessions/{session_id}/start` | `operation_id` |
-| Pausar | `POST /api/diagnostic/sessions/{session_id}/pause` | `operation_id` |
-| Reanudar | `POST /api/diagnostic/sessions/{session_id}/resume` | `operation_id` |
-| Abandonar | `POST /api/diagnostic/sessions/{session_id}/abandon` | `operation_id` |
-| Fallo técnico | `POST /api/diagnostic/sessions/{session_id}/fail` | `operation_id` |
-| Siguiente tarea | `POST /api/diagnostic/sessions/{session_id}/next-task` | `operation_id` |
-| Responder | `POST /api/diagnostic/sessions/{session_id}/responses` | `submission_id` y `evaluation_id` |
-| Corregir | `POST /api/diagnostic/responses/{response_id}/corrections` | `evaluation_id` |
-| Consultar resultados | `GET /api/diagnostic/sessions/{session_id}/results` | Lectura sin efectos |
-| Completar | `POST /api/diagnostic/sessions/{session_id}/complete` | `operation_id` |
+| Acción               | Método y ruta                                              | Idempotencia                      |
+| -------------------- | ---------------------------------------------------------- | --------------------------------- |
+| Crear                | `POST /api/diagnostic/sessions`                            | `request_id`                      |
+| Leer                 | `GET /api/diagnostic/sessions/{session_id}`                | Lectura sin efectos               |
+| Iniciar              | `POST /api/diagnostic/sessions/{session_id}/start`         | `operation_id`                    |
+| Pausar               | `POST /api/diagnostic/sessions/{session_id}/pause`         | `operation_id`                    |
+| Reanudar             | `POST /api/diagnostic/sessions/{session_id}/resume`        | `operation_id`                    |
+| Abandonar            | `POST /api/diagnostic/sessions/{session_id}/abandon`       | `operation_id`                    |
+| Fallo técnico        | `POST /api/diagnostic/sessions/{session_id}/fail`          | `operation_id`                    |
+| Siguiente tarea      | `POST /api/diagnostic/sessions/{session_id}/next-task`     | `operation_id`                    |
+| Responder            | `POST /api/diagnostic/sessions/{session_id}/responses`     | `submission_id` y `evaluation_id` |
+| Corregir             | `POST /api/diagnostic/responses/{response_id}/corrections` | `evaluation_id`                   |
+| Consultar resultados | `GET /api/diagnostic/sessions/{session_id}/results`        | Lectura sin efectos               |
+| Completar            | `POST /api/diagnostic/sessions/{session_id}/complete`      | `operation_id`                    |
 
 Las repeticiones con el mismo identificador y contenido devuelven el mismo
 resultado sin duplicar filas. Un identificador reutilizado con contenido

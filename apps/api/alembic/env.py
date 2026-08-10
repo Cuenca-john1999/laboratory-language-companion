@@ -1,12 +1,21 @@
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
 
 from alembic import context
-from deutschos_api.core.config import get_settings
-from deutschos_api.db.base import Base
-from deutschos_api.db.session import make_engine
-from deutschos_api.models import *  # noqa: F403
+from llc_api.core.config import get_settings
+from llc_api.db.base import Base
+from llc_api.db.session import make_engine
+from llc_api.models import *  # noqa: F403
+
+# Historical revisions intentionally retain their original environment key.
+# Translate the current key at the Alembic boundary so LLC_* still has priority
+# without rewriting migration history.
+if "LLC_ALLOW_DESTRUCTIVE_DOWNGRADE" in os.environ:
+    os.environ["DEUTSCHOS_ALLOW_DESTRUCTIVE_DOWNGRADE"] = os.environ[
+        "LLC_ALLOW_DESTRUCTIVE_DOWNGRADE"
+    ]
 
 config = context.config
 settings = get_settings()

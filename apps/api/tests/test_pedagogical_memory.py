@@ -7,20 +7,20 @@ from uuid import uuid4
 
 import pytest
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.database import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.database import (
     _MIGRATION_0001,
     _MIGRATION_0002,
     _MIGRATION_0003,
     LibraryDatabase,
 )
-from deutschos_api.educational_library.dependencies import get_library_memory
-from deutschos_api.educational_library.memory import (
+from llc_api.educational_library.dependencies import get_library_memory
+from llc_api.educational_library.memory import (
     PedagogicalMemoryService,
     normalize_concept,
     query_target,
 )
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.schemas import (
     ConceptAliasCreate,
     ConceptRelationCreate,
     EvidenceLocationCreate,
@@ -32,8 +32,8 @@ from deutschos_api.educational_library.schemas import (
     PedagogicalConceptCreate,
     PedagogicalMemoryImportRequest,
 )
-from deutschos_api.educational_library.service import EducationalLibraryService, utc_text
-from deutschos_api.main import app
+from llc_api.educational_library.service import EducationalLibraryService, utc_text
+from llc_api.main import app
 
 
 @pytest.fixture
@@ -170,7 +170,7 @@ def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     backups = list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as backup:
@@ -193,7 +193,7 @@ def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
         "canonical_topics",
     } <= tables
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 11
+    assert database.migrate() == 12
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))) == 1
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema4-*.bak"))) == 1
     assert not list((tmp_path / "backups").glob("*.partial*"))

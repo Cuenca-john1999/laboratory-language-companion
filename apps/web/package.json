@@ -1,5 +1,5 @@
 {
-  "name": "@deutschos/web",
+  "name": "@llc/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -11,7 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@deutschos/shared": "*",
+    "@llc/shared": "*",
     "katex": "^0.18.1",
     "next": "^16.2.10",
     "react": "19.1.1",

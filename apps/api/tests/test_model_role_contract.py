@@ -3,29 +3,29 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from deutschos_api.core.config import Settings
-from deutschos_api.core.model_roles import (
+from llc_api.core.config import Settings
+from llc_api.core.model_roles import (
     DEEP_TEACHER_MODEL,
     EMBEDDING_MODEL,
     TEACHER_MODEL,
-    DeutschOSModelRole,
+    LLCModelRole,
     model_for_role,
 )
-from deutschos_api.educational_library.dependencies import (
+from llc_api.educational_library.dependencies import (
     get_library_model_router,
     get_library_search,
 )
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.schemas import (
     GroundedGenerationRequest,
     KnowledgeGenerationRequest,
 )
-from deutschos_api.schemas.api import ModelInfo
+from llc_api.schemas.api import ModelInfo
 
 
 def test_role_contract_resolves_only_authorized_models():
-    assert model_for_role(DeutschOSModelRole.TEACHER) == TEACHER_MODEL
-    assert model_for_role(DeutschOSModelRole.DEEP_TEACHER) == DEEP_TEACHER_MODEL
-    assert model_for_role(DeutschOSModelRole.EMBEDDING) == EMBEDDING_MODEL
+    assert model_for_role(LLCModelRole.TEACHER) == TEACHER_MODEL
+    assert model_for_role(LLCModelRole.DEEP_TEACHER) == DEEP_TEACHER_MODEL
+    assert model_for_role(LLCModelRole.EMBEDDING) == EMBEDDING_MODEL
 
 
 def test_library_rejects_an_unauthorized_embedding_configuration(tmp_path):

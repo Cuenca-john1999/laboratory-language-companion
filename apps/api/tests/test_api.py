@@ -7,19 +7,19 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from deutschos_api.api.routes import (
+from llc_api.api.routes import (
     CONTINUATION_INSTRUCTION,
     EMPTY_RESPONSE_RETRY_INSTRUCTION,
     exact_overlap_size,
     stream_chat,
 )
-from deutschos_api.core.model_roles import DEEP_TEACHER_MODEL, TEACHER_MODEL
-from deutschos_api.main import app
-from deutschos_api.models import LearningSession
-from deutschos_api.providers.base import ProviderStreamEvent, ProviderUnavailableError
-from deutschos_api.providers.dependencies import get_model_provider
-from deutschos_api.providers.lm_studio import LMStudioProvider
-from deutschos_api.schemas.api import ChatRequest, ModelInfo
+from llc_api.core.model_roles import DEEP_TEACHER_MODEL, TEACHER_MODEL
+from llc_api.main import app
+from llc_api.models import LearningSession
+from llc_api.providers.base import ProviderStreamEvent, ProviderUnavailableError
+from llc_api.providers.dependencies import get_model_provider
+from llc_api.providers.lm_studio import LMStudioProvider
+from llc_api.schemas.api import ChatRequest, ModelInfo
 
 pytestmark = pytest.mark.anyio
 
@@ -386,7 +386,7 @@ async def test_empty_stream_retries_once_without_exposing_or_persisting_failed_t
         ]
     )
     app.dependency_overrides[get_model_provider] = lambda: provider
-    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+    caplog.set_level(logging.INFO, logger="llc_api.api.routes")
 
     response = await client.post(
         "/api/chat/stream",
@@ -514,7 +514,7 @@ async def test_visible_length_continues_once_with_same_role_and_one_session(
         ]
     )
     app.dependency_overrides[get_model_provider] = lambda: provider
-    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+    caplog.set_level(logging.INFO, logger="llc_api.api.routes")
 
     response = await client.post(
         "/api/chat/stream",
@@ -831,7 +831,7 @@ async def test_cancellation_stops_active_attempt_and_prevents_further_retry(
     db_session_factory, caplog, block_on_attempt
 ):
     provider = BlockingStreamingProvider(block_on_attempt)
-    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+    caplog.set_level(logging.INFO, logger="llc_api.api.routes")
     with db_session_factory() as db:
         response = await stream_chat(
             ChatRequest(message="Hallo", role="teacher"),
@@ -892,7 +892,7 @@ async def test_cancellation_during_automatic_continuation_uses_active_request_id
     db_session_factory, caplog
 ):
     provider = ContinuationBlockingProvider()
-    caplog.set_level(logging.INFO, logger="deutschos_api.api.routes")
+    caplog.set_level(logging.INFO, logger="llc_api.api.routes")
     with db_session_factory() as db:
         response = await stream_chat(
             ChatRequest(message="Hallo", role="teacher"),

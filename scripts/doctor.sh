@@ -31,7 +31,7 @@ command_version() {
   "$1" --version 2>&1 | head -n 1
 }
 
-printf 'DeutschOS doctor\n'
+printf 'LLC doctor\n'
 printf 'Proyecto: %s\n\n' "$ROOT"
 
 printf 'Volumen y datos\n'
@@ -154,7 +154,7 @@ if [[ -n "$CONFIG_PYTHON" ]]; then
   if DATABASE_PATH="$($CONFIG_PYTHON "$CONFIG_HELPER" --root "$ROOT" database-path 2>&1)"; then
     detail "SQLite: $DATABASE_PATH"
   else
-    bad "no se pudo resolver DEUTSCHOS_DATABASE_URL"
+    bad "no se pudo resolver LLC_DATABASE_URL"
     detail "$DATABASE_PATH"
     DATABASE_PATH=""
   fi
@@ -214,8 +214,8 @@ fi
 
 LM_STUDIO_URL="http://127.0.0.1:1234/v1"
 if [[ -n "$CONFIG_PYTHON" ]]; then
-  if ! LM_STUDIO_URL="$($CONFIG_PYTHON "$CONFIG_HELPER" --root "$ROOT" value DEUTSCHOS_LM_STUDIO_BASE_URL --default "$LM_STUDIO_URL" 2>&1)"; then
-    bad "no se pudo leer DEUTSCHOS_LM_STUDIO_BASE_URL"
+  if ! LM_STUDIO_URL="$($CONFIG_PYTHON "$CONFIG_HELPER" --root "$ROOT" value LLC_LM_STUDIO_BASE_URL --default "$LM_STUDIO_URL" 2>&1)"; then
+    bad "no se pudo leer LLC_LM_STUDIO_BASE_URL"
     detail "$LM_STUDIO_URL"
     LM_STUDIO_URL=""
   fi
@@ -246,7 +246,7 @@ print(len(models))
       warn "servidor LM Studio apagado o inaccesible; el resto de la aplicación puede arrancar"
     fi
   else
-    bad "DEUTSCHOS_LM_STUDIO_BASE_URL debe apuntar a localhost/loopback"
+    bad "LLC_LM_STUDIO_BASE_URL debe apuntar a localhost/loopback"
   fi
 elif [[ -z "$CONFIG_PYTHON" ]]; then
   warn "se omite la comprobación de URL de LM Studio porque Python no está disponible"

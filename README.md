@@ -8,343 +8,181 @@
   Desktop · Local AI · Open Source · Science-focused
 </p>
 
----
+LLC is an open-source, local-first desktop application for language learning
+with a growing focus on laboratory, biomedical, and life-science work. It brings
+together guided study, structured educational sources, professional vocabulary,
+and an AI tutor that can run locally.
 
-## 🧪 What is LLC?
+German is the current reference implementation used to validate the product and
+architecture. It is not the identity of the whole application: LLC is designed
+so that more language implementations and scientific domains can be added over
+time.
 
-**Laboratory Language Companion (LLC)** is an open-source desktop application for learning languages with a strong focus on **laboratory, biomedical and life-science environments**.
+LLC began as **DeutschOS**, a personal German-learning project. That name now
+appears only where it is historically accurate or required for compatibility
+with existing local data and installations.
 
-The project combines general language learning with professional and scientific communication, guided study, structured educational sources, exercises and a locally running AI tutor.
+## What LLC provides
 
-LLC started as **DeutschOS**, a personal German-learning platform. As the project grew, its scope became broader:
+- A deterministic learning engine for daily plans, attempts, reviews, and skill
+  evidence.
+- Study workflows that remain available without a language model.
+- A source-aware educational library with lexical search, document versioning,
+  structured review, and auditable provenance.
+- A local AI teacher for explanations, guided practice, and grounded library
+  answers when LM Studio is available.
+- A Next.js interface and a native SwiftUI controller for macOS.
+- Local SQLite storage with explicit backup, migration, and privacy boundaries.
 
-> not just learning German — but learning the language you need to study, communicate and work in science.
+Private educational material, study data, model weights, logs, and credentials
+are not part of the public repository.
 
-German remains the first and most developed language implementation while the project evolves toward a reusable multilingual architecture.
+## Architecture
 
----
+The current implementation uses:
 
-## 🎯 The idea
+- **Next.js and TypeScript** for the web interface;
+- **FastAPI, SQLAlchemy, and Alembic** for the API and persistence layer;
+- **SQLite and FTS5** for local application and educational-library data;
+- **SwiftUI** for the native macOS controller;
+- **LM Studio** as the optional local inference runtime.
 
-Most language-learning applications are designed around everyday situations.
+The deterministic core does not depend on LM Studio. Profile, Study, Library,
+daily planning, and evidence tracking continue to work while local AI is
+offline.
 
-That is useful — but someone preparing to work in a laboratory also needs to understand things like:
+For more detail, see [architecture](docs/architecture.md),
+[data model](docs/data-model.md), [security](docs/security.md), and
+[pedagogy](docs/pedagogy.md).
 
-- laboratory instructions;
-- scientific vocabulary;
-- sample handling;
-- safety procedures;
-- documentation;
-- communication with colleagues;
-- quality-control terminology;
-- scientific explanations;
-- professional interviews;
-- and eventually complex technical material.
+## Requirements
 
-LLC aims to connect both worlds.
+The current desktop workflow targets macOS on Apple Silicon and requires:
 
-You still learn the language itself — grammar, vocabulary, reading, writing, listening and communication — but the system increasingly understands **why you are learning it**.
+- Node.js 20.9 or later;
+- npm;
+- Python 3.12;
+- LM Studio only for features that require local inference.
 
-For example:
+With Homebrew:
 
-```text
-General German
-↓
-Professional German
-↓
-Laboratory communication
-↓
-Clinical / biomedical / scientific specialization
+```bash
+brew install node python@3.12 lm_studio
 ```
 
----
+## Install
 
-## 🌍 Language model
+From the repository root:
 
-The long-term structure is intended to separate the language from the professional domain:
-
-```text
-Language
-├── German
-├── English
-├── Spanish
-└── ...
-
-Professional domain
-├── Clinical Laboratory
-├── Biomedical Research
-├── Microbiology
-├── Molecular Biology
-├── Biotechnology
-├── Chemistry
-├── Pharmaceutical Sciences
-└── ...
+```bash
+test -f .env || cp .env.example .env
+npm ci
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e 'apps/api[dev]'
 ```
 
-A learner could therefore eventually follow paths such as:
+`.env` is private and excluded from Git. New configuration uses the `LLC_*`
+prefix. Equivalent `DEUTSCHOS_*` names are accepted only as transition
+fallbacks, with `LLC_*` taking precedence. The legacy SQLite filename remains
+unchanged to avoid a destructive or duplicate data migration.
 
-```text
-German
-└── Clinical Laboratory
-    └── A2 → B2
+## Run locally
+
+```bash
+./scripts/doctor.sh
+./scripts/dev.sh
 ```
 
-or:
+Open <http://127.0.0.1:3000>. API documentation is available at
+<http://127.0.0.1:8000/docs>.
 
-```text
-English
-└── Biotechnology
-    └── B1 → C1
+`doctor.sh` checks local runtimes, dependencies, SQLite, migrations, and ports.
+LM Studio being unavailable is reported as a warning rather than an essential
+failure. `dev.sh` starts FastAPI and Next.js on loopback; `Ctrl-C` stops both.
+
+Operational details, backups, launch behavior, and troubleshooting are covered
+in [operations](docs/operations.md).
+
+## macOS controller
+
+Build the native controller without opening Xcode:
+
+```bash
+./scripts/build-macos-app.sh
+open dist/LLC.app
 ```
 
-German is currently the reference implementation used to validate the architecture.
-
----
-
-## 🤖 Local-first AI
-
-LLC is designed around **local AI inference**.
-
-The AI tutor and supporting language-model functionality run on the user's own computer through a compatible local runtime.
-
-The current implementation is developed around **LM Studio**.
-
-This means the project does not require a hosted AI service as its core architecture.
-
-Local models can be used for tasks such as:
-
-- language explanations;
-- tutoring;
-- contextual exercises;
-- guided practice;
-- educational-library queries;
-- source-aware answers;
-- study assistance.
-
-Model support and requirements may evolve as the project develops.
-
----
-
-## 📚 Source-aware learning
-
-LLC includes an educational-library system designed to work with locally stored learning material.
-
-Instead of treating every document as an isolated PDF, the system can organize educational sources, document versions and structured information for use in study workflows.
-
-Current development includes infrastructure for areas such as:
-
-- document ingestion;
-- document versioning;
-- page-level comparison;
-- OCR-related workflows;
-- structured extraction;
-- document review;
-- processing runs;
-- source coverage;
-- document auditing;
-- educational-library queries.
-
-Private learning material remains outside the public repository.
-
----
-
-## 🔬 Why science?
-
-LLC is intentionally specialized.
-
-The goal is not to compete with general-purpose language-learning applications by trying to cover every possible learner.
-
-Instead, LLC focuses on people who study or work in areas such as:
-
-- clinical laboratory science;
-- biomedical sciences;
-- microbiology;
-- molecular biology;
-- biotechnology;
-- chemistry;
-- pharmaceutical sciences;
-- medical research;
-- pathology;
-- quality control;
-- related life-science fields.
-
-General language competence remains essential — the scientific specialization is built **on top of it**, not instead of it.
-
----
-
-## 🖥️ Desktop-first
-
-LLC is a desktop application.
-
-Mobile support is **not currently a project goal**.
-
-The application is being developed around workflows that benefit from a computer:
-
-- local language models;
-- large educational libraries;
-- document analysis;
-- structured study;
-- scientific material;
-- local databases;
-- advanced tutoring workflows.
-
-The current native desktop integration targets **macOS**.
-
-Support for additional desktop platforms may be explored in the future.
-
----
-
-## 🏗️ Current architecture
-
-The existing project uses:
-
-- **FastAPI** — application API and backend services
-- **Next.js** — user interface
-- **Swift** — native macOS controller / launcher
-- **SQLite** — local application and educational-library data
-- **LM Studio** — current local model runtime
-- **Local embedding models** — semantic search and retrieval
-
-The architecture is actively evolving as the original German-specific implementation is generalized into LLC.
-
----
-
-## 🧭 Project status
-
-> **Early development / pre-release**
-
-LLC is not yet presented as a finished multilingual product.
-
-The current application is a functioning German-first system that originated as **DeutschOS** and is now undergoing a larger transition into Laboratory Language Companion.
-
-The initial public-development phase focuses on:
-
-- safely publishing the existing codebase;
-- preserving its Git history;
-- separating private educational material from public code;
-- migrating the DeutschOS product identity to LLC;
-- defining language-independent architecture;
-- preserving the existing German experience;
-- preparing the system for future scientific language paths.
-
-Progress is tracked through the repository's GitHub Issues.
-
----
-
-## 🛣️ Roadmap
-
-### Foundation
-
-- [ ] Audit the complete repository before public code import
-- [ ] Establish public/private data boundaries
-- [ ] Import and preserve the existing DeutschOS Git history
-- [ ] Transition product identity to LLC
-- [ ] Publish development and contribution documentation
-
-### Architecture
-
-- [ ] Separate language-independent functionality from German-specific behavior
-- [ ] Define a language-profile / language-pack architecture
-- [ ] Define reusable scientific-domain profiles
-- [ ] Preserve CEFR-based progression where appropriate
-- [ ] Generalize tutor and educational-library context
-
-### German reference implementation
-
-- [ ] Preserve the current German learning path
-- [ ] Expand laboratory-oriented German content
-- [ ] Improve professional communication workflows
-- [ ] Integrate scientific vocabulary and scenarios more deeply
-
-### Future validation
-
-- [ ] Introduce a second language implementation
-- [ ] Validate that the architecture is genuinely language-independent
-- [ ] Expand scientific-domain specialization
-
-The roadmap will evolve with the project.
-
----
-
-## 🔐 Privacy and repository boundaries
-
-The application code can be open source while a user's educational library remains private.
-
-The public repository must not contain:
-
-- copyrighted books or PDFs without redistribution rights;
-- private OCR corpora;
-- personal educational databases;
-- study histories;
-- model weights;
-- backups;
-- credentials;
-- API keys;
-- private logs;
-- machine-specific personal data.
-
-Public development should use synthetic fixtures, examples and openly redistributable resources.
-
----
-
-## 🧑‍💻 Open source
-
-LLC is being developed as an open-source project.
-
-There is no requirement for a commercial account or subscription as part of the project's intended core architecture.
-
-The goal is simple:
-
-> build a useful language-learning tool for people in science, and make the code available to anyone who wants to use, study or improve it.
-
----
-
-## 🤝 Contributing
-
-LLC is still undergoing its transition from DeutschOS, so contribution guidelines will evolve alongside the architecture.
-
-Bug reports, technical discussions and well-scoped contributions are welcome.
-
-Before contributing, please avoid including:
-
-- copyrighted educational material;
-- private databases;
-- personal information;
-- credentials;
-- local model files;
-- sensitive logs.
-
-See `CONTRIBUTING.md` for more information once the public-development foundation is complete.
-
----
-
-## 📜 License
-
-The intended open-source license is:
-
-**GNU General Public License v3.0 — GPL-3.0-only**
-
-A formal `LICENSE` file will be included with the public source release.
-
----
-
-## ❤️ Origin
-
-LLC began as a personal project called **DeutschOS**, created to build a better way to learn German using structured educational material and local AI.
-
-The project gradually grew into something broader:
-
-**Laboratory Language Companion.**
-
-A language-learning environment built around the needs of people who work, study and communicate in science.
-
----
+The build creates `dist/LLC.app`. The controller starts and stops the local
+services, reports their real state, and opens the installed LLC Safari Web App.
+An existing `~/Applications/DeutschOS.app` can still be detected as a legacy
+fallback; it is never copied, recreated, or deleted.
+
+Shell controls remain available:
+
+```bash
+./scripts/status.sh
+./scripts/stop.sh
+```
+
+## Main modules
+
+- **Dashboard and Study** — current plan, guided missions, attempts, and
+  deterministic corrections.
+- **Learning Engine** — curriculum, reviews, skill estimates, and append-only
+  evidence.
+- **Teacher** — local-model conversations and language support.
+- **Library** — private educational sources, search, lifecycle, and provenance.
+- **Document Laboratory** — comparisons, extraction review, runs, audits, and
+  readiness inspection.
+- **Data and memory** — local state and verified pedagogical memory.
+
+See [Learning Engine](docs/learning-engine.md),
+[guided study](docs/guided-study.md),
+[educational library](docs/educational-library.md), and
+[pedagogical memory](docs/pedagogical-memory.md).
+
+## Repository structure
+
+- `apps/web` — Next.js application and UI tests.
+- `apps/api` — FastAPI application, migrations, and Python tests.
+- `apps/macos-controller` — native SwiftUI controller.
+- `packages/shared` — shared TypeScript contracts.
+- `docs` — architecture, pedagogy, security, operations, and ADRs.
+- `scripts` — development, diagnostics, controller, and backup tooling.
+- `data`, `material educativo`, and `var/educational-library` — private local
+  runtime areas excluded from public source control.
+
+## Quality checks
+
+```bash
+.venv/bin/python -m pytest apps/api
+.venv/bin/python -m ruff check apps/api scripts
+.venv/bin/python -m ruff format --check apps/api scripts
+./scripts/test-macos-app.sh
+npm --workspace @llc/web test
+npm --workspace @llc/web run typecheck
+npm run lint:web
+npm run build:web
+```
+
+The macOS application can be packaged separately with
+`./scripts/build-macos-app.sh`.
+
+## Project status
+
+LLC is in active, pre-release development. German is functional as the first
+implementation while the architecture is progressively separated into reusable
+language-learning and scientific-domain capabilities. The application is
+desktop-first; mobile support is not currently a project goal.
+
+The public repository is
+[`Cuenca-john1999/laboratory-language-companion`](https://github.com/Cuenca-john1999/laboratory-language-companion).
+Bug reports, technical discussion, and well-scoped contributions are welcome,
+provided they do not include copyrighted learning material, private databases,
+credentials, model files, or personal logs.
 
 <p align="center">
   <strong>LLC</strong><br>
-  Laboratory Language Companion
-</p>
-
-<p align="center">
   <em>Learn the language. Work the science.</em>
 </p>

@@ -1,6 +1,6 @@
 "use client";
 
-import type { DailyPlan, LearningSkill } from "@deutschos/shared";
+import type { DailyPlan, LearningSkill } from "@llc/shared";
 import type { FormEvent } from "react";
 import { useState } from "react";
 
@@ -136,8 +136,8 @@ export function DailyPlanBuilder({
           <p className="eyebrow">SIN PLAN GUARDADO</p>
           <h2 id="no-plan-yet">Crea el primer plan para hoy.</h2>
           <p>
-            Indica el tiempo y la motivación disponibles. DeutschOS calculará
-            una propuesta usando únicamente reglas del Learning Engine.
+            Indica el tiempo y la motivación disponibles. LLC calculará una
+            propuesta usando únicamente reglas del Learning Engine.
           </p>
         </section>
       )}

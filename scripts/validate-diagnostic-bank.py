@@ -13,14 +13,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 API_SOURCE = PROJECT_ROOT / "apps" / "api" / "src"
 sys.path.insert(0, str(API_SOURCE))
 
-from deutschos_api.content import (  # noqa: E402
+from llc_api.content import (  # noqa: E402
     DiagnosticContentError,
     EditorialStatus,
     analyze_diagnostic_bank,
     load_diagnostic_banks,
 )
-from deutschos_api.core.config import get_settings  # noqa: E402
-from deutschos_api.learning_engine.curriculum import CURRICULUM_VERSION  # noqa: E402
+from llc_api.core.config import get_settings  # noqa: E402
+from llc_api.learning_engine.curriculum import CURRICULUM_VERSION  # noqa: E402
 
 
 def curriculum_skill_ids() -> set[int]:

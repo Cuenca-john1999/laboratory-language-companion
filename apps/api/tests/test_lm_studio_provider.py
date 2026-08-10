@@ -5,14 +5,14 @@ import httpx
 import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from deutschos_api.providers.base import (
+from llc_api.providers.base import (
     EmptyVisibleContentError,
     MalformedStructuredOutputError,
     ProviderResponseError,
     ProviderUnavailableError,
 )
-from deutschos_api.providers.lm_studio import LMStudioProvider
-from deutschos_api.schemas.api import ModelInfo
+from llc_api.providers.lm_studio import LMStudioProvider
+from llc_api.schemas.api import ModelInfo
 
 pytestmark = pytest.mark.anyio
 

@@ -2,7 +2,7 @@
 
 ## Límite de red
 
-DeutschOS no requiere cuentas, claves API ni servicios cloud. `dev.sh` enlaza
+LLC no requiere cuentas, claves API ni servicios cloud. `dev.sh` enlaza
 FastAPI y Next.js a `127.0.0.1` y rechaza URLs de API/LM Studio que no sean
 loopback. La telemetría de Next.js se desactiva durante el desarrollo. LM Studio es
 opcional y su indisponibilidad no bloquea el resto de la aplicación.
@@ -32,7 +32,7 @@ embebidas se omiten, y solo sus nombres se anotan en el manifiesto. No copia
 futuros carezcan de credenciales.
 
 Un destino bajo `./backups` está en el mismo SSD y sirve para rollback, no para
-recuperación ante pérdida física; usa `DEUTSCHOS_BACKUP_DIR` para otra unidad.
+recuperación ante pérdida física; usa `LLC_BACKUP_DIR` para otra unidad.
 
 El manifiesto contiene nombres de archivos, tamaños y hashes, pero no vuelca el
 contenido. Aun sin secretos de `.env`, todo el bundle debe tratarse como privado
@@ -77,7 +77,7 @@ La revisión en vivo del 12 de julio de 2026 encontró dos avisos moderados en l
 cadena: Next.js estable 16.2.10 incluye PostCSS 8.4.31, afectado por
 [`GHSA-qx2v-qp2m-jg93`](https://github.com/advisories/GHSA-qx2v-qp2m-jg93)
 hasta PostCSS 8.5.9 inclusive (la primera versión corregida es 8.5.10). El ataque requiere procesar CSS no
-confiable y volver a insertarlo en una etiqueta `style`. DeutschOS solo compila
+confiable y volver a insertarlo en una etiqueta `style`. LLC solo compila
 CSS mantenido en el repositorio, no admite subida o transformación de CSS del
 usuario y escucha en loopback; esa ruta no es explotable en el uso normal.
 
@@ -95,7 +95,7 @@ React 19.1.1 aparece dentro de una familia mencionada por el [aviso oficial de
 React Server
 Components](https://react.dev/blog/2025/12/03/critical-security-vulnerability-in-react-server-components),
 pero los paquetes afectados son `react-server-dom-*` y la
-integración la proporciona Next. DeutschOS usa Next 16.2.10, posterior a las
+integración la proporciona Next. LLC usa Next 16.2.10, posterior a las
 líneas corregidas, y `npm audit` no detectó esa vulnerabilidad crítica en el
 árbol instalado. Se mantendrá la vigilancia y se actualizará el conjunto
 Next/React de forma conjunta, con build y pruebas, cuando exista una versión

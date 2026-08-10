@@ -7,23 +7,23 @@ from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.dependencies import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.dependencies import (
     get_library_model_router,
     get_library_search,
     get_library_service,
 )
-from deutschos_api.educational_library.document_intelligence import (
+from llc_api.educational_library.document_intelligence import (
     DocumentIntelligenceService,
 )
-from deutschos_api.educational_library.editorial import LibraryEditorialService
-from deutschos_api.educational_library.routing import (
+from llc_api.educational_library.editorial import LibraryEditorialService
+from llc_api.educational_library.routing import (
     LibraryModelRouter,
     ModelRole,
     ModelRoutingError,
     ModelRoutingPolicy,
 )
-from deutschos_api.educational_library.schemas import (
+from llc_api.educational_library.schemas import (
     CoreSourceAssignmentRequest,
     EditorialSectionLinkRequest,
     EditorialSectionUpdate,
@@ -31,20 +31,20 @@ from deutschos_api.educational_library.schemas import (
     TeacherIntent,
     TeacherQueryPlan,
 )
-from deutschos_api.educational_library.search import (
+from llc_api.educational_library.search import (
     EMBEDDINGGEMMA_MODEL,
     EducationalSearchService,
     prepare_embedding_document,
     prepare_embedding_query,
 )
-from deutschos_api.educational_library.service import EducationalLibraryService
-from deutschos_api.educational_library.teacher import EducationalTeacherService
-from deutschos_api.main import app
-from deutschos_api.providers.base import (
+from llc_api.educational_library.service import EducationalLibraryService
+from llc_api.educational_library.teacher import EducationalTeacherService
+from llc_api.main import app
+from llc_api.providers.base import (
     ModelProvider,
     ProviderUnavailableError,
 )
-from deutschos_api.schemas.api import ModelInfo
+from llc_api.schemas.api import ModelInfo
 
 
 class CountingEmbeddingProvider:
@@ -430,15 +430,15 @@ async def test_visual_reprocessing_is_selective_versioned_and_never_modifies_ori
             return FakeResponse()
 
     monkeypatch.setattr(
-        "deutschos_api.educational_library.document_intelligence.shutil.which",
+        "llc_api.educational_library.document_intelligence.shutil.which",
         lambda name: f"/usr/bin/{name}",
     )
     monkeypatch.setattr(
-        "deutschos_api.educational_library.document_intelligence.subprocess.run",
+        "llc_api.educational_library.document_intelligence.subprocess.run",
         fake_run,
     )
     monkeypatch.setattr(
-        "deutschos_api.educational_library.document_intelligence.httpx.AsyncClient",
+        "llc_api.educational_library.document_intelligence.httpx.AsyncClient",
         FakeClient,
     )
     intelligence = DocumentIntelligenceService(
@@ -513,7 +513,7 @@ def test_schema_v5_contains_documental_memory_and_route_tables_without_main_alem
     intelligence_library: EducationalLibraryService,
 ):
     with intelligence_library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 11
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 12
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")

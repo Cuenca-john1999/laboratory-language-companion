@@ -14,25 +14,25 @@ ROOT = Path(__file__).resolve().parents[1]
 API_SRC = ROOT / "apps" / "api" / "src"
 sys.path.insert(0, str(API_SRC))
 
-from deutschos_api.core.config import get_settings  # noqa: E402
-from deutschos_api.educational_library.cache import LibraryCache  # noqa: E402
-from deutschos_api.educational_library.routing import (  # noqa: E402
+from llc_api.core.config import get_settings  # noqa: E402
+from llc_api.educational_library.cache import LibraryCache  # noqa: E402
+from llc_api.educational_library.routing import (  # noqa: E402
     LibraryModelRouter,
     ModelRoutingPolicy,
 )
-from deutschos_api.educational_library.schemas import TeacherAskRequest  # noqa: E402
-from deutschos_api.educational_library.search import (  # noqa: E402
+from llc_api.educational_library.schemas import TeacherAskRequest  # noqa: E402
+from llc_api.educational_library.search import (  # noqa: E402
     EducationalSearchService,
     LMStudioEmbeddingProvider,
 )
-from deutschos_api.educational_library.service import (  # noqa: E402
+from llc_api.educational_library.service import (  # noqa: E402
     EducationalLibraryService,
 )
-from deutschos_api.educational_library.teacher import (  # noqa: E402
+from llc_api.educational_library.teacher import (  # noqa: E402
     EducationalTeacherService,
     LearnerContext,
 )
-from deutschos_api.providers.lm_studio import LMStudioProvider  # noqa: E402
+from llc_api.providers.lm_studio import LMStudioProvider  # noqa: E402
 
 QUERIES = (
     "¿Qué significa die?",

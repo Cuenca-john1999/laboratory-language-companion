@@ -12,8 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
-from deutschos_api.db.session import make_engine
-from deutschos_api.models import (
+from llc_api.db.session import make_engine
+from llc_api.models import (
     DiagnosticAxis,
     DiagnosticBand,
     DiagnosticConfidenceLabel,
@@ -29,7 +29,7 @@ from deutschos_api.models import (
     SkillEvidence,
     StudentSkill,
 )
-from deutschos_api.schemas.diagnostic import (
+from llc_api.schemas.diagnostic import (
     DiagnosticResponseCreate,
     DiagnosticResponseRead,
     DiagnosticResultCreate,
@@ -44,7 +44,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 def run_alembic(database_path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
-    environment["DEUTSCHOS_DATABASE_URL"] = f"sqlite:///{database_path}"
+    environment["LLC_DATABASE_URL"] = f"sqlite:///{database_path}"
     return subprocess.run(
         [
             sys.executable,

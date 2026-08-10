@@ -38,6 +38,12 @@ Se separa `structural_readiness` de `ai_readiness`. Los estados de IA son
 `blocked_for_ai`. Estar listo para IA no activa la versión y no exige chunks ni
 embeddings. La activación queda reservada para la futura familia HER.
 
+Un tema canónico no se considera necesariamente perdido por carecer de heading en
+el cuerpo del workbook. La proyección distingue `unresolved`, `body_practice` e
+`index_only_no_direct_practice`. Esta última solo puede aplicarse mediante una
+decisión externa ligada a evidencia de índice válida; mantiene nulo el candidato
+principal, no materializa un heading ni reasigna ejercicios de otros temas.
+
 ## Consecuencias
 
 - Una auditoría se puede reproducir y verificar frente al PDF fuente aportado por

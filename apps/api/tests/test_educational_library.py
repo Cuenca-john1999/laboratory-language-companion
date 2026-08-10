@@ -12,13 +12,13 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from deutschos_api.core.config import Settings
-from deutschos_api.educational_library.chunking import chunk_sections
-from deutschos_api.educational_library.dependencies import get_library_service
-from deutschos_api.educational_library.extractors import extract
-from deutschos_api.educational_library.inventory import InventoryEntry, collect_inventory
-from deutschos_api.educational_library.knowledge import EducationalKnowledgeService
-from deutschos_api.educational_library.schemas import (
+from llc_api.core.config import Settings
+from llc_api.educational_library.chunking import chunk_sections
+from llc_api.educational_library.dependencies import get_library_service
+from llc_api.educational_library.extractors import extract
+from llc_api.educational_library.inventory import InventoryEntry, collect_inventory
+from llc_api.educational_library.knowledge import EducationalKnowledgeService
+from llc_api.educational_library.schemas import (
     ExtractedSection,
     GroundedDraftPayload,
     GroundedGenerationRequest,
@@ -33,13 +33,13 @@ from deutschos_api.educational_library.schemas import (
     ProcessingState,
     SourceKind,
 )
-from deutschos_api.educational_library.search import EducationalSearchService
-from deutschos_api.educational_library.service import EducationalLibraryService, utc_text
-from deutschos_api.educational_library.transcription import UnavailableTranscriptionProvider
-from deutschos_api.main import app
-from deutschos_api.providers.base import ModelProvider
-from deutschos_api.providers.dependencies import get_model_provider
-from deutschos_api.schemas.api import ModelInfo
+from llc_api.educational_library.search import EducationalSearchService
+from llc_api.educational_library.service import EducationalLibraryService, utc_text
+from llc_api.educational_library.transcription import UnavailableTranscriptionProvider
+from llc_api.main import app
+from llc_api.providers.base import ModelProvider
+from llc_api.providers.dependencies import get_model_provider
+from llc_api.schemas.api import ModelInfo
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ def _docx(path: Path) -> None:
     <w:p><w:r><w:t>Der Artikel zeigt das Genus.</w:t></w:r></w:p>
     <w:tbl><w:tr><w:tc><w:p><w:r><w:t>die Frau</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
     </w:body></w:document>"""
-    core = """<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>DOCX Test</dc:title><dc:creator>DeutschOS</dc:creator></cp:coreProperties>"""
+    core = """<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>DOCX Test</dc:title><dc:creator>LLC</dc:creator></cp:coreProperties>"""
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("word/document.xml", document)
         archive.writestr("docProps/core.xml", core)
@@ -120,7 +120,7 @@ def _docx(path: Path) -> None:
 
 def _epub(path: Path) -> None:
     container = """<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf"/></rootfiles></container>"""
-    opf = """<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>EPUB Test</dc:title><dc:creator>DeutschOS</dc:creator><dc:language>de</dc:language></metadata><manifest><item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>"""
+    opf = """<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>EPUB Test</dc:title><dc:creator>LLC</dc:creator><dc:language>de</dc:language></metadata><manifest><item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c1"/></spine></package>"""
     chapter = "<html><body><nav>Menü</nav><h1>Begrüßung</h1><p>Guten Morgen ist ein Gruß.</p><script>secret()</script></body></html>"
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("META-INF/container.xml", container)
@@ -315,7 +315,7 @@ def test_scan_lock_path_traversal_and_per_file_error(
     good.write_text("Guten Morgen", encoding="utf-8")
     bad.write_text("nicht lesbar", encoding="utf-8")
     original = __import__(
-        "deutschos_api.educational_library.service", fromlist=["sha256_file"]
+        "llc_api.educational_library.service", fromlist=["sha256_file"]
     ).sha256_file
 
     def fail_one(path: Path) -> str:
@@ -323,7 +323,7 @@ def test_scan_lock_path_traversal_and_per_file_error(
             raise PermissionError("denied")
         return original(path)
 
-    monkeypatch.setattr("deutschos_api.educational_library.service.sha256_file", fail_one)
+    monkeypatch.setattr("llc_api.educational_library.service.sha256_file", fail_one)
     result = library.scan()
     assert result.new == 1
     assert result.errors == 1
@@ -700,7 +700,7 @@ def test_library_database_integrity_and_no_main_schema_migration(
     assert quick == "ok"
     assert foreign == []
     with library.database.connect() as connection:
-        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 11
+        assert connection.execute("SELECT max(version) FROM library_schema").fetchone()[0] == 12
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE name='chunk_fts'").fetchone()
 
 
