@@ -5,64 +5,90 @@
 </p>
 
 <p align="center">
-  Desktop · Local AI · Open Source · Science-focused
+  macOS · Local AI · Source-aware learning · Science-focused
 </p>
 
-LLC is an open-source, local-first desktop application for language learning
-with a growing focus on laboratory, biomedical, and life-science work. It brings
-together guided study, structured educational sources, professional vocabulary,
-and an AI tutor that can run locally.
+LLC is a desktop-first language-learning system that combines deterministic
+study workflows, a private educational library, document analysis, and an
+optional locally hosted AI teacher. German is the current reference
+implementation; the broader product is intended to support additional languages
+and scientific domains.
 
-German is the current reference implementation used to validate the product and
-architecture. It is not the identity of the whole application: LLC is designed
-so that more language implementations and scientific domains can be added over
-time.
+LLC began as **DeutschOS**. That name is now retained only where it is
+historically accurate or required for compatibility with existing local data.
 
-LLC began as **DeutschOS**, a personal German-learning project. That name now
-appears only where it is historically accurate or required for compatibility
-with existing local data and installations.
+> **Status:** active pre-release development. The current workflow targets macOS
+> on Apple Silicon and is not yet distributed as a signed end-user release.
 
-## What LLC provides
+## What is implemented
 
-- A deterministic learning engine for daily plans, attempts, reviews, and skill
-  evidence.
-- Study workflows that remain available without a language model.
-- A source-aware educational library with lexical search, document versioning,
-  structured review, and auditable provenance.
-- A local AI teacher for explanations, guided practice, and grounded library
-  answers when LM Studio is available.
-- A Next.js interface and a native SwiftUI controller for macOS.
-- Local SQLite storage with explicit backup, migration, and privacy boundaries.
-
-Private educational material, study data, model weights, logs, and credentials
-are not part of the public repository.
+- Deterministic daily plans, attempts, reviews, corrections, and skill evidence.
+- Guided Study that remains available without a language model.
+- A source-aware Educational Library with SQLite/FTS5 search, optional semantic
+  retrieval, provenance, editorial state, and verified pedagogical memory.
+- Document ingestion, version history, page-level comparison, structured
+  extraction review, processing runs, audits, and canonical knowledge.
+- A local AI teacher through LM Studio for chat, explanations, guided practice,
+  and grounded library answers.
+- A Next.js web interface and a native SwiftUI controller for macOS.
+- Explicit local backup, migration, and privacy boundaries.
 
 ## Architecture
 
-The current implementation uses:
+| Component               | Responsibility                                                                |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `apps/web`              | Next.js, React, and TypeScript interface                                      |
+| `apps/api`              | FastAPI API, domain services, SQLAlchemy, and Alembic                         |
+| Main SQLite database    | Learner profile, plans, attempts, reviews, and Study state                    |
+| Library SQLite database | Rebuildable catalog, versions, chunks, embeddings, provenance, and audits     |
+| LM Studio               | Optional local inference runtime                                              |
+| Gemma models            | Configurable local generation roles for teacher, planning, vision, and repair |
+| EmbeddingGemma          | Current default local embedding model for semantic retrieval                  |
+| `apps/macos-controller` | Native SwiftUI lifecycle and service controller                               |
 
-- **Next.js and TypeScript** for the web interface;
-- **FastAPI, SQLAlchemy, and Alembic** for the API and persistence layer;
-- **SQLite and FTS5** for local application and educational-library data;
-- **SwiftUI** for the native macOS controller;
-- **LM Studio** as the optional local inference runtime.
+FastAPI is the authority for application data. The deterministic learning core,
+profile, Study, catalog, and lexical search do not require LM Studio. Private
+documents, model weights, runtime databases, logs, and generated artifacts stay
+outside the tracked source tree.
 
-The deterministic core does not depend on LM Studio. Profile, Study, Library,
-daily planning, and evidence tracking continue to work while local AI is
-offline.
+See [architecture](docs/architecture.md), [data model](docs/data-model.md),
+[security](docs/security.md), and [operations](docs/operations.md).
 
-For more detail, see [architecture](docs/architecture.md),
-[data model](docs/data-model.md), [security](docs/security.md), and
-[pedagogy](docs/pedagogy.md).
+## Important execution boundaries
+
+### Cloud knowledge extraction
+
+Cloud extraction is an optional **ingestion-time** workflow. A request is made
+only when a user explicitly executes a configured cloud extraction run. The
+pipeline preserves provider output and normalizes it through:
+
+```text
+RAW → compact transport → canonical LLC artifact → local validation
+```
+
+It does not replace normal local ingestion, LM Studio, embeddings, retrieval, or
+the teacher runtime. Gemini is currently the only real cloud adapter. See
+[cloud knowledge extraction](docs/cloud-knowledge-extraction.md) and
+[ADR 0019](docs/adr/0019-pluggable-cloud-knowledge-extraction.md).
+
+### Graphify projection
+
+Graphify support is an optional **canonical → graph projection**. LLC canonical
+content remains the source of truth; projected graph artifacts are derived,
+regenerable, and disposable. The adapter is disabled by default and imported
+lazily.
+
+Graphify is not connected to production teacher retrieval, and its output is not
+accepted as canonical knowledge. See
+[ADR 0020](docs/adr/0020-optional-graphify-projection.md).
 
 ## Requirements
 
-The current desktop workflow targets macOS on Apple Silicon and requires:
-
+- macOS on Apple Silicon for the complete desktop workflow;
 - Node.js 20.9 or later;
 - npm;
 - Python 3.12;
-- LM Studio only for features that require local inference.
+- LM Studio only for local-model features.
 
 With Homebrew:
 
@@ -82,10 +108,20 @@ source .venv/bin/activate
 python -m pip install -e 'apps/api[dev]'
 ```
 
-`.env` is private and excluded from Git. New configuration uses the `LLC_*`
-prefix. Equivalent `DEUTSCHOS_*` names are accepted only as transition
-fallbacks, with `LLC_*` taking precedence. The legacy SQLite filename remains
-unchanged to avoid a destructive or duplicate data migration.
+Optional integrations are installed explicitly:
+
+```bash
+# Gemini cloud extraction
+.venv/bin/python -m pip install -e 'apps/api[cloud]'
+
+# Graphify projection and validation
+.venv/bin/python -m pip install -e 'apps/api[graph]'
+```
+
+`.env` is private and ignored by Git. `LLC_*` names are canonical;
+`DEUTSCHOS_*` configuration names exist only as transition fallbacks. The legacy
+SQLite filename is intentionally preserved to avoid duplicating or destructively
+migrating existing user data.
 
 ## Run locally
 
@@ -94,15 +130,12 @@ unchanged to avoid a destructive or duplicate data migration.
 ./scripts/dev.sh
 ```
 
-Open <http://127.0.0.1:3000>. API documentation is available at
+Open <http://127.0.0.1:3000>. FastAPI documentation is available at
 <http://127.0.0.1:8000/docs>.
 
-`doctor.sh` checks local runtimes, dependencies, SQLite, migrations, and ports.
-LM Studio being unavailable is reported as a warning rather than an essential
-failure. `dev.sh` starts FastAPI and Next.js on loopback; `Ctrl-C` stops both.
-
-Operational details, backups, launch behavior, and troubleshooting are covered
-in [operations](docs/operations.md).
+`doctor.sh` checks runtimes, dependencies, SQLite, migrations, and local ports.
+LM Studio being offline is a warning rather than a startup failure. `dev.sh`
+starts FastAPI and Next.js on loopback; `Ctrl-C` stops both.
 
 ## macOS controller
 
@@ -113,45 +146,52 @@ Build the native controller without opening Xcode:
 open dist/LLC.app
 ```
 
-The build creates `dist/LLC.app`. The controller starts and stops the local
-services, reports their real state, and opens the installed LLC Safari Web App.
-An existing `~/Applications/DeutschOS.app` can still be detected as a legacy
-fallback; it is never copied, recreated, or deleted.
-
-Shell controls remain available:
+The controller starts and stops the local services, reports their observed
+state, and opens the LLC Safari Web App. Shell controls remain available:
 
 ```bash
 ./scripts/status.sh
 ./scripts/stop.sh
 ```
 
-## Main modules
+The generated app is locally signed and is not an official notarized release.
 
-- **Dashboard and Study** — current plan, guided missions, attempts, and
-  deterministic corrections.
-- **Learning Engine** — curriculum, reviews, skill estimates, and append-only
-  evidence.
-- **Teacher** — local-model conversations and language support.
-- **Library** — private educational sources, search, lifecycle, and provenance.
-- **Document Laboratory** — comparisons, extraction review, runs, audits, and
-  readiness inspection.
-- **Data and memory** — local state and verified pedagogical memory.
+## Educational Library
 
-See [Learning Engine](docs/learning-engine.md),
-[guided study](docs/guided-study.md),
-[educational library](docs/educational-library.md), and
+Place private material in `material educativo/`. Original documents are not
+modified; the rebuildable catalog and generated artifacts live under
+`var/educational-library/`. Both locations are ignored by Git.
+
+```bash
+./scripts/educational-library.sh scan --metadata-only
+./scripts/educational-library.sh scan
+./scripts/educational-library.sh search "Akkusativ"
+./scripts/educational-library.sh integrity
+```
+
+FTS5 lexical search works without a model. Semantic and hybrid retrieval use the
+configured local embedding provider when available. LLC does not download model
+weights automatically.
+
+See [Educational Library](docs/educational-library.md),
+[guided study](docs/guided-study.md), and
 [pedagogical memory](docs/pedagogical-memory.md).
 
-## Repository structure
+## Optional Graphify command
 
-- `apps/web` — Next.js application and UI tests.
-- `apps/api` — FastAPI application, migrations, and Python tests.
-- `apps/macos-controller` — native SwiftUI controller.
-- `packages/shared` — shared TypeScript contracts.
-- `docs` — architecture, pedagogy, security, operations, and ADRs.
-- `scripts` — development, diagnostics, controller, and backup tooling.
-- `data`, `material educativo`, and `var/educational-library` — private local
-  runtime areas excluded from public source control.
+Project an existing `llc.cloud-content.v1` canonical JSON artifact without
+changing it:
+
+```bash
+.venv/bin/python scripts/project-graphify.py path/to/canonical.json
+
+LLC_GRAPH_ENABLED=true \
+  .venv/bin/python scripts/project-graphify.py \
+  path/to/canonical.json --validate-with-graphify
+```
+
+Outputs default to `var/educational-library/graphify-out/` and are ignored by
+Git.
 
 ## Quality checks
 
@@ -161,26 +201,35 @@ See [Learning Engine](docs/learning-engine.md),
 .venv/bin/python -m ruff format --check apps/api scripts
 ./scripts/test-macos-app.sh
 npm --workspace @llc/web test
-npm --workspace @llc/web run typecheck
+npm run typecheck:web
 npm run lint:web
 npm run build:web
 ```
 
-The macOS application can be packaged separately with
-`./scripts/build-macos-app.sh`.
+## Repository boundaries
 
-## Project status
+Do not commit:
 
-LLC is in active, pre-release development. German is functional as the first
-implementation while the architecture is progressively separated into reusable
-language-learning and scientific-domain capabilities. The application is
-desktop-first; mobile support is not currently a project goal.
+- `.env` files or API keys;
+- copyrighted or private educational material;
+- learner databases, library databases, or backups;
+- model weights or LM Studio data;
+- runtime logs, generated apps, or temporary graph/cloud artifacts;
+- personal or machine-specific data.
+
+Synthetic test PDFs under `apps/api/tests/fixtures/` are intentional tracked
+fixtures. The actual private runtime areas are covered by `.gitignore`.
+
+## Project and licensing status
 
 The public repository is
 [`Cuenca-john1999/laboratory-language-companion`](https://github.com/Cuenca-john1999/laboratory-language-companion).
-Bug reports, technical discussion, and well-scoped contributions are welcome,
-provided they do not include copyrighted learning material, private databases,
-credentials, model files, or personal logs.
+Issues and well-scoped technical contributions are welcome, provided they
+respect the repository boundaries above.
+
+The repository does not currently contain a `LICENSE` file. Until one is added,
+do not assume permission to copy, modify, or redistribute the source beyond the
+rights granted by applicable law.
 
 <p align="center">
   <strong>LLC</strong><br>
