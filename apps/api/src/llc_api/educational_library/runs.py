@@ -88,6 +88,18 @@ STRUCTURED_PIPELINE_STAGES: tuple[tuple[str, str, tuple[str, ...], bool], ...] =
     ("version_comparison", "version-comparison.v1", ("coverage_reconciliation",), True),
 )
 
+CLOUD_KNOWLEDGE_PIPELINE_STAGES: tuple[tuple[str, str, tuple[str, ...], bool], ...] = (
+    ("provider_request", "cloud-provider-request.v1", (), True),
+    ("transport_validation", "cloud-transport-validation.v1", ("provider_request",), True),
+    (
+        "canonical_normalization",
+        "cloud-canonical-normalization.v1",
+        ("transport_validation",),
+        True,
+    ),
+    ("local_validation", "cloud-local-validation.v1", ("canonical_normalization",), True),
+)
+
 RUN_TRANSITIONS: dict[str, set[str]] = {
     "planned": {"queued", "cancelled", "stale"},
     "queued": {"running", "paused", "cancelled", "failed", "stale"},
@@ -123,6 +135,8 @@ _STAGE_ORDER_SQL = (
     "WHEN 'text_extraction' THEN 3 WHEN 'ocr' THEN 4 WHEN 'layout_analysis' THEN 5 "
     "WHEN 'structure_candidate_extraction' THEN 6 WHEN 'structural_extraction' THEN 6 "
     "WHEN 'coverage_reconciliation' THEN 7 WHEN 'version_comparison' THEN 8 "
+    "WHEN 'provider_request' THEN 20 WHEN 'transport_validation' THEN 21 "
+    "WHEN 'canonical_normalization' THEN 22 WHEN 'local_validation' THEN 23 "
     "ELSE 50 END"
 )
 
@@ -1294,7 +1308,11 @@ class DocumentRunService:
             "SELECT run_type FROM document_processing_runs WHERE id=?", (run_id,)
         ).fetchone()[0]
         catalog = (
-            STRUCTURED_PIPELINE_STAGES if run_type == "structured_extraction" else PIPELINE_STAGES
+            STRUCTURED_PIPELINE_STAGES
+            if run_type == "structured_extraction"
+            else CLOUD_KNOWLEDGE_PIPELINE_STAGES
+            if run_type == "cloud_knowledge_extraction"
+            else PIPELINE_STAGES
         )
         for name, version, dependencies, executable in catalog:
             connection.execute(

@@ -12,6 +12,9 @@ from llc_api.providers.dependencies import get_model_provider
 from .audit import DocumentAuditService
 from .cache import LibraryCache
 from .canonical_route import CanonicalRouteService
+from .cloud_knowledge.provider import CloudProviderRegistry
+from .cloud_knowledge.providers import GoogleGeminiProvider
+from .cloud_knowledge.service import CloudKnowledgeExtractionService
 from .comparisons import DocumentComparisonService
 from .document_intelligence import DocumentIntelligenceService
 from .editorial import LibraryEditorialService
@@ -27,8 +30,28 @@ from .structured_extraction import StructuredExtractionService
 from .teacher import EducationalTeacherService, TeacherLimits
 
 
+def get_cloud_provider_registry(
+    settings: Settings = Depends(get_settings),
+) -> CloudProviderRegistry:
+    return CloudProviderRegistry([GoogleGeminiProvider(settings)])
+
+
 def get_library_service(settings: Settings = Depends(get_settings)) -> EducationalLibraryService:
     return EducationalLibraryService(settings, recover_interrupted=False)
+
+
+def get_cloud_knowledge_extraction(
+    service: EducationalLibraryService = Depends(get_library_service),
+    settings: Settings = Depends(get_settings),
+    registry: CloudProviderRegistry = Depends(get_cloud_provider_registry),
+) -> CloudKnowledgeExtractionService:
+    return CloudKnowledgeExtractionService(
+        service.database,
+        service.root,
+        service.runtime,
+        settings,
+        registry,
+    )
 
 
 def get_document_runs(

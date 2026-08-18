@@ -197,6 +197,7 @@ def test_schema_13_round_trip_preserves_existing_library_rows(reading_library):
                 "(SELECT count(*) FROM document_consolidated_topics)"
             ).fetchone()
         )
+    assert database.rollback_version_14() == 13
     assert database.rollback_version_13() == 12
     with database.connect() as connection:
         assert (
@@ -205,7 +206,7 @@ def test_schema_13_round_trip_preserves_existing_library_rows(reading_library):
             ).fetchone()
             is None
         )
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     with database.connect() as connection:
         after = tuple(
             connection.execute(

@@ -170,7 +170,7 @@ def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
     finally:
         connection.close()
     database = LibraryDatabase(path)
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     backups = list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))
     assert len(backups) == 1
     with sqlite3.connect(backups[0]) as backup:
@@ -193,7 +193,7 @@ def test_schema_v3_to_v5_is_backed_up_atomic_and_integral(tmp_path: Path):
         "canonical_topics",
     } <= tables
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema3-*.bak"))) == 1
     assert len(list((tmp_path / "backups").glob("library.sqlite3.schema4-*.bak"))) == 1
     assert not list((tmp_path / "backups").glob("*.partial*"))

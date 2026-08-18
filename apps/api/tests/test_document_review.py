@@ -16,7 +16,7 @@ from llc_api.main import app
 @pytest.fixture
 def review_library(tmp_path: Path):
     database = LibraryDatabase(tmp_path / "library.sqlite3")
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     now = "2026-08-09T12:00:00+00:00"
     digest = hashlib.sha256(b"synthetic-review-document").hexdigest()
     with database.transaction(immediate=True) as connection:
@@ -374,6 +374,7 @@ def test_schema_10_rollback_removes_only_review_layer(review_library):
         before = connection.execute(
             "SELECT count(*) FROM document_structure_candidates"
         ).fetchone()[0]
+    assert database.rollback_version_14() == 13
     assert database.rollback_version_13() == 12
     assert database.rollback_version_12() == 11
     assert database.rollback_version_11() == 10
@@ -396,7 +397,7 @@ def test_schema_10_rollback_removes_only_review_layer(review_library):
             ).fetchone()
             is None
         )
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     assert database.integrity() == ("ok", [])
 
 

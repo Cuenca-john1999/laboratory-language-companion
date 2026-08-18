@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-LIBRARY_SCHEMA_VERSION = 13
+LIBRARY_SCHEMA_VERSION = 14
 
 _MIGRATION_0001 = """
 CREATE TABLE library_schema (
@@ -1909,6 +1909,65 @@ DROP TABLE IF EXISTS pedagogical_reading_runs;
 DELETE FROM library_schema WHERE version=13;
 """
 
+_MIGRATION_0014 = """
+CREATE TABLE cloud_extraction_runs (
+    run_id TEXT PRIMARY KEY REFERENCES document_processing_runs(id) ON DELETE CASCADE,
+    provider_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    mode TEXT NOT NULL CHECK(mode IN ('structure','content')),
+    prompt_version TEXT NOT NULL,
+    transport_version TEXT NOT NULL,
+    canonical_schema_version TEXT NOT NULL,
+    requested_pages_json TEXT NOT NULL DEFAULT '[]',
+    provider_status TEXT NOT NULL CHECK(provider_status IN (
+        'available','temporarily_limited','quota_exhausted','unavailable',
+        'authentication_error','invalid_request','provider_error','unknown'
+    )),
+    validation_outcome TEXT CHECK(validation_outcome IS NULL OR validation_outcome IN (
+        'pass','warn','fail'
+    )),
+    usage_json TEXT NOT NULL DEFAULT '{}',
+    provider_metadata_json TEXT NOT NULL DEFAULT '{}',
+    normalized_error_state TEXT CHECK(normalized_error_state IS NULL OR normalized_error_state IN (
+        'available','temporarily_limited','quota_exhausted','unavailable',
+        'authentication_error','invalid_request','provider_error','unknown'
+    )),
+    provider_error_code TEXT,
+    provider_error_message TEXT,
+    provider_error_details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE cloud_extraction_artifacts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES cloud_extraction_runs(run_id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('raw','transport','canonical','validation')),
+    format TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL CHECK(size_bytes >= 0),
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id, kind)
+);
+
+CREATE INDEX ix_cloud_extraction_runs_provider
+    ON cloud_extraction_runs(provider_id,model,mode,created_at DESC);
+CREATE INDEX ix_cloud_extraction_runs_status
+    ON cloud_extraction_runs(provider_status,validation_outcome,updated_at DESC);
+CREATE INDEX ix_cloud_extraction_artifacts_run
+    ON cloud_extraction_artifacts(run_id,kind);
+"""
+
+_ROLLBACK_0014 = """
+DROP INDEX IF EXISTS ix_cloud_extraction_artifacts_run;
+DROP INDEX IF EXISTS ix_cloud_extraction_runs_status;
+DROP INDEX IF EXISTS ix_cloud_extraction_runs_provider;
+DROP TABLE IF EXISTS cloud_extraction_artifacts;
+DROP TABLE IF EXISTS cloud_extraction_runs;
+DELETE FROM library_schema WHERE version=14;
+"""
+
 
 class LibraryDatabase:
     def __init__(self, path: Path):
@@ -1926,6 +1985,7 @@ class LibraryDatabase:
     def migrate(self) -> int:
         with self.connect() as connection:
             current = self._current_version(connection)
+            starting_version = current
             if current > LIBRARY_SCHEMA_VERSION:
                 raise RuntimeError(
                     f"library schema {current} is newer than supported {LIBRARY_SCHEMA_VERSION}"
@@ -1972,6 +2032,11 @@ class LibraryDatabase:
                 current = 12
             if current < 13:
                 self._apply_migration(connection, 13, _MIGRATION_0013)
+                current = 13
+            if current < 14:
+                if starting_version == 13:
+                    self._backup_before_schema(connection, 13)
+                self._apply_migration(connection, 14, _MIGRATION_0014)
             return self._current_version(connection)
 
     def rollback_version_6(self) -> int:
@@ -2071,6 +2136,19 @@ class LibraryDatabase:
                 raise RuntimeError("library schema rollback requires version 13")
             try:
                 connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0013)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+            return self._current_version(connection)
+
+    def rollback_version_14(self) -> int:
+        with self.connect() as connection:
+            if self._current_version(connection) != 14:
+                raise RuntimeError("library schema rollback requires version 14")
+            try:
+                connection.executescript("BEGIN IMMEDIATE;\n" + _ROLLBACK_0014)
                 connection.execute("COMMIT")
             except Exception:
                 if connection.in_transaction:

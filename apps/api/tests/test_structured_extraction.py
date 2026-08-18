@@ -62,17 +62,18 @@ def structured_library(tmp_path: Path):
 
 def test_schema_12_is_reversible_and_preserves_existing_counts(tmp_path: Path):
     database = LibraryDatabase(tmp_path / "library.sqlite3")
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     with database.connect() as connection:
         connection.execute(
             "INSERT INTO sources(id,current_path,name,kind,format,size_bytes,mtime_ns,status,"
             "processing_state,first_seen_at,last_seen_at) VALUES "
             "('s','s.pdf','s','document','.pdf',1,1,'present','pending','now','now')"
         )
+    assert database.rollback_version_14() == 13
     assert database.rollback_version_13() == 12
     assert database.rollback_version_12() == 11
     assert database.integrity() == ("ok", [])
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     assert database.integrity() == ("ok", [])
     with database.connect() as connection:
         assert connection.execute("SELECT count(*) FROM sources").fetchone()[0] == 1

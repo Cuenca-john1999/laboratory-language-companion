@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from llc_api.api.cloud_knowledge import router as cloud_knowledge_router
 from llc_api.api.diagnostic import router as diagnostic_router
 from llc_api.api.learning import router as learning_router
 from llc_api.api.library import router as library_router
@@ -53,4 +54,5 @@ app.include_router(router)
 app.include_router(learning_router)
 app.include_router(diagnostic_router)
 app.include_router(library_router)
+app.include_router(cloud_knowledge_router)
 app.include_router(study_router)

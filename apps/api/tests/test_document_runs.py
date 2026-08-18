@@ -405,12 +405,13 @@ def test_restart_recovery_pauses_runs_without_false_success(
 def test_schema_12_migrate_rollback_migrate_preserves_legacy_jobs(tmp_path: Path):
     path = tmp_path / "library.sqlite3"
     database = LibraryDatabase(path)
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     with database.transaction(immediate=True) as connection:
         connection.execute(
             "INSERT INTO processing_jobs(id,kind,state,created_at,updated_at) "
             "VALUES ('legacy-job','scan','interrupted','now','now')"
         )
+    assert database.rollback_version_14() == 13
     assert database.rollback_version_13() == 12
     assert database.rollback_version_12() == 11
     with sqlite3.connect(path) as connection:
@@ -420,7 +421,7 @@ def test_schema_12_migrate_rollback_migrate_preserves_legacy_jobs(tmp_path: Path
             ).fetchone()[0]
             == 1
         )
-    assert database.migrate() == 13
+    assert database.migrate() == 14
     with database.connect() as connection:
         job = connection.execute(
             "SELECT document_run_id,legacy FROM processing_jobs WHERE id='legacy-job'"

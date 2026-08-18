@@ -4,7 +4,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AliasChoices, AliasGenerator, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    AliasGenerator,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -58,6 +65,15 @@ class Settings(BaseSettings):
     educational_library_teacher_max_chunks: int = 10
     educational_library_teacher_max_chunks_per_source: int = 2
     educational_library_teacher_max_context_characters: int = 18_000
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "LLC_GEMINI_API_KEY"),
+    )
+    cloud_knowledge_provider: str = "auto"
+    cloud_knowledge_gemini_model: str = "gemini-2.5-flash"
+    cloud_knowledge_timeout_seconds: float = 300
+    cloud_knowledge_max_output_tokens: int = 65_536
+    cloud_knowledge_thinking_budget: int | None = 0
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",
@@ -147,11 +163,26 @@ class Settings(BaseSettings):
         "educational_library_teacher_timeout_seconds",
         "educational_library_embedding_timeout_seconds",
         "lm_studio_timeout_seconds",
+        "cloud_knowledge_timeout_seconds",
     )
     @classmethod
     def safe_model_timeout(cls, value: float) -> float:
         if value < 1 or value > 600:
             raise ValueError("library model timeouts must be between 1 and 600 seconds")
+        return value
+
+    @field_validator("cloud_knowledge_max_output_tokens")
+    @classmethod
+    def positive_cloud_output_limit(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("cloud knowledge output token limit must be positive")
+        return value
+
+    @field_validator("cloud_knowledge_thinking_budget")
+    @classmethod
+    def valid_thinking_budget(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("cloud knowledge thinking budget cannot be negative")
         return value
 
     @field_validator("lm_studio_context_length", "lm_studio_max_tokens")
