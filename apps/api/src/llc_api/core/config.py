@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     cloud_knowledge_timeout_seconds: float = 300
     cloud_knowledge_max_output_tokens: int = 65_536
     cloud_knowledge_thinking_budget: int | None = 0
+    graph_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=PROJECT_ROOT / ".env",

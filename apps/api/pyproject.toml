@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<9", "ruff>=0.8,<1"]
 cloud = ["google-genai>=2,<3", "pypdf>=6,<7"]
+graph = ["graphifyy>=0.9.46,<0.10"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/llc_api"]
