@@ -1,6 +1,0 @@
-{
-  "fixture": "E",
-  "description": "Mismo render sintético con capas textuales diferentes.",
-  "base": "Gr\uFFFDße aus Koln. Wör-\nter.",
-  "target": "Grüße aus Köln. Wörterx."
-}
